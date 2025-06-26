@@ -31,7 +31,6 @@ setup(
     entry_points={
         'console_scripts': [
             'stereo_vision_node = following_robot.stereo_vision_node:main',
-            'demo_test = scripts.demo_test:main',
             'test_display = scripts.test_display:test_display',
         ],
     },

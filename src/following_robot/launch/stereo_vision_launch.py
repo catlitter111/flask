@@ -4,6 +4,7 @@
 双目立体视觉节点启动文件
 =======================
 用于启动双目立体视觉节点的ROS2 launch文件
+支持cv2.imshow直接显示模式
 
 作者: AI Assistant
 """
@@ -31,16 +32,16 @@ def generate_launch_description():
         description='相机设备ID'
     )
     
-    frame_width_arg = DeclareLaunchArgument(
-        'frame_width',
-        default_value='1280',
-        description='图像宽度'
+    enable_stereo_arg = DeclareLaunchArgument(
+        'enable_stereo',
+        default_value='true',
+        description='是否启用立体视觉处理'
     )
     
-    frame_height_arg = DeclareLaunchArgument(
-        'frame_height',
-        default_value='480',
-        description='图像高度'
+    fps_limit_arg = DeclareLaunchArgument(
+        'fps_limit',
+        default_value='30',
+        description='帧率限制'
     )
     
     # 双目立体视觉节点
@@ -51,11 +52,11 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'camera_id': LaunchConfiguration('camera_id'),
-            'frame_width': LaunchConfiguration('frame_width'),
-            'frame_height': LaunchConfiguration('frame_height'),
+            'enable_stereo_processing': LaunchConfiguration('enable_stereo'),
+            'fps_limit': LaunchConfiguration('fps_limit'),
         }],
+        # 只保留距离测量服务的remapping
         remappings=[
-            ('/stereo/left_image', '/following_robot/left_image'),
             ('/stereo/get_distance', '/following_robot/get_distance'),
         ]
     )
@@ -63,11 +64,12 @@ def generate_launch_description():
     return LaunchDescription([
         # Launch参数
         camera_id_arg,
-        frame_width_arg,
-        frame_height_arg,
+        enable_stereo_arg,
+        fps_limit_arg,
         
         # 启动信息
-        LogInfo(msg='启动双目立体视觉系统...'),
+        LogInfo(msg='启动双目立体视觉系统（cv2.imshow显示模式）...'),
+        LogInfo(msg='控制键: q=退出, s=切换立体视觉处理'),
         
         # 节点
         stereo_vision_node,
