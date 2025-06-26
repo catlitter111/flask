@@ -1,0 +1,9 @@
+build/
+install/
+log/
+*.egg-info/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz

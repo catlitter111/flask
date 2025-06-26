@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>following_robot</name>
+  <version>0.0.0</version>
+  <description>Following robot with stereo vision capabilities</description>
+  <maintainer email="monster@todo.todo">monster</maintainer>
+  <license>TODO: License declaration</license>
+
+  <!-- ROS2 核心依赖 -->
+  <depend>rclpy</depend>
+  
+  <!-- 自定义消息 -->
+  <depend>custom_msgs</depend>
+  
+  <!-- Python依赖 -->
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  
+  <!-- 系统依赖 -->
+  <exec_depend>libopencv-dev</exec_depend>
+  <exec_depend>python3-pip</exec_depend>
+
+  <!-- 测试依赖 -->
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

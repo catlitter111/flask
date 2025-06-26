@@ -1,0 +1,8 @@
+# 请求：图像坐标点
+int32 x
+int32 y
+---
+# 响应：距离值和状态
+bool success
+float64 distance
+string message 

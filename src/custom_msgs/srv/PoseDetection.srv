@@ -1,0 +1,10 @@
+# 姿态检测服务定义
+# 请求 - 图像数据
+sensor_msgs/Image image
+---
+# 响应 - 检测结果
+bool success                    # 检测是否成功
+string message                  # 错误或状态消息
+int32 person_count             # 检测到的人数
+geometry_msgs/Point32[] keypoints  # 关键点数组，每17个点为一个人的关键点
+float32[] confidences          # 每个关键点的置信度 

@@ -1,0 +1,21 @@
+{
+	"folders": [
+		{
+			"path": "../../../.."
+		},
+		{
+			"path": "../../../../../Self-following-Robot"
+		}
+	],
+	"settings": {
+		"python.autoComplete.extraPaths": [
+			"/home/cat/Desktop/aufoll/install/turn_on_dlrobot_robot/local/lib/python3.10/dist-packages",
+			"/home/cat/Desktop/car/ROS/ROS2/depend/install/dlrobot_robot_msg/local/lib/python3.10/dist-packages",
+			"/home/cat/Desktop/car/ROS/ROS2/depend/install/ackermann_msgs/local/lib/python3.10/dist-packages",
+			"/home/cat/Desktop/Harvesting-Robot/robot_ROS2-6_9/install/bottle_detection_ros2/lib/python3.10/site-packages",
+			"/home/cat/Desktop/Harvesting-Robot/robot_ROS2-6_9/install/bottle_detection_msgs/local/lib/python3.10/dist-packages",
+			"/opt/ros/humble/lib/python3.10/site-packages",
+			"/opt/ros/humble/local/lib/python3.10/dist-packages"
+		]
+	}
+}
