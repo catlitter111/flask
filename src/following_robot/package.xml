@@ -13,6 +13,10 @@
   <!-- 自定义消息 -->
   <depend>custom_msgs</depend>
   
+  <!-- 图像处理 -->
+  <depend>cv_bridge</depend>
+  <depend>sensor_msgs</depend>
+  
   <!-- Python依赖 -->
   <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>

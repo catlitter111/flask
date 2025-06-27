@@ -1,0 +1,16 @@
+# 特征提取服务定义
+# 请求 - 图像数据和参数
+sensor_msgs/Image image         # 输入图像
+string person_name             # 人物标识名称
+bool save_to_file              # 是否保存到文件
+string output_path             # 输出路径（可选）
+---
+# 响应 - 特征提取结果
+bool success                   # 提取是否成功
+string message                 # 错误或状态消息
+int32 person_count            # 检测到的人数
+float32[] body_ratios         # 身体比例数据（16个）
+int32[] shirt_color           # 上装颜色 [R, G, B]
+int32[] pants_color           # 下装颜色 [R, G, B]
+string result_image_path      # 结果图像保存路径
+string feature_data_path      # 特征数据保存路径 

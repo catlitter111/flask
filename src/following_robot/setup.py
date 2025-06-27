@@ -23,6 +23,8 @@ setup(
         'numpy',
         'pillow',
         'pathlib2',  # 为了Path支持
+        'openpyxl',  # Excel文件处理
+        'cv_bridge',  # ROS图像转换
     ],
     zip_safe=True,
     maintainer='monster',
@@ -33,6 +35,7 @@ setup(
     entry_points={
         'console_scripts': [
             'stereo_vision_node = following_robot.stereo_vision_node:main',
+            'feature_extraction_node = following_robot.feature_extraction_node:main',
             'test_display = scripts.test_display:test_display',
         ],
     },

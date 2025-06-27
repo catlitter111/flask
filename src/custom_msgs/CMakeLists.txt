@@ -17,6 +17,7 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetDistance.srv"
   "srv/PoseDetection.srv"
+  "srv/FeatureExtraction.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs
 )
 
