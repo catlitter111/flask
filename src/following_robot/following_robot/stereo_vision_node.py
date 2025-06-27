@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-双目立体视觉ROS2节点
-===================
-基于OpenCV的双目立体视觉节点，支持：
+按需双目立体视觉ROS2节点
+=========================
+优化版本：只在距离查询服务被调用时才进行立体视觉处理
 - 实时显示左目图像（带帧数和FPS显示）
-- 提供距离测量服务
-- 实时立体匹配
-- 键盘交互控制（按'q'退出，按's'切换立体视觉处理）
+- 按需提供距离测量服务（只在服务调用时处理立体视觉）
+- 大幅提升性能和降低CPU占用
+- 键盘交互控制（按'q'退出）
+- 集成人体衣服检测功能
 
 作者: AI Assistant
-优化: 使用cv2.imshow直接显示图像，去除ROS2图像发布功能
+优化: 按需处理立体视觉，提升系统性能
+新增: 人体检测和身体框定功能
 """
 
 import rclpy
@@ -24,16 +26,19 @@ import threading
 import time
 from functools import lru_cache
 
+# 导入人体检测模块
+try:
+    from .rknn_colour_detect import detect_picture_with_confidence, Determine_the_position_of_the_entire_body
+    HUMAN_DETECTION_AVAILABLE = True
+    print("✅ 人体检测模块导入成功")
+except ImportError as e:
+    HUMAN_DETECTION_AVAILABLE = False
+    print(f"⚠️ 人体检测模块导入失败: {e}")
+    print("继续运行但不提供人体检测功能")
+
 
 class StereoConfig:
-    """立体视觉系统配置类
-    
-    参数:
-        无
-        
-    返回值:
-        配置对象实例
-    """
+    """立体视觉系统配置类"""
     
     def __init__(self):
         try:
@@ -43,36 +48,28 @@ class StereoConfig:
             self.cx = 317  # 光心x坐标
             self.cy = 210  # 光心y坐标
 
-            # SGBM算法参数 - 优化后的更快参数
+            # SGBM算法参数 - 针对按需处理优化的参数
             self.minDisparity = 3
-            self.numDisparities = 16  # 减少视差范围，提高速度
-            self.blockSize = 5  # 减小块大小，提高速度
-            self.P1 = 600  # 减小P1
-            self.P2 = 2400  # 减小P2
-            self.disp12MaxDiff = 2  # 减小一致性检查
+            self.numDisparities = 32  # 适中的视差范围，平衡精度和速度
+            self.blockSize = 7  # 适中的块大小
+            self.P1 = 800
+            self.P2 = 3200
+            self.disp12MaxDiff = 3
             self.preFilterCap = 31
-            self.uniquenessRatio = 5  # 减小唯一性比率
-            self.speckleWindowSize = 50  # 减小斑点窗口
-            self.speckleRange = 16  # 减小斑点范围
-            self.mode = cv2.STEREO_SGBM_MODE_SGBM  # 使用更快的模式
-
-            # WLS滤波器参数
-            self.wls_lambda = 8000.0  # 滤波强度
-            self.wls_sigma = 1.5  # 颜色相似性敏感度
+            self.uniquenessRatio = 10
+            self.speckleWindowSize = 100
+            self.speckleRange = 32
+            self.mode = cv2.STEREO_SGBM_MODE_SGBM_3WAY  # 使用更精确的模式，因为不需要实时处理
 
             # 相机参数
             self.camera_id = 1
             self.frame_width = 1280
             self.frame_height = 480
-            self.fps_limit = 60  # 提高帧率限制
+            self.fps_limit = 60
 
             # 距离测量范围
             self.min_distance_mm = 100.0
             self.max_distance_mm = 10000.0
-            
-            # 性能优化选项
-            self.enable_stereo_processing = True  # 可以动态控制是否启用立体处理
-            self.stereo_processing_skip = 2  # 每N帧处理一次立体视觉
             
         except Exception as e:
             print(f"配置初始化错误: {e}")
@@ -80,14 +77,7 @@ class StereoConfig:
 
 
 class StereoCamera:
-    """双目相机参数类
-    
-    参数:
-        无
-        
-    返回值:
-        相机参数对象实例
-    """
+    """双目相机参数类"""
     
     def __init__(self):
         try:
@@ -126,32 +116,40 @@ class StereoCamera:
 
 
 class StereoVisionNode(Node):
-    """双目立体视觉ROS2节点类
-    
-    参数:
-        无
-        
-    返回值:
-        节点实例
-    """
+    """按需双目立体视觉ROS2节点类"""
     
     def __init__(self):
         try:
             super().__init__('stereo_vision_node')
             
-            # 确保基本属性首先初始化
+            # 基本属性初始化
             self.config = None
             self.stereo_config = None
             self.cap = None
             self.running = False
-            self.current_left_image = None
-            self.current_points_3d = None
+            
+            # 帧数据缓存 - 用于按需处理
+            self.current_left_frame = None
+            self.current_right_frame = None
             self.frame_lock = threading.Lock()
+            self.frame_timestamp = 0
+            
+            # 立体视觉相关
             self.map1x = None
             self.map1y = None
             self.map2x = None
             self.map2y = None
             self.Q = None
+            
+            # 统计信息
+            self.stereo_processing_count = 0
+            self.last_stereo_processing_time = 0
+            
+            # 人体检测相关属性
+            self.human_detection_enabled = HUMAN_DETECTION_AVAILABLE
+            self.human_detection_count = 0
+            self.last_human_detection_time = 0
+            self.current_human_boxes = []  # 当前检测到的人体框
             
             # 初始化配置
             try:
@@ -168,9 +166,6 @@ class StereoVisionNode(Node):
                 self.get_logger().error(f"❌ 立体相机配置初始化失败: {e}")
                 raise
             
-            # 初始化显示相关变量
-            self.get_logger().info('✅ 显示模块初始化完成')
-            
             # 预先计算校正变换矩阵
             try:
                 self.setup_stereo_rectification()
@@ -185,7 +180,6 @@ class StereoVisionNode(Node):
                 self.get_logger().info('✅ 相机初始化完成')
             except Exception as e:
                 self.get_logger().error(f"❌ 相机初始化失败: {e}")
-                # 相机初始化失败不应该阻止节点启动，只是无法获取图像
                 pass
             
             # 创建服务
@@ -195,12 +189,12 @@ class StereoVisionNode(Node):
                     '/stereo/get_distance',
                     self.get_distance_callback
                 )
-                self.get_logger().info('✅ ROS2服务创建完成')
+                self.get_logger().info('✅ ROS2距离测量服务创建完成')
             except Exception as e:
                 self.get_logger().error(f"❌ ROS2服务创建失败: {e}")
                 raise
             
-            # 启动图像捕获线程（只有相机初始化成功时才启动）
+            # 启动图像捕获线程
             if self.cap is not None:
                 try:
                     self.start_capture_thread()
@@ -209,23 +203,21 @@ class StereoVisionNode(Node):
                     self.get_logger().error(f"❌ 图像捕获线程启动失败: {e}")
                     pass
             
-            self.get_logger().info('✅ 双目立体视觉节点初始化完成!')
+            self.get_logger().info('✅ 按需双目立体视觉节点初始化完成!')
+            self.get_logger().info('💡 立体视觉处理将仅在距离查询服务被调用时进行')
+            if HUMAN_DETECTION_AVAILABLE:
+                self.get_logger().info('🤖 人体检测功能已启用（按"h"键切换开关）')
+            else:
+                self.get_logger().warn('⚠️ 人体检测功能不可用')
+            self.get_logger().info('🔧 按键说明: "q"退出, "h"切换人体检测, "s"测试立体视觉')
             
         except Exception as e:
             self.get_logger().error(f"❌ 节点初始化错误: {e}")
             traceback.print_exc()
-            # 即使初始化失败，也不要抛出异常，让节点保持运行状态
             self.get_logger().warn("⚠️ 节点在有限功能下启动")
 
     def setup_stereo_rectification(self):
-        """设置立体校正参数
-        
-        参数:
-            无
-            
-        返回值:
-            无
-        """
+        """设置立体校正参数"""
         try:
             if self.config is None or self.stereo_config is None:
                 raise RuntimeError("配置对象未初始化")
@@ -245,16 +237,7 @@ class StereoVisionNode(Node):
             raise
 
     def get_rectify_transform(self, height, width, stereo_config):
-        """获取畸变校正和立体校正的映射变换矩阵
-        
-        参数:
-            height (int): 图像高度
-            width (int): 图像宽度  
-            stereo_config (StereoCamera): 立体相机配置
-            
-        返回值:
-            tuple: (map1x, map1y, map2x, map2y, Q) 校正映射矩阵和重投影矩阵
-        """
+        """获取畸变校正和立体校正的映射变换矩阵"""
         try:
             left_K = stereo_config.cam_matrix_left
             right_K = stereo_config.cam_matrix_right
@@ -290,23 +273,20 @@ class StereoVisionNode(Node):
             return None, None, None, None, None
 
     def init_camera(self):
-        """初始化相机
-        
-        参数:
-            无
-            
-        返回值:
-            无
-        """
+        """初始化相机"""
         try:
             if self.config is None:
                 raise RuntimeError("配置对象未初始化")
                 
-            self.cap = cv2.VideoCapture(self.config.camera_id,cv2.CAP_V4L2)
+            self.cap = cv2.VideoCapture(self.config.camera_id, cv2.CAP_V4L2)
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.frame_width)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.frame_height)
-            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-            # 确保相机输出彩色图像
+            # 兼容不同OpenCV版本的fourcc设置
+            try:
+                self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+            except AttributeError:
+                # 如果VideoWriter_fourcc不可用，尝试使用数值
+                self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
             self.cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
             
             if not self.cap.isOpened():
@@ -315,7 +295,6 @@ class StereoVisionNode(Node):
                 self.cap = cv2.VideoCapture(self.config.camera_id)
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.frame_width)
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.frame_height)
-                # 确保相机输出彩色图像
                 self.cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
 
                 if not self.cap.isOpened():
@@ -329,14 +308,7 @@ class StereoVisionNode(Node):
             raise
 
     def start_capture_thread(self):
-        """启动图像捕获线程
-        
-        参数:
-            无
-            
-        返回值:
-            无
-        """
+        """启动图像捕获线程"""
         try:
             self.running = True
             self.capture_thread = threading.Thread(target=self.capture_loop)
@@ -349,14 +321,7 @@ class StereoVisionNode(Node):
             traceback.print_exc()
 
     def capture_loop(self):
-        """图像捕获循环
-        
-        参数:
-            无
-            
-        返回值:
-            无
-        """
+        """图像捕获循环 - 仅捕获和显示，不进行立体处理"""
         frame_counter = 0
         start_time = time.time()
         fps_counter = 0
@@ -386,6 +351,16 @@ class StereoVisionNode(Node):
                 left_half = frame[:, :mid_x]
                 right_half = frame[:, mid_x:]
 
+                # 缓存当前帧数据供距离服务使用
+                with self.frame_lock:
+                    self.current_left_frame = left_half.copy()
+                    self.current_right_frame = right_half.copy()
+                    self.frame_timestamp = time.time()
+
+                # 人体检测处理（每5帧执行一次以保持性能）
+                if self.human_detection_enabled and frame_counter % 5 == 0:
+                    self.process_human_detection(left_half)
+
                 # 计算实时FPS
                 current_time = time.time()
                 elapsed_time = current_time - start_time
@@ -394,20 +369,17 @@ class StereoVisionNode(Node):
                     fps_counter = 0
                     start_time = current_time
 
-                # 优化：只在需要时处理立体视觉
-                processed_left_image, points_3d = None, None
-                if (self.config and self.config.enable_stereo_processing and 
-                    frame_counter % self.config.stereo_processing_skip == 0):
-                    processed_left_image, points_3d = self.process_stereo_frame(left_half, right_half)
-                
-                # 更新当前帧数据（只在处理了立体视觉时才更新）
-                if processed_left_image is not None:
-                    with self.frame_lock:
-                        self.current_left_image = processed_left_image
-                        self.current_points_3d = points_3d
-
-                # 在图像上显示帧数和FPS信息
+                # 创建显示图像
                 display_image = left_half.copy()
+                
+                # 绘制人体检测框
+                if self.current_human_boxes:
+                    for i, box in enumerate(self.current_human_boxes):
+                        if len(box) >= 4:
+                            x1, y1, x2, y2 = box[:4]
+                            cv2.rectangle(display_image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+                            cv2.putText(display_image, f"Person {i+1}", (int(x1), int(y1)-10), 
+                                      cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 
                 # 添加文本信息
                 font = cv2.FONT_HERSHEY_SIMPLEX
@@ -427,16 +399,30 @@ class StereoVisionNode(Node):
                 resolution_text = f"Size: {display_image.shape[1]}x{display_image.shape[0]}"
                 cv2.putText(display_image, resolution_text, (10, 90), font, font_scale, color, thickness)
                 
-                # 显示立体处理状态
-                if processed_left_image is not None:
-                    stereo_text = "Stereo: ON"
-                    cv2.putText(display_image, stereo_text, (10, 120), font, font_scale, (0, 255, 255), thickness)  # 黄色
-                else:
-                    stereo_text = "Stereo: OFF"
-                    cv2.putText(display_image, stereo_text, (10, 120), font, font_scale, (128, 128, 128), thickness)  # 灰色
+                # 显示立体处理统计信息
+                stereo_info_text = f"Stereo Calls: {self.stereo_processing_count}"
+                cv2.putText(display_image, stereo_info_text, (10, 120), font, font_scale, (255, 255, 0), thickness)
+                
+                # 显示最后一次立体处理时间
+                if self.last_stereo_processing_time > 0:
+                    time_since_last = current_time - self.last_stereo_processing_time
+                    last_process_text = f"Last Stereo: {time_since_last:.1f}s ago"
+                    cv2.putText(display_image, last_process_text, (10, 150), font, font_scale, (255, 255, 0), thickness)
+                
+                # 显示人体检测信息
+                if self.human_detection_enabled:
+                    human_text = f"Humans: {len(self.current_human_boxes)} detected"
+                    cv2.putText(display_image, human_text, (10, 180), font, font_scale, (255, 0, 255), thickness)
+                    
+                    detection_count_text = f"Detection Calls: {self.human_detection_count}"
+                    cv2.putText(display_image, detection_count_text, (10, 210), font, font_scale, (255, 0, 255), thickness)
+                
+                # 显示模式信息
+                mode_text = "Mode: ON-DEMAND STEREO + HUMAN DETECTION"
+                cv2.putText(display_image, mode_text, (10, 240), font, font_scale, (0, 255, 255), thickness)
 
                 # 使用cv2.imshow显示图像
-                cv2.imshow('Left Camera View', display_image)
+                cv2.imshow('Left Camera View (On-Demand Stereo)', display_image)
                 
                 # 处理键盘事件
                 key = cv2.waitKey(1) & 0xFF
@@ -444,50 +430,99 @@ class StereoVisionNode(Node):
                     self.get_logger().info("用户按下'q'键，退出程序")
                     self.running = False
                     break
-                elif key == ord('s'):  # 按's'切换立体视觉处理
-                    if self.config:
-                        self.config.enable_stereo_processing = not self.config.enable_stereo_processing
-                        status = "开启" if self.config.enable_stereo_processing else "关闭"
-                        self.get_logger().info(f"立体视觉处理已{status}")
-
-                # 动态帧率控制 - 根据处理负载调整
-                if self.config is not None:
-                    # 如果进行了立体处理，稍微降低帧率
-                    if processed_left_image is not None:
-                        time.sleep(1.0 / (self.config.fps_limit * 0.8))
+                elif key == ord('h'):  # 按'h'切换人体检测
+                    if HUMAN_DETECTION_AVAILABLE:
+                        self.human_detection_enabled = not self.human_detection_enabled
+                        status = "开启" if self.human_detection_enabled else "关闭"
+                        self.get_logger().info(f"人体检测已{status}")
+                        if not self.human_detection_enabled:
+                            self.current_human_boxes = []  # 清空检测框
                     else:
-                        time.sleep(1.0 / self.config.fps_limit)
+                        self.get_logger().warn("人体检测模块不可用")
+                elif key == ord('s'):  # 按's'手动触发立体视觉处理测试
+                    self.get_logger().info("手动触发立体视觉处理测试")
+                    with self.frame_lock:
+                        if self.current_left_frame is not None and self.current_right_frame is not None:
+                            test_result = self.process_stereo_on_demand(self.current_left_frame, self.current_right_frame)
+                            if test_result is not None:
+                                self.get_logger().info("✅ 立体视觉处理测试成功")
+                            else:
+                                self.get_logger().warn("❌ 立体视觉处理测试失败")
+
+                # 高帧率运行（因为没有立体处理的开销）
+                if self.config is not None:
+                    time.sleep(1.0 / self.config.fps_limit)
                 else:
-                    time.sleep(1.0 / 30)  # 默认30fps
+                    time.sleep(1.0 / 60)  # 默认60fps
                 
             except Exception as e:
                 self.get_logger().error(f"图像捕获循环错误: {e}")
                 traceback.print_exc()
-                time.sleep(0.01)  # 减少错误恢复时间
+                time.sleep(0.01)
 
-    def process_stereo_frame(self, left_image, right_image):
-        """处理立体视觉帧
-        
-        参数:
-            left_image (ndarray): 左目图像
-            right_image (ndarray): 右目图像
-            
-        返回值:
-            tuple: (处理后的左目图像, 3D点云数据)
-        """
+    def process_human_detection(self, image):
+        """处理人体检测"""
         try:
+            if not self.human_detection_enabled:
+                return
+            
+            self.get_logger().debug("🤖 开始人体检测...")
+            detection_start_time = time.time()
+            
+            # 调用人体检测函数
+            detection_results = detect_picture_with_confidence(image)
+            
+            if detection_results:
+                # 提取人体位置
+                human_boxes = []
+                for result in detection_results:
+                    if len(result) >= 2:  # 确保有上装和下装信息
+                        upper_info = result[0] if result[0] else None
+                        lower_info = result[1] if result[1] else None
+                        
+                        # 使用Determine_the_position_of_the_entire_body函数获取整体框
+                        try:
+                            body_box = Determine_the_position_of_the_entire_body(
+                                upper_info, lower_info, image
+                            )
+                            if body_box:
+                                human_boxes.append(body_box)
+                        except Exception as e:
+                            self.get_logger().debug(f"身体框计算失败: {e}")
+                
+                # 更新检测结果
+                self.current_human_boxes = human_boxes
+                self.human_detection_count += 1
+                self.last_human_detection_time = time.time()
+                
+                detection_time = (self.last_human_detection_time - detection_start_time) * 1000
+                self.get_logger().debug(f"✅ 检测到 {len(human_boxes)} 个人体，耗时: {detection_time:.2f}ms")
+            else:
+                self.current_human_boxes = []
+                
+        except Exception as e:
+            self.get_logger().error(f"人体检测处理错误: {e}")
+            traceback.print_exc()
+            self.current_human_boxes = []
+
+    def process_stereo_on_demand(self, left_image, right_image):
+        """按需处理立体视觉 - 仅在服务调用时执行"""
+        try:
+            self.get_logger().info("🔄 开始按需立体视觉处理...")
+            process_start_time = time.time()
+            
             # 检查必要的属性是否存在
             if not hasattr(self, 'stereo_config') or self.stereo_config is None:
                 self.get_logger().error("❌ stereo_config未初始化")
-                return None, None
+                return None
                 
             if not hasattr(self, 'map1x') or self.map1x is None:
                 self.get_logger().error("❌ 校正映射矩阵未初始化")
-                return None, None
+                return None
                 
             if not hasattr(self, 'Q') or self.Q is None:
                 self.get_logger().error("❌ 重投影矩阵Q未初始化")
-                return None, None
+                return None
             
             # 消除畸变
             iml = self.undistortion(left_image, self.stereo_config.cam_matrix_left, 
@@ -510,24 +545,22 @@ class StereoVisionNode(Node):
             # 计算3D点云
             points_3d = self.reproject_to_3d(disparity, self.Q)
 
-            return iml_rectified, points_3d
+            # 更新统计信息
+            self.stereo_processing_count += 1
+            self.last_stereo_processing_time = time.time()
+            
+            process_time = self.last_stereo_processing_time - process_start_time
+            self.get_logger().info(f"✅ 立体视觉处理完成，耗时: {process_time:.3f}秒")
+
+            return points_3d
             
         except Exception as e:
-            self.get_logger().error(f"立体视觉帧处理错误: {e}")
+            self.get_logger().error(f"按需立体视觉处理错误: {e}")
             traceback.print_exc()
-            return None, None
+            return None
 
     def undistortion(self, image, camera_matrix, dist_coeff):
-        """消除图像畸变
-        
-        参数:
-            image (ndarray): 输入图像
-            camera_matrix (ndarray): 相机内参矩阵
-            dist_coeff (ndarray): 畸变系数
-            
-        返回值:
-            ndarray: 校正后的图像
-        """
+        """消除图像畸变"""
         try:
             h, w = image.shape[:2]
             new_camera_matrix, roi = cv2.getOptimalNewCameraMatrix(
@@ -547,15 +580,7 @@ class StereoVisionNode(Node):
             return image
 
     def preprocess(self, img1, img2):
-        """图像预处理
-        
-        参数:
-            img1 (ndarray): 左目图像
-            img2 (ndarray): 右目图像
-            
-        返回值:
-            tuple: (处理后的左目图像, 处理后的右目图像)
-        """
+        """图像预处理"""
         try:
             # 转换为灰度图
             if img1.ndim == 3:
@@ -581,16 +606,7 @@ class StereoVisionNode(Node):
             return img1, img2
 
     def rectify_image(self, image1, image2, map1x, map1y, map2x, map2y):
-        """对图像应用畸变校正和立体校正
-        
-        参数:
-            image1 (ndarray): 左目图像
-            image2 (ndarray): 右目图像
-            map1x, map1y, map2x, map2y: 校正映射矩阵
-            
-        返回值:
-            tuple: (校正后的左目图像, 校正后的右目图像)
-        """
+        """对图像应用畸变校正和立体校正"""
         try:
             rectified_img1 = cv2.remap(image1, map1x, map1y, cv2.INTER_AREA)
             rectified_img2 = cv2.remap(image2, map2x, map2y, cv2.INTER_AREA)
@@ -602,15 +618,7 @@ class StereoVisionNode(Node):
             return image1, image2
 
     def stereo_match_sgbm(self, left_image, right_image):
-        """使用SGBM算法计算视差图
-        
-        参数:
-            left_image (ndarray): 左目图像
-            right_image (ndarray): 右目图像
-            
-        返回值:
-            ndarray: 视差图
-        """
+        """使用SGBM算法计算视差图"""
         try:
             # 确保输入图像是灰度图
             if left_image.ndim != 2:
@@ -623,20 +631,36 @@ class StereoVisionNode(Node):
                 self.get_logger().error("❌ config未初始化")
                 return None
                 
-            # 创建SGBM匹配器
-            left_matcher = cv2.StereoSGBM_create(
-                minDisparity=self.config.minDisparity,
-                numDisparities=self.config.numDisparities,
-                blockSize=self.config.blockSize,
-                P1=self.config.P1,
-                P2=self.config.P2,
-                disp12MaxDiff=self.config.disp12MaxDiff,
-                preFilterCap=self.config.preFilterCap,
-                uniquenessRatio=self.config.uniquenessRatio,
-                speckleWindowSize=self.config.speckleWindowSize,
-                speckleRange=self.config.speckleRange,
-                mode=self.config.mode
-            )
+            # 创建SGBM匹配器（兼容不同OpenCV版本）
+            try:
+                left_matcher = cv2.StereoSGBM_create(
+                    minDisparity=self.config.minDisparity,
+                    numDisparities=self.config.numDisparities,
+                    blockSize=self.config.blockSize,
+                    P1=self.config.P1,
+                    P2=self.config.P2,
+                    disp12MaxDiff=self.config.disp12MaxDiff,
+                    preFilterCap=self.config.preFilterCap,
+                    uniquenessRatio=self.config.uniquenessRatio,
+                    speckleWindowSize=self.config.speckleWindowSize,
+                    speckleRange=self.config.speckleRange,
+                    mode=self.config.mode
+                )
+            except AttributeError:
+                # 如果StereoSGBM_create不可用，使用旧版API
+                left_matcher = cv2.createStereoSGBM(
+                    minDisparity=self.config.minDisparity,
+                    numDisparities=self.config.numDisparities,
+                    blockSize=self.config.blockSize,
+                    P1=self.config.P1,
+                    P2=self.config.P2,
+                    disp12MaxDiff=self.config.disp12MaxDiff,
+                    preFilterCap=self.config.preFilterCap,
+                    uniquenessRatio=self.config.uniquenessRatio,
+                    speckleWindowSize=self.config.speckleWindowSize,
+                    speckleRange=self.config.speckleRange,
+                    mode=self.config.mode
+                )
 
             # 计算视差图
             disparity = left_matcher.compute(left_image, right_image)
@@ -654,15 +678,7 @@ class StereoVisionNode(Node):
             return None
 
     def reproject_to_3d(self, disparity, Q):
-        """将视差图转换为3D点云
-        
-        参数:
-            disparity (ndarray): 视差图
-            Q (ndarray): 重投影矩阵
-            
-        返回值:
-            ndarray: 3D点云数据
-        """
+        """将视差图转换为3D点云"""
         try:
             if disparity is None or Q is None:
                 return None
@@ -687,26 +703,35 @@ class StereoVisionNode(Node):
             traceback.print_exc()
             return None
 
-
-
     def get_distance_callback(self, request, response):
-        """距离测量服务回调函数
-        
-        参数:
-            request: 服务请求，包含x, y坐标
-            response: 服务响应对象
-            
-        返回值:
-            response: 包含距离信息的响应
-        """
+        """距离测量服务回调函数 - 按需进行立体视觉处理"""
         try:
+            self.get_logger().info(f"📞 收到距离查询请求: 坐标({request.x}, {request.y})")
+            
+            # 获取当前帧数据
             with self.frame_lock:
-                points_3d = self.current_points_3d
+                if self.current_left_frame is None or self.current_right_frame is None:
+                    response.success = False
+                    response.distance = 0.0
+                    response.message = "当前无可用图像数据"
+                    self.get_logger().warn("❌ 无可用图像数据")
+                    return response
+                
+                # 复制当前帧数据
+                left_frame = self.current_left_frame.copy()
+                right_frame = self.current_right_frame.copy()
+                frame_age = time.time() - self.frame_timestamp
+
+            self.get_logger().info(f"📸 使用图像数据，年龄: {frame_age:.3f}秒")
+            
+            # 按需进行立体视觉处理
+            points_3d = self.process_stereo_on_demand(left_frame, right_frame)
 
             if points_3d is None:
                 response.success = False
                 response.distance = 0.0
-                response.message = "3D点云数据不可用"
+                response.message = "立体视觉处理失败"
+                self.get_logger().error("❌ 立体视觉处理失败")
                 return response
 
             # 测量指定点的距离
@@ -716,11 +741,12 @@ class StereoVisionNode(Node):
                 response.success = True
                 response.distance = distance
                 response.message = f"成功测量距离: {distance:.2f}米"
-                self.get_logger().info(f"测量点({request.x}, {request.y})距离: {distance:.2f}米")
+                self.get_logger().info(f"✅ 测量点({request.x}, {request.y})距离: {distance:.2f}米")
             else:
                 response.success = False
                 response.distance = 0.0
                 response.message = "无法测量该点距离，可能是无效点"
+                self.get_logger().warn(f"⚠️ 无法测量点({request.x}, {request.y})的距离")
 
             return response
             
@@ -733,21 +759,13 @@ class StereoVisionNode(Node):
             return response
 
     def measure_distance(self, points_3d, x, y):
-        """测量指定像素点到相机的距离
-        
-        参数:
-            points_3d (ndarray): 3D点云数据
-            x (int): 像素x坐标
-            y (int): 像素y坐标
-            
-        返回值:
-            float: 距离值（米），如果无效则返回None
-        """
+        """测量指定像素点到相机的距离"""
         try:
             h, w = points_3d.shape[:2]
 
             # 检查坐标是否在有效范围内
             if not (0 <= x < w and 0 <= y < h):
+                self.get_logger().warn(f"坐标({x}, {y})超出范围({w}x{h})")
                 return None
 
             # 获取点的3D坐标
@@ -767,21 +785,15 @@ class StereoVisionNode(Node):
             return None
 
     def destroy_node(self):
-        """节点销毁时的清理工作
-        
-        参数:
-            无
-            
-        返回值:
-            无
-        """
+        """节点销毁时的清理工作"""
         try:
             self.running = False
             if hasattr(self, 'cap') and self.cap is not None:
                 self.cap.release()
-            # 关闭OpenCV窗口
             cv2.destroyAllWindows()
-            self.get_logger().info('双目立体视觉节点已关闭')
+            
+            self.get_logger().info(f'📊 立体视觉处理统计: 总共处理了 {self.stereo_processing_count} 次')
+            self.get_logger().info('✅ 按需双目立体视觉节点已关闭')
             super().destroy_node()
             
         except Exception as e:
@@ -790,14 +802,7 @@ class StereoVisionNode(Node):
 
 
 def main(args=None):
-    """主函数
-    
-    参数:
-        args: 命令行参数
-        
-    返回值:
-        无
-    """
+    """主函数"""
     try:
         rclpy.init(args=args)
         node = StereoVisionNode()
@@ -816,4 +821,4 @@ def main(args=None):
 
 
 if __name__ == '__main__':
-    main() 
+    main()

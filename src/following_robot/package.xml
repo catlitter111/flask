@@ -3,7 +3,7 @@
 <package format="3">
   <name>following_robot</name>
   <version>0.0.0</version>
-  <description>Following robot with stereo vision capabilities</description>
+  <description>Following robot with stereo vision and human detection capabilities</description>
   <maintainer email="monster@todo.todo">monster</maintainer>
   <license>TODO: License declaration</license>
 
@@ -16,6 +16,8 @@
   <!-- Python依赖 -->
   <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pillow</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
   
   <!-- 系统依赖 -->
   <exec_depend>libopencv-dev</exec_depend>

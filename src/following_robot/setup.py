@@ -21,11 +21,13 @@ setup(
         'setuptools',
         'opencv-python',
         'numpy',
+        'pillow',
+        'pathlib2',  # 为了Path支持
     ],
     zip_safe=True,
     maintainer='monster',
     maintainer_email='monster@todo.todo',
-    description='Following robot with stereo vision capabilities',
+    description='Following robot with stereo vision and human detection capabilities using RKNN',
     license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
