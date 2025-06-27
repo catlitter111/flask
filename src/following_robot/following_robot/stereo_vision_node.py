@@ -36,6 +36,16 @@ except ImportError as e:
     print(f"⚠️ 人体检测模块导入失败: {e}")
     print("继续运行但不提供人体检测功能")
 
+# 导入姿态检测模块
+try:
+    from .yolov8_pose_detector import detect_human_pose, draw_human_pose, get_pose_detector
+    POSE_DETECTION_AVAILABLE = True
+    print("✅ 姿态检测模块导入成功")
+except ImportError as e:
+    POSE_DETECTION_AVAILABLE = False
+    print(f"⚠️ 姿态检测模块导入失败: {e}")
+    print("继续运行但不提供姿态检测功能")
+
 
 class StereoConfig:
     """立体视觉系统配置类"""
@@ -152,6 +162,12 @@ class StereoVisionNode(Node):
             self.current_human_boxes = []  # 当前检测到的人体框
             self.current_clothing_detections = []  # 当前检测到的衣服和裤子详细信息
             
+            # 姿态检测相关属性
+            self.pose_detection_enabled = POSE_DETECTION_AVAILABLE
+            self.pose_detection_count = 0
+            self.last_pose_detection_time = 0
+            self.current_pose_results = []  # 当前检测到的姿态结果
+            
             # 初始化配置
             try:
                 self.config = StereoConfig()
@@ -210,7 +226,11 @@ class StereoVisionNode(Node):
                 self.get_logger().info('🤖 人体检测功能已启用（按"h"键切换开关）')
             else:
                 self.get_logger().warn('⚠️ 人体检测功能不可用')
-            self.get_logger().info('🔧 按键说明: "q"退出, "h"切换人体检测, "s"测试立体视觉')
+            if POSE_DETECTION_AVAILABLE:
+                self.get_logger().info('🦴 姿态检测功能已启用（按"p"键切换开关）')
+            else:
+                self.get_logger().warn('⚠️ 姿态检测功能不可用')
+            self.get_logger().info('🔧 按键说明: "q"退出, "h"切换人体检测, "p"切换姿态检测, "s"测试立体视觉')
             
         except Exception as e:
             self.get_logger().error(f"❌ 节点初始化错误: {e}")
@@ -361,6 +381,10 @@ class StereoVisionNode(Node):
                 # 人体检测处理（每5帧执行一次以保持性能）
                 if self.human_detection_enabled and frame_counter % 5 == 0:
                     self.process_human_detection(left_half)
+                
+                # 姿态检测处理（每8帧执行一次以保持性能）
+                if self.pose_detection_enabled and frame_counter % 8 == 0:
+                    self.process_pose_detection(left_half)
 
                 # 计算实时FPS
                 current_time = time.time()
@@ -372,6 +396,10 @@ class StereoVisionNode(Node):
 
                 # 创建显示图像
                 display_image = left_half.copy()
+                
+                # 绘制姿态检测结果
+                if self.current_pose_results:
+                    display_image = draw_human_pose(display_image, self.current_pose_results)
                 
                 # 绘制衣服和裤子检测框
                 if self.current_clothing_detections:
@@ -451,9 +479,17 @@ class StereoVisionNode(Node):
                     detection_count_text = f"Detection Calls: {self.human_detection_count}"
                     cv2.putText(display_image, detection_count_text, (10, 240), font, font_scale, (255, 0, 255), thickness)
                 
+                # 显示姿态检测信息
+                if self.pose_detection_enabled:
+                    pose_text = f"Poses: {len(self.current_pose_results)} detected"
+                    cv2.putText(display_image, pose_text, (10, 270), font, font_scale, (0, 255, 255), thickness)
+                    
+                    pose_count_text = f"Pose Calls: {self.pose_detection_count}"
+                    cv2.putText(display_image, pose_count_text, (10, 300), font, font_scale, (0, 255, 255), thickness)
+                
                 # 显示模式信息
-                mode_text = "Mode: ON-DEMAND STEREO + CLOTHING DETECTION"
-                cv2.putText(display_image, mode_text, (10, 270), font, font_scale, (0, 255, 255), thickness)
+                mode_text = "Mode: ON-DEMAND STEREO + CLOTHING + POSE DETECTION"
+                cv2.putText(display_image, mode_text, (10, 330), font, font_scale, (0, 255, 255), thickness)
 
                 # 使用cv2.imshow显示图像
                 cv2.imshow('Left Camera View (On-Demand Stereo)', display_image)
@@ -474,6 +510,15 @@ class StereoVisionNode(Node):
                             self.current_clothing_detections = []  # 清空衣服检测
                     else:
                         self.get_logger().warn("人体检测模块不可用")
+                elif key == ord('p'):  # 按'p'切换姿态检测
+                    if POSE_DETECTION_AVAILABLE:
+                        self.pose_detection_enabled = not self.pose_detection_enabled
+                        status = "开启" if self.pose_detection_enabled else "关闭"
+                        self.get_logger().info(f"姿态检测已{status}")
+                        if not self.pose_detection_enabled:
+                            self.current_pose_results = []  # 清空姿态检测结果
+                    else:
+                        self.get_logger().warn("姿态检测模块不可用")
                 elif key == ord('s'):  # 按's'手动触发立体视觉处理测试
                     self.get_logger().info("手动触发立体视觉处理测试")
                     with self.frame_lock:
@@ -486,7 +531,7 @@ class StereoVisionNode(Node):
 
                 # 高帧率运行（因为没有立体处理的开销）
                 if self.config is not None:
-                    time.sleep(1.0 / self.config.fps_limit)
+                        time.sleep(1.0 / self.config.fps_limit)
                 else:
                     time.sleep(1.0 / 60)  # 默认60fps
                 
@@ -554,6 +599,35 @@ class StereoVisionNode(Node):
             traceback.print_exc()
             self.current_human_boxes = []
             self.current_clothing_detections = []
+
+    def process_pose_detection(self, image):
+        """处理姿态检测"""
+        try:
+            if not self.pose_detection_enabled:
+                return
+            
+            self.get_logger().debug("🤖 开始姿态检测...")
+            detection_start_time = time.time()
+            
+            # 调用姿态检测函数
+            pose_results = detect_human_pose(image)
+            
+            if pose_results:
+                # 更新检测结果
+                self.current_pose_results = pose_results
+                self.pose_detection_count += 1
+                self.last_pose_detection_time = time.time()
+                
+                detection_time = (self.last_pose_detection_time - detection_start_time) * 1000
+                self.get_logger().debug(f"✅ 检测到 {len(pose_results)} 个人体姿态，耗时: {detection_time:.2f}ms")
+            else:
+                self.current_pose_results = []
+                
+        except Exception as e:
+            self.get_logger().error(f"姿态检测处理错误: {e}")
+            import traceback
+            traceback.print_exc()
+            self.current_pose_results = []
 
     def process_stereo_on_demand(self, left_image, right_image):
         """按需处理立体视觉 - 仅在服务调用时执行"""
@@ -871,4 +945,4 @@ def main(args=None):
 
 
 if __name__ == '__main__':
-    main()
+    main() 
