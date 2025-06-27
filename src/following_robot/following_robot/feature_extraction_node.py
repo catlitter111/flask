@@ -272,6 +272,7 @@ class FeatureExtractionNode(Node):
                 excel_path = output_dir / f"{name}_features.xlsx"
                 self.save_features_to_excel(body_ratios, shirt_color, pants_color, excel_path, name)
                 result_paths['excel'] = str(excel_path)
+                self.get_logger().info(f"特征数据已保存到: {excel_path}")
 
             self.get_logger().info(f"图像处理完成，耗时: {time.time() - start_time:.2f}秒")
             return canvas, person_ratios, result_paths
