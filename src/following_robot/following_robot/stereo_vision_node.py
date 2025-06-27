@@ -150,6 +150,7 @@ class StereoVisionNode(Node):
             self.human_detection_count = 0
             self.last_human_detection_time = 0
             self.current_human_boxes = []  # 当前检测到的人体框
+            self.current_clothing_detections = []  # 当前检测到的衣服和裤子详细信息
             
             # 初始化配置
             try:
@@ -372,7 +373,36 @@ class StereoVisionNode(Node):
                 # 创建显示图像
                 display_image = left_half.copy()
                 
-                # 绘制人体检测框
+                # 绘制衣服和裤子检测框
+                if self.current_clothing_detections:
+                    for person_clothes in self.current_clothing_detections:
+                        person_id = person_clothes['person_id']
+                        upper_info = person_clothes['upper']
+                        lower_info = person_clothes['lower']
+                        
+                        # 绘制上装检测框（蓝色）
+                        if upper_info and len(upper_info) >= 4:
+                            x1, y1, x2, y2 = upper_info[:4]
+                            cv2.rectangle(display_image, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+                            # 添加上装标签
+                            upper_label = f"Upper {person_id+1}"
+                            if person_clothes['upper_color']:
+                                upper_label += f" {person_clothes['upper_color']}"
+                            cv2.putText(display_image, upper_label, (int(x1), int(y1)-10), 
+                                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                        
+                        # 绘制下装检测框（红色）
+                        if lower_info and len(lower_info) >= 4:
+                            x1, y1, x2, y2 = lower_info[:4]
+                            cv2.rectangle(display_image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+                            # 添加下装标签
+                            lower_label = f"Lower {person_id+1}"
+                            if person_clothes['lower_color']:
+                                lower_label += f" {person_clothes['lower_color']}"
+                            cv2.putText(display_image, lower_label, (int(x1), int(y1)-10), 
+                                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                
+                # 绘制整体人体检测框（绿色）
                 if self.current_human_boxes:
                     for i, box in enumerate(self.current_human_boxes):
                         if len(box) >= 4:
@@ -414,12 +444,16 @@ class StereoVisionNode(Node):
                     human_text = f"Humans: {len(self.current_human_boxes)} detected"
                     cv2.putText(display_image, human_text, (10, 180), font, font_scale, (255, 0, 255), thickness)
                     
+                    # 显示衣服检测详情
+                    clothing_text = f"Clothes: {len(self.current_clothing_detections)} sets"
+                    cv2.putText(display_image, clothing_text, (10, 210), font, font_scale, (255, 0, 255), thickness)
+                    
                     detection_count_text = f"Detection Calls: {self.human_detection_count}"
-                    cv2.putText(display_image, detection_count_text, (10, 210), font, font_scale, (255, 0, 255), thickness)
+                    cv2.putText(display_image, detection_count_text, (10, 240), font, font_scale, (255, 0, 255), thickness)
                 
                 # 显示模式信息
-                mode_text = "Mode: ON-DEMAND STEREO + HUMAN DETECTION"
-                cv2.putText(display_image, mode_text, (10, 240), font, font_scale, (0, 255, 255), thickness)
+                mode_text = "Mode: ON-DEMAND STEREO + CLOTHING DETECTION"
+                cv2.putText(display_image, mode_text, (10, 270), font, font_scale, (0, 255, 255), thickness)
 
                 # 使用cv2.imshow显示图像
                 cv2.imshow('Left Camera View (On-Demand Stereo)', display_image)
@@ -437,6 +471,7 @@ class StereoVisionNode(Node):
                         self.get_logger().info(f"人体检测已{status}")
                         if not self.human_detection_enabled:
                             self.current_human_boxes = []  # 清空检测框
+                            self.current_clothing_detections = []  # 清空衣服检测
                     else:
                         self.get_logger().warn("人体检测模块不可用")
                 elif key == ord('s'):  # 按's'手动触发立体视觉处理测试
@@ -473,12 +508,24 @@ class StereoVisionNode(Node):
             detection_results = detect_picture_with_confidence(image)
             
             if detection_results:
-                # 提取人体位置
+                # 提取人体位置和衣服详细信息
                 human_boxes = []
-                for result in detection_results:
+                clothing_detections = []
+                
+                for person_idx, result in enumerate(detection_results):
                     if len(result) >= 2:  # 确保有上装和下装信息
                         upper_info = result[0] if result[0] else None
                         lower_info = result[1] if result[1] else None
+                        
+                        # 保存衣服和裤子的详细检测信息
+                        person_clothes = {
+                            'person_id': person_idx,
+                            'upper': upper_info,
+                            'lower': lower_info,
+                            'upper_color': result[2] if len(result) > 2 else None,
+                            'lower_color': result[3] if len(result) > 3 else None
+                        }
+                        clothing_detections.append(person_clothes)
                         
                         # 使用Determine_the_position_of_the_entire_body函数获取整体框
                         try:
@@ -492,18 +539,21 @@ class StereoVisionNode(Node):
                 
                 # 更新检测结果
                 self.current_human_boxes = human_boxes
+                self.current_clothing_detections = clothing_detections
                 self.human_detection_count += 1
                 self.last_human_detection_time = time.time()
                 
                 detection_time = (self.last_human_detection_time - detection_start_time) * 1000
-                self.get_logger().debug(f"✅ 检测到 {len(human_boxes)} 个人体，耗时: {detection_time:.2f}ms")
+                self.get_logger().debug(f"✅ 检测到 {len(human_boxes)} 个人体，{len(clothing_detections)} 套衣服，耗时: {detection_time:.2f}ms")
             else:
                 self.current_human_boxes = []
+                self.current_clothing_detections = []
                 
         except Exception as e:
             self.get_logger().error(f"人体检测处理错误: {e}")
             traceback.print_exc()
             self.current_human_boxes = []
+            self.current_clothing_detections = []
 
     def process_stereo_on_demand(self, left_image, right_image):
         """按需处理立体视觉 - 仅在服务调用时执行"""
