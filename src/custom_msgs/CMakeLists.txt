@@ -18,6 +18,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetDistance.srv"
   "srv/PoseDetection.srv"
   "srv/FeatureExtraction.srv"
+  "msg/TrackedPerson.msg"
+  "msg/TrackedPersonArray.msg"
+  "msg/TrackingMode.msg"
+  "msg/Position.msg"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs
 )
 

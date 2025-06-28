@@ -1,0 +1,48 @@
+# ByteTracker ROS2参数配置文件
+# 将此文件放置在 following_robot/config/ 目录下
+
+bytetracker_node:
+  ros__parameters:
+    # 跟踪模式配置
+    tracking_mode: "single"          # 可选: "multi" 或 "single"
+    
+    # ByteTracker算法参数
+    track_thresh: 0.5               # 跟踪阈值 (0.0-1.0)
+    track_buffer: 100               # 轨迹缓冲帧数
+    match_thresh: 0.8               # 匹配阈值 (0.0-1.0)
+    color_weight: 0.5               # 颜色权重 (0.0-1.0)
+    
+    # 卡尔曼滤波参数
+    std_weight_position: 0.05       # 位置标准差权重
+    std_weight_velocity: 0.00625    # 速度标准差权重
+    
+    # 检测参数
+    det_thresh_high: 0.5            # 高置信度检测阈值
+    det_thresh_low: 0.1             # 低置信度检测阈值
+    
+    # 单目标跟踪参数
+    single_target_lost_frames: 60   # 目标丢失最大帧数
+    single_target_min_score: 0.4    # 最小匹配得分
+    single_target_confirm_frames: 3 # 确认目标所需帧数
+    
+    # 特征权重（单目标模式）
+    upper_color_weight: 0.4         # 上衣颜色权重
+    lower_color_weight: 0.3         # 下装颜色权重
+    body_ratio_weight: 0.3          # 身体比例权重
+    
+    # 性能优化参数
+    enable_body_ratio_calc: true    # 是否计算身体比例
+    body_ratio_calc_interval: 10    # 身体比例计算间隔（帧）
+    
+    # 输入输出配置
+    camera_topic: "/camera/image_raw"
+    visualization_topic: "/bytetracker/visualization"
+    tracking_result_topic: "/bytetracker/tracked_persons"
+    
+    # 功能开关
+    enable_car_control: true        # 启用小车控制
+    enable_distance_measure: true   # 启用距离测量
+    enable_visualization: true      # 启用可视化
+    
+    # 目标特征文件路径（单目标模式）
+    target_features_file: ""        # 留空则从参数服务器获取

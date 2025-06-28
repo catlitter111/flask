@@ -38,6 +38,7 @@ setup(
             'feature_extraction_node = following_robot.feature_extraction_node:main',
             'robot_control_node = following_robot.robot_control_node:main',
             'test_display = scripts.test_display:test_display',
+            'bytetracker_node = following_robot.bytetracker_node:main',
         ],
     },
 )
