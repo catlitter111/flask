@@ -38,9 +38,28 @@ def generate_launch_description():
     )
     
     # 目标特征文件参数
+    # 尝试找到项目根目录下的features-data文件夹
+    # 从install目录向上查找到工作空间根目录
+    current_path = following_robot_dir
+    project_root = None
+    
+    # 尝试从install路径找到工作空间根目录
+    for _ in range(5):  # 最多向上查找5级目录
+        current_path = os.path.dirname(current_path)
+        features_path = os.path.join(current_path, 'features-data', 'person.xlsx')
+        if os.path.exists(features_path):
+            project_root = current_path
+            break
+    
+    # 如果找不到，使用默认路径（用户需要手动指定）
+    if project_root is None:
+        default_features_file = '/tmp/person.xlsx'  # 临时路径，用户需要手动指定
+    else:
+        default_features_file = os.path.join(project_root, 'features-data', 'person.xlsx')
+    
     target_features_file_arg = DeclareLaunchArgument(
         'target_features_file',
-        default_value=os.path.join(following_robot_dir, 'features-data', 'person.xlsx'),
+        default_value=default_features_file,
         description='Path to target features Excel file for single target tracking'
     )
     
@@ -182,7 +201,8 @@ def generate_launch_description():
     ld.add_action(LogInfo(
         msg=['启动ByteTracker跟踪系统，模式: ', LaunchConfiguration('tracking_mode'),
              ', 相机ID: ', LaunchConfiguration('camera_id'),
-             ', 立体相机: ', LaunchConfiguration('is_stereo_camera')]
+             ', 立体相机: ', LaunchConfiguration('is_stereo_camera'),
+             ', 特征文件: ', LaunchConfiguration('target_features_file')]
     ))
     
     # 添加核心节点

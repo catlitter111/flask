@@ -25,6 +25,7 @@ import cv2
 import time
 import traceback
 import logging
+import os
 from collections import OrderedDict, deque
 from enum import Enum
 import threading
@@ -67,160 +68,380 @@ class TrackState:
 
 
 class BaseTrack:
-    """基础跟踪类，定义了跟踪对象的基本属性和方法"""
-    _count = 0  # 全局ID计数器
+    """
+    基础跟踪类 - 多目标跟踪的核心抽象类
+    =====================================
+    
+    功能说明：
+        定义了所有跟踪对象的基本属性和接口，是STrack的父类
+        管理跟踪ID分配、状态管理、特征存储等基础功能
+    
+    调用关系：
+        - 被STrack继承
+        - 在ColorByteTracker中通过STrack间接使用
+        - 在SingleTargetTracker中通过STrack间接使用
+    
+    设计目的：
+        为不同类型的跟踪器提供统一的基础接口和状态管理
+    """
+    _count = 0  # 全局ID计数器，确保每个轨迹有唯一ID
 
     def __init__(self):
-        """初始化基础跟踪对象"""
-        self.track_id = 0
-        self.is_activated = False
-        self.state = TrackState.NEW
+        """
+        初始化基础跟踪对象
+        
+        参数：
+            无
+            
+        返回值：
+            无
+            
+        调用关系：
+            - 被STrack.__init__()调用
+            - 在创建新轨迹时自动调用
+            
+        调用原因：
+            为每个新的跟踪轨迹初始化基本属性和状态
+        """
+        # 轨迹标识
+        self.track_id = 0                    # 轨迹唯一ID
+        self.is_activated = False            # 是否已激活（确认轨迹）
+        self.state = TrackState.NEW          # 轨迹状态
 
-        self.history = OrderedDict()
-        self.features = []
-        self.curr_feature = None
-        self.score = 0
-        self.start_frame = 0
-        self.frame_id = 0
-        self.time_since_update = 0
+        # 历史和特征信息
+        self.history = OrderedDict()         # 历史状态记录
+        self.features = []                   # 特征向量历史
+        self.curr_feature = None             # 当前帧特征
+        
+        # 跟踪质量指标
+        self.score = 0                       # 检测置信度
+        self.start_frame = 0                 # 开始帧号
+        self.frame_id = 0                    # 当前帧号
+        self.time_since_update = 0           # 自上次更新经过的帧数
 
-        # 颜色特征
-        self.upper_color = None  # 上衣颜色
-        self.lower_color = None  # 下装颜色
+        # 外观特征（服装颜色）
+        self.upper_color = None              # 上衣颜色 (B,G,R)
+        self.lower_color = None              # 下装颜色 (B,G,R)
 
-        # 位置
-        self.location = (np.inf, np.inf)
+        # 空间位置
+        self.location = (np.inf, np.inf)     # 当前位置坐标
 
     @property
     def end_frame(self):
-        """获取结束帧"""
+        """
+        获取轨迹结束帧号
+        
+        参数：
+            无
+            
+        返回值：
+            int: 当前帧号，表示轨迹的最后活跃帧
+            
+        调用关系：
+            - 被跟踪器统计模块调用
+            - 被轨迹可视化功能调用
+            
+        调用原因：
+            用于计算轨迹持续时间和生命周期统计
+        """
         return self.frame_id
 
     @staticmethod
     def next_id():
-        """生成下一个ID"""
+        """
+        生成下一个唯一轨迹ID
+        
+        参数：
+            无
+            
+        返回值：
+            int: 新的唯一轨迹ID
+            
+        调用关系：
+            - 被STrack.activate()调用
+            - 被STrack.re_activate()调用（当new_id=True时）
+            
+        调用原因：
+            确保每个轨迹都有全局唯一的标识符，避免ID冲突
+        """
         BaseTrack._count += 1
         return BaseTrack._count
 
     def activate(self, *args):
-        """激活轨迹（子类实现）"""
+        """
+        激活轨迹（抽象方法，子类必须实现）
+        
+        参数：
+            *args: 激活所需的参数（由子类定义）
+            
+        返回值：
+            无
+            
+        调用关系：
+            - 在STrack中被具体实现
+            - 被ColorByteTracker.update()调用
+            
+        调用原因：
+            将新检测的对象初始化为可跟踪的轨迹
+        """
         raise NotImplementedError("需要在子类中实现")
 
     def predict(self):
-        """预测下一状态（子类实现）"""
+        """
+        预测轨迹下一状态（抽象方法，子类必须实现）
+        
+        参数：
+            无
+            
+        返回值：
+            无
+            
+        调用关系：
+            - 在STrack中通过卡尔曼滤波实现
+            - 被ColorByteTracker.update()在关联前调用
+            
+        调用原因：
+            在新的检测到来之前预测轨迹的运动状态
+        """
         raise NotImplementedError("需要在子类中实现")
 
     def update(self, *args, **kwargs):
-        """更新轨迹（子类实现）"""
+        """
+        更新轨迹状态（抽象方法，子类必须实现）
+        
+        参数：
+            *args: 更新所需的参数（由子类定义）
+            **kwargs: 更新所需的关键字参数
+            
+        返回值：
+            无
+            
+        调用关系：
+            - 在STrack中被具体实现
+            - 被ColorByteTracker.update()在成功关联后调用
+            
+        调用原因：
+            使用新的检测结果更新轨迹的状态和特征
+        """
         raise NotImplementedError("需要在子类中实现")
 
     def mark_lost(self):
-        """标记为丢失"""
+        """
+        将轨迹标记为丢失状态
+        
+        参数：
+            无
+            
+        返回值：
+            无
+            
+        调用关系：
+            - 被ColorByteTracker.update()调用
+            - 当轨迹无法与检测匹配时调用
+            
+        调用原因：
+            暂时丢失的轨迹可能在后续帧中重新找到，不立即删除
+        """
         self.state = TrackState.LOST
 
     def mark_removed(self):
-        """标记为已移除"""
+        """
+        将轨迹标记为已移除状态
+        
+        参数：
+            无
+            
+        返回值：
+            无
+            
+        调用关系：
+            - 被ColorByteTracker.update()调用
+            - 当轨迹丢失时间过长或确认离开画面时调用
+            
+        调用原因：
+            彻底删除不再有用的轨迹，释放计算资源
+        """
         self.state = TrackState.REMOVED
 
 
 class KalmanFilter:
     """
-    卡尔曼滤波器实现，用于目标状态预测和更新
-    状态向量: [x, y, a, h, vx, vy, va, vh]
-    其中: x,y-中心坐标, a-宽高比, h-高度, v*-对应速度
+    卡尔曼滤波器 - 多目标跟踪的核心运动预测模块
+    ================================================
+    
+    功能说明：
+        使用卡尔曼滤波算法预测和更新目标的运动状态
+        实现目标位置的平滑跟踪和运动轨迹预测
+    
+    状态向量定义：
+        [x, y, a, h, vx, vy, va, vh] (8维)
+        x, y: 目标中心坐标
+        a: 宽高比 (width/height)
+        h: 目标高度
+        vx, vy: 中心坐标的速度
+        va, vh: 宽高比和高度的变化速度
+    
+    调用关系：
+        - 被STrack使用（共享实例）
+        - 被ColorByteTracker实例化
+        - 在轨迹预测和更新中被频繁调用
+    
+    设计目的：
+        提供准确的目标运动预测，处理目标遮挡和检测缺失
     """
 
     def __init__(self):
-        """初始化卡尔曼滤波器"""
-        self.ndim = 4  # 状态维度：x, y, a, h
-        self.dt = 1.0  # 时间步长
+        """
+        初始化卡尔曼滤波器参数
+        
+        参数：
+            无
+            
+        返回值：
+            无
+            
+        调用关系：
+            - 被ColorByteTracker.__init__()调用
+            - 作为STrack.shared_kalman的共享实例
+            
+        调用原因：
+            设置滤波器的数学模型参数和噪声特性
+        """
+        # 状态空间维度定义
+        self.ndim = 4                        # 观测维度：x, y, a, h
+        self.dt = 1.0                        # 时间步长（帧间隔）
 
-        # 创建运动模型矩阵 F (状态转移矩阵)
+        # 状态转移矩阵F (8x8) - 描述状态如何随时间演化
+        # [x_k+1]   [1 0 0 0 dt 0  0  0 ] [x_k  ]
+        # [y_k+1]   [0 1 0 0 0  dt 0  0 ] [y_k  ]
+        # [a_k+1] = [0 0 1 0 0  0  dt 0 ] [a_k  ]
+        # [h_k+1]   [0 0 0 1 0  0  0  dt] [h_k  ]
+        # [vx_k+1]  [0 0 0 0 1  0  0  0 ] [vx_k ]
+        # [vy_k+1]  [0 0 0 0 0  1  0  0 ] [vy_k ]
+        # [va_k+1]  [0 0 0 0 0  0  1  0 ] [va_k ]
+        # [vh_k+1]  [0 0 0 0 0  0  0  1 ] [vh_k ]
         self._motion_mat = np.eye(2 * self.ndim, 2 * self.ndim)
         for i in range(self.ndim):
             self._motion_mat[i, self.ndim + i] = self.dt
 
-        # 创建观测模型矩阵 H
+        # 观测矩阵H (4x8) - 将状态空间映射到观测空间
+        # [x_obs]   [1 0 0 0 0 0 0 0] [x ]
+        # [y_obs] = [0 1 0 0 0 0 0 0] [y ]
+        # [a_obs]   [0 0 1 0 0 0 0 0] [a ]
+        # [h_obs]   [0 0 0 1 0 0 0 0] [h ]
+        #                              [vx]
+        #                              [vy]
+        #                              [va]
+        #                              [vh]
         self._update_mat = np.eye(self.ndim, 2 * self.ndim)
 
-        # 运动和观测不确定性权重
-        self._std_weight_position = 1. / 20
-        self._std_weight_velocity = 1. / 160
+        # 噪声模型参数 - 调整跟踪的平滑性vs响应性
+        self._std_weight_position = 1. / 20   # 位置不确定性权重（越小越平滑）
+        self._std_weight_velocity = 1. / 160  # 速度不确定性权重（越小越稳定）
 
-        # 卡方分布95%置信区间，用于门限计算
+        # 卡方分布95%置信区间 - 用于数据关联的门限计算
+        # 根据自由度确定马氏距离的阈值
         self.chi2inv95 = {
-            1: 3.8415,
-            2: 5.9915,
-            3: 7.8147,
-            4: 9.4877,
-            5: 11.070,
-            6: 12.592,
-            7: 14.067,
-            8: 15.507,
-            9: 16.919
+            1: 3.8415,     # 1自由度
+            2: 5.9915,     # 2自由度（x,y位置）
+            3: 7.8147,     # 3自由度
+            4: 9.4877,     # 4自由度（x,y,a,h完整观测）
+            5: 11.070,     # 5自由度
+            6: 12.592,     # 6自由度
+            7: 14.067,     # 7自由度
+            8: 15.507,     # 8自由度
+            9: 16.919      # 9自由度
         }
 
     def initiate(self, measurement):
         """
-        从测量值初始化跟踪
+        从首次检测初始化轨迹的卡尔曼状态
         
         参数:
-            measurement: [cx, cy, a, h] 格式的观测值
+            measurement (np.array): [cx, cy, a, h] 格式的观测值
+                - cx, cy: 目标中心坐标
+                - a: 宽高比 (width/height)
+                - h: 目标高度
             
         返回:
-            mean: 初始状态均值
-            covariance: 初始协方差矩阵
+            tuple: (mean, covariance)
+                - mean (np.array): 8维初始状态均值 [x,y,a,h,vx,vy,va,vh]
+                - covariance (np.array): 8x8初始协方差矩阵
+            
+        调用关系:
+            - 被STrack.activate()调用
+            - 在新轨迹创建时调用一次
+            
+        调用原因:
+            将检测结果转换为卡尔曼滤波的初始状态，设置合理的不确定性
         """
-        # 初始化状态均值 [x, y, a, h, vx, vy, va, vh]
-        mean_pos = measurement
-        mean_vel = np.zeros_like(mean_pos)
-        mean = np.r_[mean_pos, mean_vel]
+        # 状态初始化：位置已知，速度假设为0
+        mean_pos = measurement                    # 位置状态 [x, y, a, h]
+        mean_vel = np.zeros_like(mean_pos)       # 速度状态 [vx, vy, va, vh] = [0, 0, 0, 0]
+        mean = np.r_[mean_pos, mean_vel]         # 完整8维状态向量
 
-        # 初始化协方差矩阵
+        # 协方差矩阵初始化 - 反映初始不确定性
+        # 位置的不确定性与目标大小成比例
+        # 速度的不确定性较大，因为初始速度未知
         std = [
-            2 * self._std_weight_position * measurement[3],
-            2 * self._std_weight_position * measurement[3],
-            1e-2,
-            2 * self._std_weight_position * measurement[3],
-            10 * self._std_weight_velocity * measurement[3],
-            10 * self._std_weight_velocity * measurement[3],
-            1e-5,
-            10 * self._std_weight_velocity * measurement[3]
+            2 * self._std_weight_position * measurement[3],    # x坐标标准差
+            2 * self._std_weight_position * measurement[3],    # y坐标标准差  
+            1e-2,                                              # 宽高比标准差（相对稳定）
+            2 * self._std_weight_position * measurement[3],    # 高度标准差
+            10 * self._std_weight_velocity * measurement[3],   # x速度标准差（未知，较大）
+            10 * self._std_weight_velocity * measurement[3],   # y速度标准差（未知，较大）
+            1e-5,                                              # 宽高比变化速度（很小）
+            10 * self._std_weight_velocity * measurement[3]    # 高度变化速度
         ]
-        covariance = np.diag(np.square(std))
+        covariance = np.diag(np.square(std))      # 对角协方差矩阵（假设状态独立）
 
         return mean, covariance
 
     def predict(self, mean, covariance):
         """
-        运行卡尔曼预测步骤
+        卡尔曼滤波预测步骤 - 基于运动模型预测下一时刻状态
         
         参数:
-            mean: 当前状态均值
-            covariance: 当前协方差矩阵
+            mean (np.array): 当前时刻8维状态均值 [x,y,a,h,vx,vy,va,vh]
+            covariance (np.array): 当前时刻8x8状态协方差矩阵
             
         返回:
-            mean: 预测状态均值
-            covariance: 预测协方差矩阵
+            tuple: (predicted_mean, predicted_covariance)
+                - predicted_mean (np.array): 预测的8维状态均值
+                - predicted_covariance (np.array): 预测的8x8状态协方差矩阵
+            
+        调用关系:
+            - 被STrack.predict()调用
+            - 被multi_predict()在批量处理中调用
+            - 在每帧处理前对所有轨迹调用
+            
+        调用原因:
+            在新检测到来前预测轨迹位置，处理目标运动和检测缺失
+            
+        数学原理:
+            预测步骤：x_k+1|k = F * x_k|k
+            协方差预测：P_k+1|k = F * P_k|k * F^T + Q
+            其中 F 是状态转移矩阵，Q 是过程噪声
         """
-        # 计算过程噪声
+        # 过程噪声协方差矩阵Q的计算
+        # 噪声大小与目标尺寸相关，大目标允许更大的位置变化
         std_pos = [
-            self._std_weight_position * mean[3],
-            self._std_weight_position * mean[3],
-            1e-2,
-            self._std_weight_position * mean[3]
+            self._std_weight_position * mean[3],    # x坐标过程噪声（与高度成比例）
+            self._std_weight_position * mean[3],    # y坐标过程噪声
+            1e-2,                                   # 宽高比过程噪声（较小，形状稳定）
+            self._std_weight_position * mean[3]     # 高度过程噪声
         ]
         std_vel = [
-            self._std_weight_velocity * mean[3],
-            self._std_weight_velocity * mean[3],
-            1e-5,
-            self._std_weight_velocity * mean[3]
+            self._std_weight_velocity * mean[3],    # x速度过程噪声
+            self._std_weight_velocity * mean[3],    # y速度过程噪声
+            1e-5,                                   # 宽高比变化噪声（很小）
+            self._std_weight_velocity * mean[3]     # 高度变化噪声
         ]
-        motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
+        motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))  # 过程噪声协方差矩阵Q
 
-        # 预测新的状态
-        mean = np.dot(mean, self._motion_mat.T)
-        covariance = np.linalg.multi_dot((
+        # 卡尔曼预测公式
+        mean = np.dot(mean, self._motion_mat.T)                   # 状态预测：x_k+1|k = F * x_k|k
+        covariance = np.linalg.multi_dot((                        # 协方差预测：P_k+1|k = F*P_k|k*F^T + Q
             self._motion_mat, covariance, self._motion_mat.T)) + motion_cov
 
         return mean, covariance
@@ -1637,6 +1858,17 @@ class ByteTrackerNode(Node):
         self.get_logger().info(f'🎮 当前跟踪模式: {self.tracking_mode}')
         self.get_logger().info(f'📷 相机ID: {self.camera_config.camera_id}, 分辨率: {self.camera_config.frame_width}x{self.camera_config.frame_height}')
 
+        # 🔧 修复：如果是单目标模式，自动初始化单目标跟踪器
+        if self.tracking_mode == 'single':
+            self.get_logger().info('🎯 检测到单目标模式，正在初始化单目标跟踪器...')
+            self.init_single_target_tracker()
+        
+        # 🔧 额外：添加目标特征文件的状态检查
+        if self.target_features_file:
+            self.get_logger().info(f'📄 目标特征文件: {self.target_features_file}')
+        else:
+            self.get_logger().warn('⚠️ 未设置目标特征文件')
+
     def setup_parameters(self):
         """设置节点参数"""
         # 声明参数
@@ -1735,10 +1967,14 @@ class ByteTrackerNode(Node):
             
             # 设置格式
             try:
-                self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-            except AttributeError:
-                # 兼容旧版本OpenCV
-                pass
+                fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+                self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+            except (AttributeError, cv2.error):
+                # 兼容旧版本OpenCV或不支持的格式
+                try:
+                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'))
+                except:
+                    pass
             
             if not self.cap.isOpened():
                 self.get_logger().warn(f"无法打开相机ID {self.camera_config.camera_id}，尝试使用默认相机...")
@@ -1803,19 +2039,40 @@ class ByteTrackerNode(Node):
             )
             
             # 创建立体匹配器
-            self.stereo_matcher = cv2.StereoSGBM_create(
-                minDisparity=self.stereo_config.minDisparity,
-                numDisparities=self.stereo_config.numDisparities,
-                blockSize=self.stereo_config.blockSize,
-                P1=self.stereo_config.P1,
-                P2=self.stereo_config.P2,
-                disp12MaxDiff=self.stereo_config.disp12MaxDiff,
-                preFilterCap=self.stereo_config.preFilterCap,
-                uniquenessRatio=self.stereo_config.uniquenessRatio,
-                speckleWindowSize=self.stereo_config.speckleWindowSize,
-                speckleRange=self.stereo_config.speckleRange,
-                mode=self.stereo_config.mode
-            )
+            try:
+                self.stereo_matcher = cv2.StereoSGBM_create(
+                    minDisparity=self.stereo_config.minDisparity,
+                    numDisparities=self.stereo_config.numDisparities,
+                    blockSize=self.stereo_config.blockSize,
+                    P1=self.stereo_config.P1,
+                    P2=self.stereo_config.P2,
+                    disp12MaxDiff=self.stereo_config.disp12MaxDiff,
+                    preFilterCap=self.stereo_config.preFilterCap,
+                    uniquenessRatio=self.stereo_config.uniquenessRatio,
+                    speckleWindowSize=self.stereo_config.speckleWindowSize,
+                    speckleRange=self.stereo_config.speckleRange,
+                    mode=self.stereo_config.mode
+                )
+            except AttributeError:
+                # 兼容旧版本OpenCV
+                try:
+                    self.stereo_matcher = cv2.StereoSGBM.create(
+                        minDisparity=self.stereo_config.minDisparity,
+                        numDisparities=self.stereo_config.numDisparities,
+                        blockSize=self.stereo_config.blockSize,
+                        P1=self.stereo_config.P1,
+                        P2=self.stereo_config.P2,
+                        disp12MaxDiff=self.stereo_config.disp12MaxDiff,
+                        preFilterCap=self.stereo_config.preFilterCap,
+                        uniquenessRatio=self.stereo_config.uniquenessRatio,
+                        speckleWindowSize=self.stereo_config.speckleWindowSize,
+                        speckleRange=self.stereo_config.speckleRange
+                    )
+                except:
+                    # 如果都失败了，禁用立体视觉
+                    self.stereo_matcher = None
+                    self.enable_distance_measure = False
+                    self.get_logger().error("❌ 无法创建立体匹配器，禁用距离测量功能")
             
             self.get_logger().info('✅ 立体视觉系统初始化完成')
             
@@ -1901,42 +2158,79 @@ class ByteTrackerNode(Node):
     def init_single_target_tracker(self):
         """初始化单目标跟踪器"""
         try:
+            self.get_logger().info('🔧 开始初始化单目标跟踪器...')
+            
             # 如果有目标特征文件，读取特征
             if self.target_features_file:
+                self.get_logger().info(f'📖 正在读取目标特征文件: {self.target_features_file}')
                 target_features = self.read_target_features(self.target_features_file)
                 if target_features:
                     self.single_target_tracker = SingleTargetTracker(
                         self.tracker_args, target_features, max_lost_time=60)
                     self.get_logger().info("✅ 单目标跟踪器初始化成功")
+                    return True
                 else:
                     self.get_logger().error("❌ 读取目标特征失败")
+                    return False
             else:
-                self.get_logger().warn("⚠️ 未指定目标特征文件")
+                self.get_logger().warn("⚠️ 未指定目标特征文件，无法初始化单目标跟踪器")
+                return False
 
         except Exception as e:
-            self.get_logger().error(f"初始化单目标跟踪器错误: {e}")
+            self.get_logger().error(f"❌ 初始化单目标跟踪器错误: {e}")
             traceback.print_exc()
+            return False
 
     def read_target_features(self, xlsx_path):
         """从Excel文件中读取目标特征信息"""
         try:
+            self.get_logger().info(f'🔍 检查特征文件是否存在: {xlsx_path}')
+            
+            # 检查文件是否存在
+            if not os.path.exists(xlsx_path):
+                self.get_logger().error(f"❌ 目标特征文件不存在: {xlsx_path}")
+                return None
+            
+            self.get_logger().info('📁 文件存在，正在打开Excel文件...')
+            
             # 打开Excel文件
             wb = openpyxl.load_workbook(xlsx_path)
+            if wb.active is None:
+                self.get_logger().error("❌ Excel文件没有活动工作表")
+                return None
+                
             sheet = wb.active
+            self.get_logger().info('📊 成功打开Excel工作表，正在读取数据...')
 
             # 读取身体比例数据 (前16行)
             body_ratios = []
             for i in range(1, 17):
-                value = sheet.cell(row=i, column=1).value
                 try:
-                    value = float(value) if value is not None else 0.0
-                except (ValueError, TypeError):
+                    cell_value = sheet.cell(row=i, column=1).value
+                    if cell_value is not None:
+                        value = float(cell_value)
+                    else:
+                        value = 0.0
+                except (ValueError, TypeError, AttributeError):
                     value = 0.0
                 body_ratios.append(value)
 
+            self.get_logger().info(f'📏 读取身体比例数据: {len([r for r in body_ratios if r > 0])} 个有效值')
+
             # 读取颜色数据 (第17和18行)
-            shirt_color_str = sheet.cell(row=17, column=1).value
-            pants_color_str = sheet.cell(row=18, column=1).value
+            try:
+                shirt_color_str = sheet.cell(row=17, column=1).value
+                self.get_logger().info(f'👕 上衣颜色原始数据: {shirt_color_str}')
+            except:
+                shirt_color_str = None
+                self.get_logger().warn('⚠️ 无法读取上衣颜色数据')
+                
+            try:
+                pants_color_str = sheet.cell(row=18, column=1).value
+                self.get_logger().info(f'👖 下装颜色原始数据: {pants_color_str}')
+            except:
+                pants_color_str = None
+                self.get_logger().warn('⚠️ 无法读取下装颜色数据')
 
             # 解析颜色字符串
             def parse_color(color_str):
@@ -1956,79 +2250,168 @@ class ByteTrackerNode(Node):
                         return color_str
                     else:
                         return (0, 0, 0)
-                except:
+                except Exception as e:
+                    self.get_logger().warn(f'⚠️ 颜色解析失败: {e}')
                     return (0, 0, 0)
 
             shirt_color = parse_color(shirt_color_str)
             pants_color = parse_color(pants_color_str)
 
-            self.get_logger().info(f"已读取目标特征: 身体比例数 {len(body_ratios)}, "
-                                   f"上衣颜色 {shirt_color}, 下装颜色 {pants_color}")
+            self.get_logger().info(f"✅ 成功读取目标特征:")
+            self.get_logger().info(f"   📏 身体比例: {len(body_ratios)} 个数值")
+            self.get_logger().info(f"   👕 上衣颜色: {shirt_color}")
+            self.get_logger().info(f"   👖 下装颜色: {pants_color}")
+            
             return body_ratios, shirt_color, pants_color
 
         except Exception as e:
-            self.get_logger().error(f"读取目标特征失败: {str(e)}")
+            self.get_logger().error(f"❌ 读取目标特征失败: {str(e)}")
+            traceback.print_exc()
             return None
 
     def process_frame(self):
-        """处理帧的主循环"""
-        # 检查是否有新帧
+        """
+        帧处理主循环 - ByteTracker系统的核心处理函数
+        ================================================
+        
+        功能说明：
+            每帧执行一次，完成检测、跟踪、发布、可视化的完整流程
+            是整个跟踪系统的心脏，协调所有模块的工作
+        
+        参数：
+            无（从实例变量获取当前帧）
+            
+        返回值：
+            无（通过ROS话题发布结果）
+            
+        调用关系：
+            - 被self.process_timer定时器定时调用（20Hz）
+            - 被setup_timers()中创建的定时器触发
+            
+        调用原因：
+            实现实时跟踪处理，保持系统的连续运行
+        """
+        # 🔄 帧获取和并发控制
         with self.lock:
             if self.current_frame is None or self.processing:
-                return
+                return  # 没有新帧或正在处理中，跳过本次
             self.processing = True
             frame = self.current_frame.copy()
             self.frame_count += 1
 
+        # 📊 性能监控和调试信息
+        start_time = time.time()
+        
         try:
-            start_time = time.time()
-
-            # 检测服装和获取身体比例
+            self.get_logger().debug(f"🎬 开始处理第 {self.frame_count} 帧")
+            
+            # 🔍 Step 1: 检测和特征提取
+            detection_start = time.time()
             detection_results = self.detect_and_extract_features(frame)
-
-            # 根据跟踪模式处理
+            detection_time = time.time() - detection_start
+            
+            self.get_logger().debug(f"🔍 检测完成: {len(detection_results)} 个检测结果, 耗时: {detection_time:.3f}s")
+            
+            # 🎯 Step 2: 根据跟踪模式处理
+            tracking_start = time.time()
             if self.tracking_mode == 'multi':
-                # 多目标跟踪
+                # 多目标跟踪模式
                 if self.multi_target_tracker is not None:
                     tracks = self.multi_target_tracker.update(detection_results, frame)
+                    self.get_logger().debug(f"🔢 多目标跟踪: {len(tracks)} 个轨迹")
                 else:
                     tracks = []
+                    self.get_logger().warn("⚠️ 多目标跟踪器未初始化")
                 target_track = None
                 mode = 'multi'
             else:
-                # 单目标跟踪
+                # 单目标跟踪模式
                 if self.single_target_tracker is not None:
                     all_tracks, target_track, mode = self.single_target_tracker.update(
                         detection_results, frame)
                     tracks = all_tracks
+                    
+                    # 🎯 详细的单目标跟踪调试信息
+                    if target_track:
+                        # 计算目标匹配置信度
+                        target_score = self.single_target_tracker.calculate_target_score(target_track)
+                        center_x = (target_track.tlbr[0] + target_track.tlbr[2]) / 2
+                        center_y = (target_track.tlbr[1] + target_track.tlbr[3]) / 2
+                        
+                        self.get_logger().info(f"🎯 目标跟踪: ID={target_track.track_id}, "
+                                             f"置信度={target_score:.3f}, "
+                                             f"位置=({center_x:.1f},{center_y:.1f}), "
+                                             f"模式={mode}")
+                        
+                        # 特征匹配详情
+                        if hasattr(target_track, 'upper_color') and target_track.upper_color:
+                            shirt_sim = self.single_target_tracker.color_similarity(
+                                self.single_target_tracker.target_shirt_color, target_track.upper_color)
+                            self.get_logger().debug(f"👕 上衣颜色匹配度: {shirt_sim:.3f}")
+                            
+                        if hasattr(target_track, 'lower_color') and target_track.lower_color:
+                            pants_sim = self.single_target_tracker.color_similarity(
+                                self.single_target_tracker.target_pants_color, target_track.lower_color)
+                            self.get_logger().debug(f"👖 下装颜色匹配度: {pants_sim:.3f}")
+                            
+                        if hasattr(target_track, 'body_ratios') and target_track.body_ratios:
+                            body_sim = self.single_target_tracker.body_ratio_similarity(target_track.body_ratios)
+                            self.get_logger().debug(f"🦴 身体比例匹配度: {body_sim:.3f}")
+                    else:
+                        self.get_logger().debug(f"🔍 单目标跟踪: 当前模式={mode}, 无目标锁定")
+                        
+                    self.get_logger().debug(f"🎯 单目标跟踪: {len(all_tracks)} 个候选轨迹")
                 else:
                     tracks = []
                     target_track = None
                     mode = 'single_not_initialized'
+                    self.get_logger().warn("⚠️ 单目标跟踪器未初始化")
+            
+            tracking_time = time.time() - tracking_start
+            self.get_logger().debug(f"🎯 跟踪完成: 耗时 {tracking_time:.3f}s")
 
-            # 更新当前跟踪结果
+            # 🔄 Step 3: 更新当前跟踪结果
             self.current_tracks = tracks
             self.current_target_track = target_track
 
-            # 发布跟踪结果
+            # 📡 Step 4: 发布跟踪结果
+            publish_start = time.time()
             self.publish_tracking_results(tracks, target_track)
-
-            # 如果有目标并且启用了小车控制，发布位置信息
+            
+            # 🚗 Step 5: 小车控制（如果启用）
             if target_track and self.enable_car_control:
+                distance = self.get_distance_at_point(
+                    int((target_track.tlbr[0] + target_track.tlbr[2]) / 2),
+                    int((target_track.tlbr[1] + target_track.tlbr[3]) / 2)
+                )
                 self.publish_target_position(target_track, frame.shape)
+                self.get_logger().debug(f"🚗 小车控制: 目标距离 {distance:.1f}mm")
 
-            # 创建可视化图像
+            # 📺 Step 6: 创建和发布可视化
             viz_frame = self.create_visualization(frame, tracks, target_track, mode)
             self.publish_visualization(viz_frame)
+            
+            publish_time = time.time() - publish_start
+            self.get_logger().debug(f"📡 发布完成: 耗时 {publish_time:.3f}s")
 
-            # 更新处理时间
-            self.processing_time = time.time() - start_time
+            # 📊 Step 7: 性能统计
+            total_time = time.time() - start_time
+            fps = 1.0 / total_time if total_time > 0 else 0
+            self.processing_time = total_time
+            
+            # 每10帧输出一次性能信息
+            if self.frame_count % 10 == 0:
+                self.get_logger().info(f"📊 性能统计 (第{self.frame_count}帧): "
+                                     f"总耗时={total_time:.3f}s, FPS={fps:.1f}, "
+                                     f"检测={detection_time:.3f}s, 跟踪={tracking_time:.3f}s, "
+                                     f"发布={publish_time:.3f}s")
 
         except Exception as e:
-            self.get_logger().error(f"处理帧错误: {e}")
+            self.get_logger().error(f"❌ 处理第{self.frame_count}帧时发生错误: {e}")
             traceback.print_exc()
 
         finally:
+            # 🔓 释放处理锁
             with self.lock:
                 self.processing = False
 
@@ -2229,21 +2612,32 @@ class ByteTrackerNode(Node):
             for track in tracks:
                 person = TrackedPerson()
                 person.track_id = track.track_id
-                person.bbox.x = float(track.tlbr[0])
-                person.bbox.y = float(track.tlbr[1])
-                person.bbox.width = float(track.tlbr[2] - track.tlbr[0])
-                person.bbox.height = float(track.tlbr[3] - track.tlbr[1])
+                
+                # 正确设置RegionOfInterest字段
+                person.bbox.x_offset = int(max(0, track.tlbr[0]))
+                person.bbox.y_offset = int(max(0, track.tlbr[1]))
+                person.bbox.width = int(max(1, track.tlbr[2] - track.tlbr[0]))
+                person.bbox.height = int(max(1, track.tlbr[3] - track.tlbr[1]))
+                person.bbox.do_rectify = False
+                
                 person.confidence = float(track.score)
 
                 # 添加颜色信息
                 if track.upper_color:
-                    person.upper_color = list(track.upper_color)
+                    person.upper_color = [int(c) for c in track.upper_color]
+                else:
+                    person.upper_color = []
+                    
                 if track.lower_color:
-                    person.lower_color = list(track.lower_color)
+                    person.lower_color = [int(c) for c in track.lower_color]
+                else:
+                    person.lower_color = []
 
                 # 添加身体比例信息
                 if hasattr(track, 'body_ratios') and track.body_ratios:
-                    person.body_ratios = track.body_ratios
+                    person.body_ratios = [float(r) for r in track.body_ratios]
+                else:
+                    person.body_ratios = []
 
                 # 标记是否为目标
                 person.is_target = (target_track is not None and track.track_id == target_track.track_id)
@@ -2258,7 +2652,12 @@ class ByteTrackerNode(Node):
     def get_distance_at_point(self, x, y):
         """获取指定像素点的距离"""
         try:
-            if not self.enable_distance_measure or self.current_left_frame is None or self.current_right_frame is None:
+            if (not self.enable_distance_measure or 
+                self.current_left_frame is None or 
+                self.current_right_frame is None or
+                self.map1x is None or self.map1y is None or
+                self.map2x is None or self.map2y is None or
+                self.stereo_matcher is None):
                 return 2000.0  # 默认距离(mm)
             
             # 立体校正
