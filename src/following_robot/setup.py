@@ -21,10 +21,12 @@ setup(
         'setuptools',
         'opencv-python',
         'numpy',
+        'scipy',     # 用于线性代数运算和匈牙利算法
         'pillow',
         'pathlib2',  # 为了Path支持
         'openpyxl',  # Excel文件处理
         'cv_bridge',  # ROS图像转换
+        'lap',       # 匈牙利算法优化库（可选）
     ],
     zip_safe=True,
     maintainer='monster',

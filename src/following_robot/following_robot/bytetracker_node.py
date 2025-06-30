@@ -33,14 +33,12 @@ from pathlib import Path
 import openpyxl
 
 # ROS2消息类型
-from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point, Twist
 from std_msgs.msg import String, Float32, Bool, Header
-from cv_bridge import CvBridge
 
 # 自定义消息和服务
 from custom_msgs.srv import FeatureExtraction, GetDistance
-from custom_msgs.msg import TrackedPerson, TrackedPersonArray, TrackingMode
+from custom_msgs.msg import TrackedPerson, TrackedPersonArray, TrackingMode, Position
 
 # 导入现有检测模块
 try:
@@ -376,6 +374,9 @@ class STrack(BaseTrack):
 
     def predict(self):
         """预测下一个状态"""
+        if self.kalman_filter is None or self.mean is None or self.covariance is None:
+            return
+            
         if self.state != TrackState.TRACKED:
             # 非跟踪状态，将垂直速度置为0
             mean_state = self.mean.copy()
@@ -433,6 +434,9 @@ class STrack(BaseTrack):
 
     def re_activate(self, new_track, frame_id, new_id=False):
         """重新激活丢失的轨迹"""
+        if self.kalman_filter is None:
+            return
+            
         # 更新卡尔曼状态
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, self.tlwh_to_xyah(new_track.tlwh)
@@ -467,10 +471,11 @@ class STrack(BaseTrack):
         self.tracklet_len += 1
 
         # 更新卡尔曼状态
-        new_tlwh = new_track.tlwh
-        self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh)
-        )
+        if self.kalman_filter is not None:
+            new_tlwh = new_track.tlwh
+            self.mean, self.covariance = self.kalman_filter.update(
+                self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh)
+            )
 
         # 更新状态
         self.state = TrackState.TRACKED
@@ -1464,6 +1469,92 @@ class SingleTargetTracker:
             return all_tracks, target_track, self.mode
 
 
+# ==================== 相机配置类 ====================
+
+class CameraConfig:
+    """相机配置类"""
+    
+    def __init__(self):
+        # 相机参数
+        self.camera_id = 0  # 默认相机ID
+        self.frame_width = 1280  # 双目相机需要更大宽度
+        self.frame_height = 480
+        self.fps_limit = 30
+        
+        # 图像处理参数
+        self.flip_horizontal = False
+        self.flip_vertical = False
+        
+        # 立体视觉参数
+        self.is_stereo_camera = True  # 是否为立体相机
+        self.enable_distance_measure = True  # 是否启用距离测量
+
+
+class StereoConfig:
+    """立体视觉配置类"""
+    
+    def __init__(self):
+        # 相机内参和外参
+        self.baseline = 25.100  # 基线距离(mm)
+        self.focal_length = 663  # 焦距
+        self.cx = 317  # 光心x坐标
+        self.cy = 210  # 光心y坐标
+
+        # SGBM算法参数
+        self.minDisparity = 3
+        self.numDisparities = 32
+        self.blockSize = 7
+        self.P1 = 800
+        self.P2 = 3200
+        self.disp12MaxDiff = 3
+        self.preFilterCap = 31
+        self.uniquenessRatio = 10
+        self.speckleWindowSize = 100
+        self.speckleRange = 32
+        try:
+            self.mode = cv2.STEREO_SGBM_MODE_SGBM_3WAY
+        except AttributeError:
+            self.mode = cv2.STEREO_SGBM_MODE_SGBM
+
+        # 距离测量范围
+        self.min_distance_mm = 100.0
+        self.max_distance_mm = 10000.0
+
+
+class StereoCamera:
+    """双目相机参数类"""
+    
+    def __init__(self):
+        # 左相机内参
+        self.cam_matrix_left = np.array([[660.1946, 0, 326.3185], 
+                                       [0, 660.8720, 207.1556], 
+                                       [0, 0, 1]])
+
+        # 右相机内参
+        self.cam_matrix_right = np.array([[665.1635, 0, 319.9729], 
+                                        [0, 665.7919, 212.9630], 
+                                        [0, 0, 1]])
+
+        # 左右相机畸变系数:[k1, k2, p1, p2, k3]
+        self.distortion_l = np.array([[-0.0682, 0.1546, 0, 0, 0]])
+        self.distortion_r = np.array([[-0.0749, 0.1684, 0, 0, 0]])
+
+        # 旋转矩阵
+        self.R = np.array([[1.0, 6.140854786327222e-04, -0.0022],
+                          [-6.240288417695294e-04, 1, -0.0046],
+                          [0.0022, 0.0046, 1]])
+
+        # 平移矩阵
+        self.T = np.array([[-25.0961], [-0.0869], [-0.1893]])
+
+        # 焦距和基线距离
+        self.focal_length = 663
+        self.baseline = abs(self.T[0][0])
+
+        # Q矩阵（视差到深度的映射矩阵）
+        self.Q = None
+
+
 # ==================== ByteTracker ROS2节点 ====================
 
 class ByteTrackerNode(Node):
@@ -1474,8 +1565,26 @@ class ByteTrackerNode(Node):
         super().__init__('bytetracker_node')
 
         # 初始化基本组件
-        self.bridge = CvBridge()
         self.lock = threading.Lock()
+        
+        # 相机相关
+        self.camera_config = CameraConfig()
+        self.cap = None
+        self.running = False
+        
+        # 立体视觉相关
+        self.stereo_config = StereoConfig()
+        self.stereo_camera = StereoCamera()
+        self.current_left_frame = None
+        self.current_right_frame = None
+        
+        # 立体视觉处理
+        self.map1x = None
+        self.map1y = None
+        self.map2x = None
+        self.map2y = None
+        self.Q = None
+        self.stereo_matcher = None
 
         # 跟踪器参数
         self.tracker_args = {
@@ -1514,11 +1623,19 @@ class ByteTrackerNode(Node):
         # 创建服务客户端
         self.setup_service_clients()
 
+        # 初始化相机
+        self.setup_camera()
+        
+        # 初始化立体视觉
+        if self.camera_config.is_stereo_camera and self.enable_distance_measure:
+            self.setup_stereo_vision()
+
         # 创建定时器
         self.setup_timers()
 
         self.get_logger().info('✅ ByteTracker节点初始化完成')
         self.get_logger().info(f'🎮 当前跟踪模式: {self.tracking_mode}')
+        self.get_logger().info(f'📷 相机ID: {self.camera_config.camera_id}, 分辨率: {self.camera_config.frame_width}x{self.camera_config.frame_height}')
 
     def setup_parameters(self):
         """设置节点参数"""
@@ -1529,20 +1646,32 @@ class ByteTrackerNode(Node):
         self.declare_parameter('match_thresh', 0.8)
         self.declare_parameter('color_weight', 0.5)
         self.declare_parameter('target_features_file', '')
-        self.declare_parameter('camera_topic', '/camera/image_raw')
+        self.declare_parameter('camera_id', 0)
+        self.declare_parameter('frame_width', 1280)
+        self.declare_parameter('frame_height', 480)
+        self.declare_parameter('fps_limit', 30)
         self.declare_parameter('enable_car_control', False)
-        self.declare_parameter('enable_distance_measure', False)
+        self.declare_parameter('enable_distance_measure', True)
+        self.declare_parameter('is_stereo_camera', True)
 
         # 获取参数值
-        self.tracking_mode = self.get_parameter('tracking_mode').value
+        self.tracking_mode = self.get_parameter('tracking_mode').value or 'multi'
         self.tracker_args['track_thresh'] = self.get_parameter('track_thresh').value
         self.tracker_args['track_buffer'] = self.get_parameter('track_buffer').value
         self.tracker_args['match_thresh'] = self.get_parameter('match_thresh').value
         self.tracker_args['color_weight'] = self.get_parameter('color_weight').value
-        self.target_features_file = self.get_parameter('target_features_file').value
-        self.camera_topic = self.get_parameter('camera_topic').value
+        self.target_features_file = self.get_parameter('target_features_file').value or ''
+        
+        # 相机参数
+        self.camera_config.camera_id = self.get_parameter('camera_id').value or 0
+        self.camera_config.frame_width = self.get_parameter('frame_width').value or 1280
+        self.camera_config.frame_height = self.get_parameter('frame_height').value or 480
+        self.camera_config.fps_limit = self.get_parameter('fps_limit').value or 30
+        self.camera_config.is_stereo_camera = self.get_parameter('is_stereo_camera').value or True
+        self.camera_config.enable_distance_measure = self.get_parameter('enable_distance_measure').value or True
+        
         self.enable_car_control = self.get_parameter('enable_car_control').value
-        self.enable_distance_measure = self.get_parameter('enable_distance_measure').value
+        self.enable_distance_measure = self.camera_config.enable_distance_measure
 
     def setup_publishers(self):
         """设置发布者"""
@@ -1556,9 +1685,9 @@ class ByteTrackerNode(Node):
         self.tracked_persons_pub = self.create_publisher(
             TrackedPersonArray, '/bytetracker/tracked_persons', qos)
 
-        # 可视化图像发布者
-        self.visualization_pub = self.create_publisher(
-            Image, '/bytetracker/visualization', qos)
+        # 可视化图像发布者（已禁用，直接显示）
+        # self.visualization_pub = self.create_publisher(
+        #     Image, '/bytetracker/visualization', qos)
 
         # 跟踪状态发布者
         self.status_pub = self.create_publisher(
@@ -1577,10 +1706,6 @@ class ByteTrackerNode(Node):
             depth=10
         )
 
-        # 图像订阅者
-        self.image_sub = self.create_subscription(
-            Image, self.camera_topic, self.image_callback, qos)
-
         # 模式控制订阅者
         self.mode_sub = self.create_subscription(
             String, '/bytetracker/set_mode', self.mode_callback, qos)
@@ -1595,10 +1720,151 @@ class ByteTrackerNode(Node):
         self.feature_extraction_client = self.create_client(
             FeatureExtraction, '/features/extract_features')
 
-        # 距离测量服务客户端
-        if self.enable_distance_measure:
-            self.distance_client = self.create_client(
-                GetDistance, '/stereo/get_distance')
+    def setup_camera(self):
+        """设置相机"""
+        try:
+            self.get_logger().info(f'🎬 初始化相机ID: {self.camera_config.camera_id}')
+            
+            # 初始化相机
+            self.cap = cv2.VideoCapture(self.camera_config.camera_id, cv2.CAP_V4L2)
+            
+            # 设置相机属性
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_config.frame_width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_config.frame_height)
+            self.cap.set(cv2.CAP_PROP_FPS, self.camera_config.fps_limit)
+            
+            # 设置格式
+            try:
+                self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+            except AttributeError:
+                # 兼容旧版本OpenCV
+                pass
+            
+            if not self.cap.isOpened():
+                self.get_logger().warn(f"无法打开相机ID {self.camera_config.camera_id}，尝试使用默认相机...")
+                self.camera_config.camera_id = 0
+                self.cap = cv2.VideoCapture(self.camera_config.camera_id)
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_config.frame_width)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_config.frame_height)
+                
+                if not self.cap.isOpened():
+                    raise RuntimeError("❌ 无法打开任何相机！")
+            
+            self.get_logger().info('✅ 相机初始化成功')
+            
+            # 启动图像捕获线程
+            self.start_capture_thread()
+            
+        except Exception as e:
+            self.get_logger().error(f"❌ 相机初始化失败: {e}")
+            self.cap = None
+
+    def start_capture_thread(self):
+        """启动图像捕获线程"""
+        try:
+            self.running = True
+            self.capture_thread = threading.Thread(target=self.capture_loop, daemon=True)
+            self.capture_thread.start()
+            self.get_logger().info('✅ 图像捕获线程已启动')
+        except Exception as e:
+            self.get_logger().error(f"❌ 捕获线程启动失败: {e}")
+
+    def setup_stereo_vision(self):
+        """设置立体视觉"""
+        try:
+            self.get_logger().info('🔧 初始化立体视觉系统...')
+            
+            # 计算立体校正参数
+            img_size = (self.camera_config.frame_width // 2, self.camera_config.frame_height)
+            
+            R1, R2, P1, P2, self.Q, roi1, roi2 = cv2.stereoRectify(
+                self.stereo_camera.cam_matrix_left,
+                self.stereo_camera.distortion_l,
+                self.stereo_camera.cam_matrix_right,
+                self.stereo_camera.distortion_r,
+                img_size,
+                self.stereo_camera.R,
+                self.stereo_camera.T,
+                flags=cv2.CALIB_ZERO_DISPARITY,
+                alpha=0
+            )
+            
+            # 计算畸变校正映射
+            self.map1x, self.map1y = cv2.initUndistortRectifyMap(
+                self.stereo_camera.cam_matrix_left,
+                self.stereo_camera.distortion_l,
+                R1, P1, img_size, cv2.CV_32FC1
+            )
+            
+            self.map2x, self.map2y = cv2.initUndistortRectifyMap(
+                self.stereo_camera.cam_matrix_right,
+                self.stereo_camera.distortion_r,
+                R2, P2, img_size, cv2.CV_32FC1
+            )
+            
+            # 创建立体匹配器
+            self.stereo_matcher = cv2.StereoSGBM_create(
+                minDisparity=self.stereo_config.minDisparity,
+                numDisparities=self.stereo_config.numDisparities,
+                blockSize=self.stereo_config.blockSize,
+                P1=self.stereo_config.P1,
+                P2=self.stereo_config.P2,
+                disp12MaxDiff=self.stereo_config.disp12MaxDiff,
+                preFilterCap=self.stereo_config.preFilterCap,
+                uniquenessRatio=self.stereo_config.uniquenessRatio,
+                speckleWindowSize=self.stereo_config.speckleWindowSize,
+                speckleRange=self.stereo_config.speckleRange,
+                mode=self.stereo_config.mode
+            )
+            
+            self.get_logger().info('✅ 立体视觉系统初始化完成')
+            
+        except Exception as e:
+            self.get_logger().error(f"❌ 立体视觉初始化失败: {e}")
+            self.enable_distance_measure = False
+
+    def capture_loop(self):
+        """图像捕获循环"""
+        while self.running and rclpy.ok():
+            try:
+                if self.cap is None:
+                    time.sleep(0.1)
+                    continue
+                    
+                ret, frame = self.cap.read()
+                if not ret:
+                    self.get_logger().warn("⚠️ 无法获取图像")
+                    time.sleep(0.1)
+                    continue
+
+                # 调整图像大小（如果需要）
+                if frame.shape[1] != self.camera_config.frame_width or frame.shape[0] != self.camera_config.frame_height:
+                    frame = cv2.resize(frame, (self.camera_config.frame_width, self.camera_config.frame_height))
+
+                # 如果是立体相机，分离左右图像
+                if self.camera_config.is_stereo_camera:
+                    height, width = frame.shape[:2]
+                    half_width = width // 2
+                    
+                    left_frame = frame[:, :half_width]
+                    right_frame = frame[:, half_width:]
+                    
+                    # 更新当前帧
+                    with self.lock:
+                        self.current_left_frame = left_frame.copy()
+                        self.current_right_frame = right_frame.copy()
+                        self.current_frame = left_frame.copy()  # 用左图作为主处理图像
+                else:
+                    # 单目相机
+                    with self.lock:
+                        self.current_frame = frame.copy()
+
+                # 控制帧率
+                time.sleep(1.0 / self.camera_config.fps_limit)
+                
+            except Exception as e:
+                self.get_logger().error(f"❌ 图像捕获错误: {e}")
+                time.sleep(0.1)
 
     def setup_timers(self):
         """设置定时器"""
@@ -1608,18 +1874,7 @@ class ByteTrackerNode(Node):
         # 状态发布定时器（2Hz）
         self.status_timer = self.create_timer(0.5, self.publish_status)
 
-    def image_callback(self, msg):
-        """图像回调函数"""
-        try:
-            # 转换ROS图像到OpenCV格式
-            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
 
-            with self.lock:
-                self.current_frame = cv_image
-                self.frame_count += 1
-
-        except Exception as e:
-            self.get_logger().error(f"图像转换错误: {e}")
 
     def mode_callback(self, msg):
         """模式切换回调"""
@@ -1723,6 +1978,7 @@ class ByteTrackerNode(Node):
                 return
             self.processing = True
             frame = self.current_frame.copy()
+            self.frame_count += 1
 
         try:
             start_time = time.time()
@@ -1733,7 +1989,10 @@ class ByteTrackerNode(Node):
             # 根据跟踪模式处理
             if self.tracking_mode == 'multi':
                 # 多目标跟踪
-                tracks = self.multi_target_tracker.update(detection_results, frame)
+                if self.multi_target_tracker is not None:
+                    tracks = self.multi_target_tracker.update(detection_results, frame)
+                else:
+                    tracks = []
                 target_track = None
                 mode = 'multi'
             else:
@@ -1801,7 +2060,7 @@ class ByteTrackerNode(Node):
 
                 return detection_results
             else:
-                self.get_logger().warn_once("服装检测模块不可用")
+                self.get_logger().warn("服装检测模块不可用")
                 return []
 
         except Exception as e:
@@ -1996,6 +2255,48 @@ class ByteTrackerNode(Node):
         except Exception as e:
             self.get_logger().error(f"发布跟踪结果错误: {e}")
 
+    def get_distance_at_point(self, x, y):
+        """获取指定像素点的距离"""
+        try:
+            if not self.enable_distance_measure or self.current_left_frame is None or self.current_right_frame is None:
+                return 2000.0  # 默认距离(mm)
+            
+            # 立体校正
+            left_rectified = cv2.remap(self.current_left_frame, self.map1x, self.map1y, cv2.INTER_LINEAR)
+            right_rectified = cv2.remap(self.current_right_frame, self.map2x, self.map2y, cv2.INTER_LINEAR)
+            
+            # 转换为灰度图
+            gray_left = cv2.cvtColor(left_rectified, cv2.COLOR_BGR2GRAY)
+            gray_right = cv2.cvtColor(right_rectified, cv2.COLOR_BGR2GRAY)
+            
+            # 计算视差图
+            disparity = self.stereo_matcher.compute(gray_left, gray_right)
+            
+            # 确保坐标在有效范围内
+            height, width = disparity.shape
+            x = max(0, min(x, width - 1))
+            y = max(0, min(y, height - 1))
+            
+            # 获取该点的视差值
+            disp_value = disparity[y, x]
+            
+            # 如果视差值无效，返回默认距离
+            if disp_value <= 0:
+                return 2000.0
+            
+            # 计算距离 (mm)
+            distance = (self.stereo_camera.focal_length * self.stereo_camera.baseline) / (disp_value / 16.0)
+            
+            # 限制距离范围
+            if distance < self.stereo_config.min_distance_mm or distance > self.stereo_config.max_distance_mm:
+                return 2000.0
+            
+            return distance
+            
+        except Exception as e:
+            self.get_logger().error(f"距离测量错误: {e}")
+            return 2000.0
+
     def publish_target_position(self, target_track, frame_shape):
         """发布目标位置信息（用于小车控制）"""
         try:
@@ -2010,16 +2311,8 @@ class ByteTrackerNode(Node):
             # 水平角度（弧度）
             angle_x = np.arctan2(center_x - img_center_x, frame_shape[1])
 
-            # 如果启用距离测量，获取距离
-            distance = 2.0  # 默认距离
-            if self.enable_distance_measure and self.distance_client.service_is_ready():
-                distance_req = GetDistance.Request()
-                distance_req.x = int(center_x)
-                distance_req.y = int(center_y)
-
-                future = self.distance_client.call_async(distance_req)
-                # 这里简化处理，实际应该异步等待
-                # distance = future.result().distance if future.result().success else 2.0
+            # 获取距离
+            distance = self.get_distance_at_point(int(center_x), int(center_y))
 
             # 发布位置信息
             pos_msg = Position()
@@ -2080,7 +2373,7 @@ class ByteTrackerNode(Node):
                 )
 
         # 显示模式信息
-        mode_text = f"Mode: {self.tracking_mode.upper()}"
+        mode_text = f"Mode: {(self.tracking_mode or 'multi').upper()}"
         if mode == 'single_not_initialized':
             mode_text += " (NOT INITIALIZED)"
         cv2.putText(
@@ -2128,12 +2421,13 @@ class ByteTrackerNode(Node):
             cv2.line(img, (x2, y), (x2, y_end), color, thickness)
 
     def publish_visualization(self, viz_frame):
-        """发布可视化图像"""
+        """发布可视化图像 - 暂时禁用，直接显示图像"""
         try:
-            viz_msg = self.bridge.cv2_to_imgmsg(viz_frame, "bgr8")
-            self.visualization_pub.publish(viz_msg)
+            # 直接显示图像而不是发布ROS消息
+            cv2.imshow('ByteTracker Visualization', viz_frame)
+            cv2.waitKey(1)
         except Exception as e:
-            self.get_logger().error(f"发布可视化图像错误: {e}")
+            self.get_logger().error(f"显示可视化图像错误: {e}")
 
     def publish_status(self):
         """发布状态信息"""
@@ -2151,6 +2445,21 @@ class ByteTrackerNode(Node):
 
         except Exception as e:
             self.get_logger().error(f"发布状态信息错误: {e}")
+
+    def destroy_node(self):
+        """节点销毁时的清理工作"""
+        try:
+            self.running = False
+            if hasattr(self, 'cap') and self.cap is not None:
+                self.cap.release()
+            cv2.destroyAllWindows()
+            
+            self.get_logger().info(f'📊 跟踪统计: 处理了 {self.frame_count} 帧')
+            self.get_logger().info('✅ ByteTracker节点已关闭')
+            super().destroy_node()
+            
+        except Exception as e:
+            self.get_logger().error(f"节点销毁错误: {e}")
 
 
 def main(args=None):

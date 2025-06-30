@@ -31,10 +31,28 @@ def generate_launch_description():
         description='Path to target features Excel file for single target tracking'
     )
     
-    camera_topic_arg = DeclareLaunchArgument(
-        'camera_topic',
-        default_value='/camera/image_raw',
-        description='Camera image topic'
+    camera_id_arg = DeclareLaunchArgument(
+        'camera_id',
+        default_value='0',
+        description='Camera device ID'
+    )
+    
+    frame_width_arg = DeclareLaunchArgument(
+        'frame_width',
+        default_value='1280',
+        description='Camera frame width (for stereo camera)'
+    )
+    
+    frame_height_arg = DeclareLaunchArgument(
+        'frame_height',
+        default_value='480',
+        description='Camera frame height'
+    )
+    
+    fps_limit_arg = DeclareLaunchArgument(
+        'fps_limit',
+        default_value='30',
+        description='Camera FPS limit'
     )
     
     enable_car_control_arg = DeclareLaunchArgument(
@@ -58,7 +76,10 @@ def generate_launch_description():
         parameters=[{
             'tracking_mode': LaunchConfiguration('tracking_mode'),
             'target_features_file': LaunchConfiguration('target_features_file'),
-            'camera_topic': LaunchConfiguration('camera_topic'),
+            'camera_id': LaunchConfiguration('camera_id'),
+            'frame_width': LaunchConfiguration('frame_width'),
+            'frame_height': LaunchConfiguration('frame_height'),
+            'fps_limit': LaunchConfiguration('fps_limit'),
             'enable_car_control': LaunchConfiguration('enable_car_control'),
             'enable_distance_measure': LaunchConfiguration('enable_distance_measure'),
             'track_thresh': 0.5,
@@ -85,7 +106,10 @@ def generate_launch_description():
     # 添加参数
     ld.add_action(tracking_mode_arg)
     ld.add_action(target_features_file_arg)
-    ld.add_action(camera_topic_arg)
+    ld.add_action(camera_id_arg)
+    ld.add_action(frame_width_arg)
+    ld.add_action(frame_height_arg)
+    ld.add_action(fps_limit_arg)
     ld.add_action(enable_car_control_arg)
     ld.add_action(enable_distance_measure_arg)
     

@@ -13,11 +13,13 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
-# 生成服务文件
+# 生成消息和服务文件
 rosidl_generate_interfaces(${PROJECT_NAME}
+  # 服务文件
   "srv/GetDistance.srv"
   "srv/PoseDetection.srv"
   "srv/FeatureExtraction.srv"
+  # 消息文件
   "msg/TrackedPerson.msg"
   "msg/TrackedPersonArray.msg"
   "msg/TrackingMode.msg"

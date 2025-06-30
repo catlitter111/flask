@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-按需双目立体视觉ROS2节点
-=========================
-优化版本：只在距离查询服务被调用时才进行立体视觉处理
+增强版按需双目立体视觉ROS2节点
+==============================
+新增功能：自动显示人物距离
 - 实时显示左目图像（带帧数和FPS显示）
 - 按需提供距离测量服务（只在服务调用时处理立体视觉）
+- 人体检测时自动计算人物距离并显示
 - 大幅提升性能和降低CPU占用
-- 键盘交互控制（按'q'退出）
+- 键盘交互控制（按'q'退出，'d'切换距离显示）
 - 集成人体衣服检测功能
 
 作者: AI Assistant
 优化: 按需处理立体视觉，提升系统性能
 新增: 人体检测和身体框定功能
+增强: 自动显示人物距离功能
 """
 
 import rclpy
@@ -126,7 +128,7 @@ class StereoCamera:
 
 
 class StereoVisionNode(Node):
-    """按需双目立体视觉ROS2节点类"""
+    """增强版按需双目立体视觉ROS2节点类"""
     
     def __init__(self):
         try:
@@ -167,6 +169,16 @@ class StereoVisionNode(Node):
             self.pose_detection_count = 0
             self.last_pose_detection_time = 0
             self.current_pose_results = []  # 当前检测到的姿态结果
+            
+            # 新增：人物距离显示相关属性
+            self.distance_display_enabled = True  # 默认开启距离显示
+            self.distance_detection_enabled = True  # 默认开启距离检测
+            self.human_distances = []  # 存储每个人物的距离信息
+            self.distance_calculation_count = 0
+            self.last_distance_calculation_time = 0
+            self.current_points_3d = None  # 当前的3D点云数据
+            self.points_3d_lock = threading.Lock()  # 3D点云数据锁
+            self.last_console_output_time = 0  # 控制台输出时间控制
             
             # 初始化配置
             try:
@@ -220,8 +232,11 @@ class StereoVisionNode(Node):
                     self.get_logger().error(f"❌ 图像捕获线程启动失败: {e}")
                     pass
             
-            self.get_logger().info('✅ 按需双目立体视觉节点初始化完成!')
-            self.get_logger().info('💡 立体视觉处理将仅在距离查询服务被调用时进行')
+            self.get_logger().info('✅ 增强版按需双目立体视觉节点初始化完成!')
+            self.get_logger().info('💡 立体视觉处理将在人体检测时自动触发')
+            self.get_logger().info('📏 人物距离检测功能已默认启用')
+            self.get_logger().info('📺 人物距离显示功能已默认启用')
+            self.get_logger().info('🖥️  控制台距离输出功能已启用')
             if HUMAN_DETECTION_AVAILABLE:
                 self.get_logger().info('🤖 人体检测功能已启用（按"h"键切换开关）')
             else:
@@ -230,7 +245,7 @@ class StereoVisionNode(Node):
                 self.get_logger().info('🦴 姿态检测功能已启用（按"p"键切换开关）')
             else:
                 self.get_logger().warn('⚠️ 姿态检测功能不可用')
-            self.get_logger().info('🔧 按键说明: "q"退出, "h"切换人体检测, "p"切换姿态检测, "s"测试立体视觉')
+            self.get_logger().info('🔧 按键说明: "q"退出, "h"切换人体检测, "p"切换姿态检测, "d"切换距离显示, "r"切换距离检测, "s"测试立体视觉')
             
         except Exception as e:
             self.get_logger().error(f"❌ 节点初始化错误: {e}")
@@ -342,7 +357,7 @@ class StereoVisionNode(Node):
             traceback.print_exc()
 
     def capture_loop(self):
-        """图像捕获循环 - 仅捕获和显示，不进行立体处理"""
+        """图像捕获循环 - 增强版，支持人物距离显示"""
         frame_counter = 0
         start_time = time.time()
         fps_counter = 0
@@ -381,6 +396,12 @@ class StereoVisionNode(Node):
                 # 人体检测处理（每5帧执行一次以保持性能）
                 if self.human_detection_enabled and frame_counter % 5 == 0:
                     self.process_human_detection(left_half)
+                    
+                    # 新增：如果检测到人体且开启距离检测，则计算人物距离
+                    if (self.distance_detection_enabled and 
+                        len(self.current_human_boxes) > 0 and 
+                        frame_counter % 10 == 0):  # 每10帧计算一次距离以保持性能
+                        self.calculate_human_distances(left_half, right_half)
                 
                 # 姿态检测处理（每8帧执行一次以保持性能）
                 if self.pose_detection_enabled and frame_counter % 8 == 0:
@@ -430,13 +451,39 @@ class StereoVisionNode(Node):
                             cv2.putText(display_image, lower_label, (int(x1), int(y1)-10), 
                                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
                 
-                # 绘制整体人体检测框（绿色）
+                # 绘制整体人体检测框（绿色）和距离信息
                 if self.current_human_boxes:
                     for i, box in enumerate(self.current_human_boxes):
                         if len(box) >= 4:
                             x1, y1, x2, y2 = box[:4]
                             cv2.rectangle(display_image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-                            cv2.putText(display_image, f"Person {i+1}", (int(x1), int(y1)-10), 
+                            
+                            # 基础人物标签
+                            person_label = f"Person {i+1}"
+                            
+                            # 新增：显示距离信息
+                            if (self.distance_display_enabled and 
+                                i < len(self.human_distances) and 
+                                self.human_distances[i] is not None):
+                                distance = self.human_distances[i]
+                                person_label += f" - {distance:.2f}m"
+                                
+                                # 根据距离设置不同颜色
+                                if distance < 1.0:
+                                    distance_color = (0, 0, 255)  # 红色 - 很近
+                                elif distance < 2.0:
+                                    distance_color = (0, 165, 255)  # 橙色 - 较近
+                                elif distance < 5.0:
+                                    distance_color = (0, 255, 255)  # 黄色 - 中等距离
+                                else:
+                                    distance_color = (0, 255, 0)  # 绿色 - 较远
+                                    
+                                # 绘制距离信息
+                                cv2.putText(display_image, f"{distance:.2f}m", 
+                                          (int(x1), int(y2) + 25), 
+                                          cv2.FONT_HERSHEY_SIMPLEX, 0.8, distance_color, 2)
+                            
+                            cv2.putText(display_image, person_label, (int(x1), int(y1)-10), 
                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 
                 # 添加文本信息
@@ -487,12 +534,25 @@ class StereoVisionNode(Node):
                     pose_count_text = f"Pose Calls: {self.pose_detection_count}"
                     cv2.putText(display_image, pose_count_text, (10, 300), font, font_scale, (0, 255, 255), thickness)
                 
+                # 新增：显示距离检测和显示信息
+                if self.distance_detection_enabled:
+                    detection_status = "ON" if self.distance_detection_enabled else "OFF"
+                    detection_text = f"Distance Detection: {detection_status}"
+                    cv2.putText(display_image, detection_text, (10, 330), font, font_scale, (255, 255, 255), thickness)
+                    
+                    display_status = "ON" if self.distance_display_enabled else "OFF"
+                    display_text = f"Distance Display: {display_status}"
+                    cv2.putText(display_image, display_text, (10, 360), font, font_scale, (255, 255, 255), thickness)
+                    
+                    distance_count_text = f"Distance Calcs: {self.distance_calculation_count}"
+                    cv2.putText(display_image, distance_count_text, (10, 390), font, font_scale, (255, 255, 255), thickness)
+                
                 # 显示模式信息
-                mode_text = "Mode: ON-DEMAND STEREO + CLOTHING + POSE DETECTION"
-                cv2.putText(display_image, mode_text, (10, 330), font, font_scale, (0, 255, 255), thickness)
+                mode_text = "Mode: ENHANCED WITH HUMAN DISTANCE DETECTION"
+                cv2.putText(display_image, mode_text, (10, 420), font, font_scale, (0, 255, 255), thickness)
 
                 # 使用cv2.imshow显示图像
-                cv2.imshow('Left Camera View (On-Demand Stereo)', display_image)
+                cv2.imshow('Enhanced Stereo Vision with Human Distance', display_image)
                 
                 # 处理键盘事件
                 key = cv2.waitKey(1) & 0xFF
@@ -508,6 +568,9 @@ class StereoVisionNode(Node):
                         if not self.human_detection_enabled:
                             self.current_human_boxes = []  # 清空检测框
                             self.current_clothing_detections = []  # 清空衣服检测
+                            self.human_distances = []  # 清空距离信息
+                            with self.points_3d_lock:
+                                self.current_points_3d = None  # 清空3D点云缓存
                     else:
                         self.get_logger().warn("人体检测模块不可用")
                 elif key == ord('p'):  # 按'p'切换姿态检测
@@ -519,6 +582,20 @@ class StereoVisionNode(Node):
                             self.current_pose_results = []  # 清空姿态检测结果
                     else:
                         self.get_logger().warn("姿态检测模块不可用")
+                elif key == ord('d'):  # 新增：按'd'切换距离显示
+                    self.distance_display_enabled = not self.distance_display_enabled
+                    status = "开启" if self.distance_display_enabled else "关闭"
+                    self.get_logger().info(f"人物距离显示已{status}")
+                    if not self.distance_display_enabled:
+                        self.get_logger().info("注意：距离检测仍在后台运行，只是不在画面显示")
+                elif key == ord('r'):  # 新增：按'r'切换距离检测
+                    self.distance_detection_enabled = not self.distance_detection_enabled
+                    status = "开启" if self.distance_detection_enabled else "关闭"
+                    self.get_logger().info(f"人物距离检测已{status}")
+                    if not self.distance_detection_enabled:
+                        self.human_distances = []  # 清空距离信息
+                        with self.points_3d_lock:
+                            self.current_points_3d = None  # 清空3D点云缓存
                 elif key == ord('s'):  # 按's'手动触发立体视觉处理测试
                     self.get_logger().info("手动触发立体视觉处理测试")
                     with self.frame_lock:
@@ -629,10 +706,186 @@ class StereoVisionNode(Node):
             traceback.print_exc()
             self.current_pose_results = []
 
+    def calculate_human_distances(self, left_image, right_image):
+        """新增：计算人物距离并输出到控制台"""
+        try:
+            if not self.distance_detection_enabled or len(self.current_human_boxes) == 0:
+                return
+            
+            self.get_logger().debug("📏 开始计算人物距离...")
+            calc_start_time = time.time()
+            
+            # 进行立体视觉处理
+            points_3d = self.process_stereo_on_demand(left_image, right_image)
+            
+            if points_3d is None:
+                self.get_logger().debug("❌ 立体视觉处理失败，无法计算距离")
+                return
+            
+            # 保存3D点云数据
+            with self.points_3d_lock:
+                self.current_points_3d = points_3d
+            
+            # 计算每个人物的距离
+            distances = []
+            console_output_lines = []
+            console_output_lines.append("=" * 60)
+            console_output_lines.append(f"🤖 人物距离检测报告 - 时间: {time.strftime('%H:%M:%S')}")
+            console_output_lines.append("=" * 60)
+            
+            for i, box in enumerate(self.current_human_boxes):
+                if len(box) >= 4:
+                    x1, y1, x2, y2 = box[:4]
+                    
+                    # 计算人体边界框的中心点
+                    center_x = int((x1 + x2) / 2)
+                    center_y = int((y1 + y2) / 2)
+                    
+                    # 计算胸部区域的距离（人体上1/3区域）
+                    chest_y = int(y1 + (y2 - y1) * 0.3)
+                    
+                    # 尝试多个点的距离测量以获得更稳定的结果
+                    valid_distances = []
+                    
+                    # 测量点集合：中心点、胸部中心、肩膀位置等
+                    test_points = [
+                        (center_x, chest_y, "胸部中心"),  # 胸部中心
+                        (center_x, center_y, "整体中心"),  # 整体中心
+                        (int(x1 + (x2 - x1) * 0.3), chest_y, "左肩区域"),  # 左肩区域
+                        (int(x1 + (x2 - x1) * 0.7), chest_y, "右肩区域"),  # 右肩区域
+                    ]
+                    
+                    point_details = []
+                    for test_x, test_y, point_name in test_points:
+                        distance = self.measure_distance_from_points_3d(points_3d, test_x, test_y)
+                        if distance is not None and 0.3 <= distance <= 10.0:  # 合理的距离范围
+                            valid_distances.append(distance)
+                            point_details.append(f"  - {point_name}({test_x},{test_y}): {distance:.2f}m")
+                        else:
+                            point_details.append(f"  - {point_name}({test_x},{test_y}): 无效")
+                    
+                    # 使用中位数作为最终距离（更稳定）
+                    if valid_distances:
+                        valid_distances.sort()
+                        median_distance = valid_distances[len(valid_distances) // 2]
+                        distances.append(median_distance)
+                        
+                        # 距离安全等级评估
+                        if median_distance < 0.5:
+                            safety_level = "🔴 极近距离 - 注意安全!"
+                        elif median_distance < 1.0:
+                            safety_level = "🟠 很近距离 - 小心行动"
+                        elif median_distance < 2.0:
+                            safety_level = "🟡 较近距离 - 正常交互"
+                        elif median_distance < 5.0:
+                            safety_level = "🟢 适中距离 - 安全范围"
+                        else:
+                            safety_level = "🔵 远距离 - 检测边缘"
+                        
+                        console_output_lines.append(f"👤 人物 {i+1}:")
+                        console_output_lines.append(f"  🎯 最终距离: {median_distance:.2f}米")
+                        console_output_lines.append(f"  📊 有效测量点: {len(valid_distances)}/{len(test_points)}")
+                        console_output_lines.append(f"  🔍 测量详情:")
+                        console_output_lines.extend(point_details)
+                        console_output_lines.append(f"  ⚡ 安全评估: {safety_level}")
+                        console_output_lines.append(f"  📐 人体框: ({int(x1)},{int(y1)}) -> ({int(x2)},{int(y2)})")
+                        console_output_lines.append("")
+                        
+                        self.get_logger().debug(f"👤 人物 {i+1} 距离: {median_distance:.2f}m")
+                    else:
+                        distances.append(None)
+                        console_output_lines.append(f"👤 人物 {i+1}:")
+                        console_output_lines.append(f"  ❌ 距离测量失败 - 所有测量点无效")
+                        console_output_lines.append(f"  🔍 测量详情:")
+                        console_output_lines.extend(point_details)
+                        console_output_lines.append("")
+                        self.get_logger().debug(f"👤 人物 {i+1} 距离测量失败")
+                else:
+                    distances.append(None)
+                    console_output_lines.append(f"👤 人物 {i+1}: ❌ 边界框数据无效")
+                    console_output_lines.append("")
+            
+            # 更新人物距离数据
+            self.human_distances = distances
+            self.distance_calculation_count += 1
+            self.last_distance_calculation_time = time.time()
+            
+            calc_time = (self.last_distance_calculation_time - calc_start_time) * 1000
+            valid_count = sum(1 for d in distances if d is not None)
+            
+            # 添加统计信息到控制台输出
+            console_output_lines.append("📈 统计信息:")
+            console_output_lines.append(f"  ✅ 成功检测: {valid_count}/{len(distances)} 个人物")
+            console_output_lines.append(f"  ⏱️  处理耗时: {calc_time:.2f}ms")
+            console_output_lines.append(f"  📊 累计检测: {self.distance_calculation_count} 次")
+            
+            if valid_count > 0:
+                valid_distances_only = [d for d in distances if d is not None]
+                min_dist = min(valid_distances_only)
+                max_dist = max(valid_distances_only)
+                avg_dist = sum(valid_distances_only) / len(valid_distances_only)
+                console_output_lines.append(f"  📏 距离范围: {min_dist:.2f}m ~ {max_dist:.2f}m")
+                console_output_lines.append(f"  📊 平均距离: {avg_dist:.2f}m")
+                
+                # 最近人物警报
+                if min_dist < 1.0:
+                    console_output_lines.append(f"  ⚠️  警告: 检测到极近距离人物 ({min_dist:.2f}m)")
+                
+            console_output_lines.append("=" * 60)
+            
+            # 控制台输出频率控制（每3秒输出一次完整报告，避免刷屏）
+            current_time = time.time()
+            if current_time - self.last_console_output_time >= 3.0:
+                for line in console_output_lines:
+                    self.get_logger().info(line)
+                self.last_console_output_time = current_time
+            else:
+                # 简化输出
+                summary = f"📏 距离更新: {valid_count}人有效距离 "
+                if valid_count > 0:
+                    valid_distances_only = [d for d in distances if d is not None]
+                    min_dist = min(valid_distances_only)
+                    summary += f"(最近: {min_dist:.2f}m)"
+                self.get_logger().info(summary)
+            
+            self.get_logger().debug(f"✅ 距离计算完成，{valid_count}/{len(distances)} 个有效距离，耗时: {calc_time:.2f}ms")
+            
+        except Exception as e:
+            self.get_logger().error(f"人物距离计算错误: {e}")
+            traceback.print_exc()
+            self.human_distances = [None] * len(self.current_human_boxes)
+
+    def measure_distance_from_points_3d(self, points_3d, x, y):
+        """从3D点云数据中测量指定像素点的距离"""
+        try:
+            if points_3d is None:
+                return None
+                
+            h, w = points_3d.shape[:2]
+
+            # 检查坐标是否在有效范围内
+            if not (0 <= x < w and 0 <= y < h):
+                return None
+
+            # 获取点的3D坐标
+            point_3d = points_3d[y, x]
+
+            # 检查点的有效性
+            if np.all(np.isfinite(point_3d)) and not np.all(point_3d == 0):
+                # 计算欧几里得距离
+                distance = np.sqrt(np.sum(point_3d ** 2))
+                return distance / 1000.0  # 转换为米
+
+            return None
+            
+        except Exception as e:
+            self.get_logger().debug(f"距离测量错误: {e}")
+            return None
+
     def process_stereo_on_demand(self, left_image, right_image):
         """按需处理立体视觉 - 仅在服务调用时执行"""
         try:
-            self.get_logger().info("🔄 开始按需立体视觉处理...")
+            self.get_logger().debug("🔄 开始按需立体视觉处理...")
             process_start_time = time.time()
             
             # 检查必要的属性是否存在
@@ -674,7 +927,7 @@ class StereoVisionNode(Node):
             self.last_stereo_processing_time = time.time()
             
             process_time = self.last_stereo_processing_time - process_start_time
-            self.get_logger().info(f"✅ 立体视觉处理完成，耗时: {process_time:.3f}秒")
+            self.get_logger().debug(f"✅ 立体视觉处理完成，耗时: {process_time:.3f}秒")
 
             return points_3d
             
@@ -832,6 +1085,20 @@ class StereoVisionNode(Node):
         try:
             self.get_logger().info(f"📞 收到距离查询请求: 坐标({request.x}, {request.y})")
             
+            # 优先使用缓存的3D点云数据
+            with self.points_3d_lock:
+                if self.current_points_3d is not None:
+                    self.get_logger().info("📊 使用缓存的3D点云数据")
+                    distance = self.measure_distance_from_points_3d(self.current_points_3d, request.x, request.y)
+                    
+                    if distance is not None:
+                        response.success = True
+                        response.distance = distance
+                        response.message = f"成功测量距离（使用缓存数据）: {distance:.2f}米"
+                        self.get_logger().info(f"✅ 测量点({request.x}, {request.y})距离: {distance:.2f}米（缓存）")
+                        return response
+            
+            # 如果没有缓存数据，则重新计算
             # 获取当前帧数据
             with self.frame_lock:
                 if self.current_left_frame is None or self.current_right_frame is None:
@@ -859,7 +1126,7 @@ class StereoVisionNode(Node):
                 return response
 
             # 测量指定点的距离
-            distance = self.measure_distance(points_3d, request.x, request.y)
+            distance = self.measure_distance_from_points_3d(points_3d, request.x, request.y)
 
             if distance is not None:
                 response.success = True
@@ -882,32 +1149,6 @@ class StereoVisionNode(Node):
             response.message = f"服务处理错误: {str(e)}"
             return response
 
-    def measure_distance(self, points_3d, x, y):
-        """测量指定像素点到相机的距离"""
-        try:
-            h, w = points_3d.shape[:2]
-
-            # 检查坐标是否在有效范围内
-            if not (0 <= x < w and 0 <= y < h):
-                self.get_logger().warn(f"坐标({x}, {y})超出范围({w}x{h})")
-                return None
-
-            # 获取点的3D坐标
-            point_3d = points_3d[y, x]
-
-            # 检查点的有效性
-            if np.all(np.isfinite(point_3d)) and not np.all(point_3d == 0):
-                # 计算欧几里得距离
-                distance = np.sqrt(np.sum(point_3d ** 2))
-                return distance / 1000.0  # 转换为米
-
-            return None
-            
-        except Exception as e:
-            self.get_logger().error(f"距离测量错误: {e}")
-            traceback.print_exc()
-            return None
-
     def destroy_node(self):
         """节点销毁时的清理工作"""
         try:
@@ -917,7 +1158,8 @@ class StereoVisionNode(Node):
             cv2.destroyAllWindows()
             
             self.get_logger().info(f'📊 立体视觉处理统计: 总共处理了 {self.stereo_processing_count} 次')
-            self.get_logger().info('✅ 按需双目立体视觉节点已关闭')
+            self.get_logger().info(f'📏 距离计算统计: 总共计算了 {self.distance_calculation_count} 次')
+            self.get_logger().info('✅ 增强版双目立体视觉节点已关闭')
             super().destroy_node()
             
         except Exception as e:
@@ -945,4 +1187,4 @@ def main(args=None):
 
 
 if __name__ == '__main__':
-    main() 
+    main()
