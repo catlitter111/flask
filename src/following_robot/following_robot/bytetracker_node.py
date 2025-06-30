@@ -2498,6 +2498,7 @@ class CameraConfig:
         self.camera_id = 1 # 默认相机ID
         self.frame_width = 1280  # 双目相机需要更大宽度
         self.frame_height = 480
+        self.video_file_path = None  # 视频文件路径，None表示使用相机
         self.fps_limit = 30
         
         # 图像处理参数
@@ -3562,6 +3563,7 @@ class ByteTrackerNode(Node):
         self.declare_parameter('enable_car_control', False)
         self.declare_parameter('enable_distance_measure', True)
         self.declare_parameter('is_stereo_camera', True)
+        self.declare_parameter('video_file_path', '')
 
         # 获取参数值
         self.tracking_mode = self.get_parameter('tracking_mode').value or 'multi'
@@ -3581,6 +3583,19 @@ class ByteTrackerNode(Node):
         
         self.enable_car_control = self.get_parameter('enable_car_control').value
         self.enable_distance_measure = self.camera_config.enable_distance_measure
+        
+        # 视频文件参数
+        self.video_file_path = self.get_parameter('video_file_path').value or ''
+        if not self.video_file_path:
+            self.video_file_path = None
+            
+        # 如果使用视频文件，自动禁用距离测量和立体视觉
+        if self.video_file_path:
+            self.enable_distance_measure = False
+            self.camera_config.is_stereo_camera = False
+            self.camera_config.enable_distance_measure = False
+            self.get_logger().info(f'📹 视频模式启用，使用文件: {self.video_file_path}')
+            self.get_logger().info('🚫 已自动禁用距离测量功能（视频模式不支持立体视觉）')
 
     def setup_publishers(self):
         """
@@ -3721,10 +3736,40 @@ class ByteTrackerNode(Node):
             - 监控相机连接状态
         """
         try:
-            self.get_logger().info(f'🎬 初始化相机ID: {self.camera_config.camera_id}')
-            
-            # 初始化相机
-            self.cap = cv2.VideoCapture(1, cv2.CAP_V4L2)
+            if self.video_file_path:
+                # 视频文件模式
+                self.get_logger().info(f'🎬 初始化视频文件: {self.video_file_path}')
+                
+                # 检查文件是否存在
+                if not os.path.exists(self.video_file_path):
+                    raise FileNotFoundError(f"视频文件不存在: {self.video_file_path}")
+                
+                # 打开视频文件
+                self.cap = cv2.VideoCapture(self.video_file_path)
+                
+                # 获取视频信息
+                if self.cap.isOpened():
+                    fps = self.cap.get(cv2.CAP_PROP_FPS)
+                    frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    duration = frame_count / fps if fps > 0 else 0
+                    
+                    self.get_logger().info(f'📹 视频信息: {width}x{height}, {fps:.1f}FPS, '
+                                         f'{frame_count}帧, 时长{duration:.1f}秒')
+                    
+                    # 更新配置以匹配视频
+                    self.camera_config.frame_width = width
+                    self.camera_config.frame_height = height
+                    self.camera_config.fps_limit = int(min(fps, 30))  # 限制最大30FPS避免处理过快
+                else:
+                    raise ValueError(f"无法打开视频文件: {self.video_file_path}")
+            else:
+                # 相机模式
+                self.get_logger().info(f'🎬 初始化相机ID: {self.camera_config.camera_id}')
+                
+                # 初始化相机
+                self.cap = cv2.VideoCapture(1, cv2.CAP_V4L2)
             
             # 设置相机属性
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_config.frame_width)

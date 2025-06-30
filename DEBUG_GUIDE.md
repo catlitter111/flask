@@ -38,6 +38,8 @@ colcon build --packages-select following_robot custom_msgs --symlink-install
    - **调试 ByteTracker 节点 - 多目标跟踪** - 多目标跟踪模式  
    - **调试 ByteTracker 节点 (无相机) - 单目标跟踪** - 无摄像头的单目标调试
    - **调试 ByteTracker 节点 (单步调试) - 单目标跟踪** - 从程序开始逐行调试
+   - **调试 ByteTracker 节点 - 视频文件单目标跟踪** - 使用视频文件调试（推荐用于算法调试）
+   - **调试 ByteTracker 节点 - 视频文件单目标跟踪 (单步调试)** - 视频文件单步调试
 3. 按 `F5` 开始调试
 
 ## 🔧 调试配置详解
@@ -64,6 +66,21 @@ colcon build --packages-select following_robot custom_msgs --symlink-install
 - **特点**: `stopOnEntry=true`, `justMyCode=false`
 - **参数**: 包含单目标跟踪模式和特征文件路径
 - **适用场景**: 详细分析单目标跟踪的程序执行流程
+
+### 配置5: 调试 ByteTracker 节点 - 视频文件单目标跟踪 (推荐用于算法调试)
+- **用途**: 使用视频文件进行单目标跟踪调试
+- **特征**: 
+  - 自动禁用距离测量和立体视觉功能
+  - 可重复播放同一视频进行测试
+  - 支持多种视频格式（mp4、avi、mov等）
+- **参数**: `video_file_path=${workspaceFolder}/test_video.mp4`
+- **适用场景**: 算法开发和测试，无需硬件设备
+
+### 配置6: 调试 ByteTracker 节点 - 视频文件单目标跟踪 (单步调试)
+- **用途**: 使用视频文件进行单步调试
+- **特点**: `stopOnEntry=true`, `justMyCode=false`
+- **参数**: 包含视频文件路径和单目标跟踪配置
+- **适用场景**: 详细分析视频文件处理流程和算法逻辑
 
 ## 🎯 断点设置建议
 
@@ -190,9 +207,37 @@ sudo chmod 666 /dev/video*
 ### 问题4: 特征文件路径问题
 **解决方案**: 检查 `features-data` 目录是否存在
 
+### 问题5: 视频文件无法打开
+**解决方案**: 
+```bash
+# 检查视频文件格式和编码
+ffmpeg -i test_video.mp4
+# 转换为兼容格式
+ffmpeg -i input.mp4 -c:v libx264 -c:a aac test_video.mp4
+```
+
 ## 💡 高级调试技巧
 
-### 1. 远程调试
+### 1. 视频文件调试 (推荐用于算法开发)
+
+**优势**:
+- 可重复测试：同一视频可以反复播放，确保测试的一致性
+- 无硬件依赖：不需要相机设备，便于算法开发和测试
+- 自动优化：系统会自动禁用距离测量，避免不必要的计算
+
+**使用步骤**:
+1. 准备测试视频文件（建议包含目标人物的单目标跟踪场景）
+2. 将视频文件放在项目根目录，命名为 `test_video.mp4`
+3. 选择 "调试 ByteTracker 节点 - 视频文件单目标跟踪" 配置
+4. 设置断点进行调试
+
+**视频要求**:
+- 格式：mp4、avi、mov 等 OpenCV 支持的格式
+- 编码：H.264 (推荐)
+- 分辨率：建议 1280x720 或更高
+- 帧率：15-30 FPS
+
+### 2. 远程调试
 如果需要在远程设备上调试，可以使用 `debugpy`：
 ```python
 import debugpy
@@ -200,7 +245,7 @@ debugpy.listen(5678)
 debugpy.wait_for_client()
 ```
 
-### 2. 多进程调试
+### 3. 多进程调试
 ROS2 节点可能涉及多进程，注意设置：
 ```json
 "subProcess": true

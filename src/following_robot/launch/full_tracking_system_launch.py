@@ -63,6 +63,13 @@ def generate_launch_description():
         description='Path to target features Excel file for single target tracking'
     )
     
+    # 视频文件参数（调试用）
+    video_file_path_arg = DeclareLaunchArgument(
+        'video_file_path',
+        default_value='',
+        description='Path to video file for debugging (leave empty to use camera)'
+    )
+    
     # 相机设备参数
     camera_id_arg = DeclareLaunchArgument(
         'camera_id',
@@ -119,15 +126,23 @@ def generate_launch_description():
         parameters=[{
             'tracking_mode': LaunchConfiguration('tracking_mode'),
             'target_features_file': LaunchConfiguration('target_features_file'),
+            # 视频文件参数
+            'video_file_path': LaunchConfiguration('video_file_path'),
             # 相机参数
             'camera_id': LaunchConfiguration('camera_id'),
             'frame_width': LaunchConfiguration('frame_width'),
             'frame_height': LaunchConfiguration('frame_height'),
             'fps_limit': LaunchConfiguration('fps_limit'),
-            'is_stereo_camera': LaunchConfiguration('is_stereo_camera'),
+            'is_stereo_camera': PythonExpression([
+                "'false' if '", LaunchConfiguration('video_file_path'), "' else '", 
+                LaunchConfiguration('is_stereo_camera'), "'"
+            ]),
             # 功能控制参数
             'enable_car_control': LaunchConfiguration('enable_car_control'),
-            'enable_distance_measure': LaunchConfiguration('is_stereo_camera'),
+            'enable_distance_measure': PythonExpression([
+                "'false' if '", LaunchConfiguration('video_file_path'), "' else '", 
+                LaunchConfiguration('is_stereo_camera'), "'"
+            ]),
             # ByteTracker算法参数
             'track_thresh': 0.5,      # 跟踪阈值
             'track_buffer': 100,      # 轨迹缓冲
@@ -189,6 +204,7 @@ def generate_launch_description():
     # 添加启动参数
     ld.add_action(tracking_mode_arg)
     ld.add_action(target_features_file_arg)
+    ld.add_action(video_file_path_arg)
     ld.add_action(camera_id_arg)
     ld.add_action(frame_width_arg)
     ld.add_action(frame_height_arg)
@@ -201,6 +217,7 @@ def generate_launch_description():
     ld.add_action(LogInfo(
         msg=['启动ByteTracker跟踪系统，模式: ', LaunchConfiguration('tracking_mode'),
              ', 相机ID: ', LaunchConfiguration('camera_id'),
+             ', 视频文件: ', LaunchConfiguration('video_file_path'),
              ', 立体相机: ', LaunchConfiguration('is_stereo_camera'),
              ', 特征文件: ', LaunchConfiguration('target_features_file')]
     ))
