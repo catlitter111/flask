@@ -1,0 +1,41 @@
+{
+    "python.defaultInterpreter": "/usr/bin/python3",
+    "python.pythonPath": "/usr/bin/python3",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/install/following_robot/lib/python3.10/site-packages",
+        "${workspaceFolder}/install/custom_msgs/lib/python3.10/site-packages",
+        "${workspaceFolder}/src/following_robot",
+        "${workspaceFolder}/src/custom_msgs"
+    ],
+    "python.envFile": "${workspaceFolder}/.env",
+    "python.terminal.activateEnvironment": true,
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": false,
+    "python.formatting.provider": "black",
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.diagnosticMode": "workspace",
+    "files.associations": {
+        "*.launch.py": "python",
+        "*.py": "python"
+    },
+    "ros.distro": "humble",
+    "terminal.integrated.env.linux": {
+        "ROS_DOMAIN_ID": "0",
+        "ROS_DISTRO": "humble",
+        "PYTHONPATH": "${workspaceFolder}/install/following_robot/lib/python3.10/site-packages:${workspaceFolder}/install/custom_msgs/lib/python3.10/site-packages",
+        "AMENT_PREFIX_PATH": "${workspaceFolder}/install/following_robot:${workspaceFolder}/install/custom_msgs",
+        "CMAKE_PREFIX_PATH": "${workspaceFolder}/install/following_robot:${workspaceFolder}/install/custom_msgs",
+        "LD_LIBRARY_PATH": "${workspaceFolder}/install/following_robot/lib:${workspaceFolder}/install/custom_msgs/lib",
+        "COLCON_PREFIX_PATH": "${workspaceFolder}/install"
+    },
+    "debug.console.fontSize": 14,
+    "debug.console.fontFamily": "Consolas, 'Courier New', monospace",
+    "debug.console.lineHeight": 1.2,
+    "debug.internalConsoleOptions": "openOnSessionStart",
+    "debug.showBreakpointsInOverviewRuler": true,
+    "debug.showInlineBreakpointCandidates": true,
+    "editor.rulers": [88, 120],
+    "editor.wordWrap": "bounded",
+    "editor.wordWrapColumn": 120
+} 

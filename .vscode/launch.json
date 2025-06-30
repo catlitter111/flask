@@ -1,0 +1,114 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "调试 ByteTracker 节点 - 单目标跟踪",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/following_robot/following_robot/bytetracker_node.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/install/following_robot/lib/python3.10/site-packages:${workspaceFolder}/install/custom_msgs/lib/python3.10/site-packages:${env:PYTHONPATH}",
+                "ROS_DOMAIN_ID": "0",
+                "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
+                "AMENT_PREFIX_PATH": "${workspaceFolder}/install/following_robot:${workspaceFolder}/install/custom_msgs:${env:AMENT_PREFIX_PATH}",
+                "ROS_DISTRO": "humble",
+                "CMAKE_PREFIX_PATH": "${workspaceFolder}/install/following_robot:${workspaceFolder}/install/custom_msgs:${env:CMAKE_PREFIX_PATH}",
+                "LD_LIBRARY_PATH": "${workspaceFolder}/install/following_robot/lib:${workspaceFolder}/install/custom_msgs/lib:${env:LD_LIBRARY_PATH}",
+                "COLCON_PREFIX_PATH": "${workspaceFolder}/install"
+            },
+            "args": [
+                "--ros-args",
+                "-p", "tracking_mode:=single",
+                "-p", "target_features_file:=features-data/person.xlsx",
+                "-p", "camera_id:=1"
+            ],
+            "stopOnEntry": false,
+            "python": "/usr/bin/python3",
+            "preLaunchTask": "构建ROS2包"
+        },
+        {
+            "name": "调试 ByteTracker 节点 - 多目标跟踪",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/following_robot/following_robot/bytetracker_node.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/install/following_robot/lib/python3.10/site-packages:${workspaceFolder}/install/custom_msgs/lib/python3.10/site-packages:${env:PYTHONPATH}",
+                "ROS_DOMAIN_ID": "0",
+                "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
+                "AMENT_PREFIX_PATH": "${workspaceFolder}/install/following_robot:${workspaceFolder}/install/custom_msgs:${env:AMENT_PREFIX_PATH}",
+                "ROS_DISTRO": "humble",
+                "CMAKE_PREFIX_PATH": "${workspaceFolder}/install/following_robot:${workspaceFolder}/install/custom_msgs:${env:CMAKE_PREFIX_PATH}",
+                "LD_LIBRARY_PATH": "${workspaceFolder}/install/following_robot/lib:${workspaceFolder}/install/custom_msgs/lib:${env:LD_LIBRARY_PATH}",
+                "COLCON_PREFIX_PATH": "${workspaceFolder}/install"
+            },
+            "args": [
+                "--ros-args",
+                "-p", "tracking_mode:=multi",
+                "-p", "camera_id:=1"
+            ],
+            "stopOnEntry": false,
+            "python": "/usr/bin/python3",
+            "preLaunchTask": "构建ROS2包"
+        },
+        {
+            "name": "调试 ByteTracker 节点 (无相机) - 单目标跟踪",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/following_robot/following_robot/bytetracker_node.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/install/following_robot/lib/python3.10/site-packages:${workspaceFolder}/install/custom_msgs/lib/python3.10/site-packages:${env:PYTHONPATH}",
+                "ROS_DOMAIN_ID": "0",
+                "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
+                "AMENT_PREFIX_PATH": "${workspaceFolder}/install/following_robot:${workspaceFolder}/install/custom_msgs:${env:AMENT_PREFIX_PATH}",
+                "ROS_DISTRO": "humble",
+                "CMAKE_PREFIX_PATH": "${workspaceFolder}/install/following_robot:${workspaceFolder}/install/custom_msgs:${env:CMAKE_PREFIX_PATH}",
+                "LD_LIBRARY_PATH": "${workspaceFolder}/install/following_robot/lib:${workspaceFolder}/install/custom_msgs/lib:${env:LD_LIBRARY_PATH}",
+                "COLCON_PREFIX_PATH": "${workspaceFolder}/install",
+                "BYTETRACKER_DEBUG_MODE": "1",
+                "BYTETRACKER_NO_CAMERA": "1"
+            },
+            "args": [
+                "--ros-args",
+                "-p", "tracking_mode:=single",
+                "-p", "target_features_file:=features-data/person.xlsx"
+            ],
+            "stopOnEntry": false,
+            "python": "/usr/bin/python3",
+            "preLaunchTask": "构建ROS2包"
+        },
+        {
+            "name": "调试 ByteTracker 节点 (单步调试) - 单目标跟踪",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/following_robot/following_robot/bytetracker_node.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/install/following_robot/lib/python3.10/site-packages:${workspaceFolder}/install/custom_msgs/lib/python3.10/site-packages:${env:PYTHONPATH}",
+                "ROS_DOMAIN_ID": "0",
+                "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
+                "AMENT_PREFIX_PATH": "${workspaceFolder}/install/following_robot:${workspaceFolder}/install/custom_msgs:${env:AMENT_PREFIX_PATH}",
+                "ROS_DISTRO": "humble",
+                "CMAKE_PREFIX_PATH": "${workspaceFolder}/install/following_robot:${workspaceFolder}/install/custom_msgs:${env:CMAKE_PREFIX_PATH}",
+                "LD_LIBRARY_PATH": "${workspaceFolder}/install/following_robot/lib:${workspaceFolder}/install/custom_msgs/lib:${env:LD_LIBRARY_PATH}",
+                "COLCON_PREFIX_PATH": "${workspaceFolder}/install"
+            },
+            "args": [
+                "--ros-args",
+                "-p", "tracking_mode:=single",
+                "-p", "target_features_file:=features-data/person.xlsx",
+                "-p", "camera_id:=1"
+            ],
+            "stopOnEntry": true,
+            "python": "/usr/bin/python3",
+            "preLaunchTask": "构建ROS2包",
+            "justMyCode": false
+        }
+    ]
+} 
