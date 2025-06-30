@@ -4,7 +4,12 @@
 完整跟踪系统ROS2启动文件
 ========================
 启动ByteTracker跟踪系统的所有相关节点
-包括：ByteTracker、特征提取、双目视觉、小车控制
+包括：ByteTracker（集成立体视觉）、特征提取、小车控制
+
+更新内容：
+- ByteTracker已集成立体视觉距离测量功能
+- 支持直接相机读取，无需外部图像话题
+- 移除独立的stereo_vision_node
 """
 
 from launch import LaunchDescription
@@ -39,11 +44,36 @@ def generate_launch_description():
         description='Path to target features Excel file for single target tracking'
     )
     
-    # 相机话题参数
-    camera_topic_arg = DeclareLaunchArgument(
-        'camera_topic',
-        default_value='/camera/image_raw',
-        description='Camera image topic'
+    # 相机设备参数
+    camera_id_arg = DeclareLaunchArgument(
+        'camera_id',
+        default_value='1',
+        description='Camera device ID'
+    )
+    
+    frame_width_arg = DeclareLaunchArgument(
+        'frame_width',
+        default_value='1280',
+        description='Camera frame width (for stereo camera)'
+    )
+    
+    frame_height_arg = DeclareLaunchArgument(
+        'frame_height',
+        default_value='480',
+        description='Camera frame height'
+    )
+    
+    fps_limit_arg = DeclareLaunchArgument(
+        'fps_limit',
+        default_value='30',
+        description='Camera FPS limit'
+    )
+    
+    # 立体相机参数
+    is_stereo_camera_arg = DeclareLaunchArgument(
+        'is_stereo_camera',
+        default_value='true',
+        description='Whether using stereo camera for distance measurement'
     )
     
     # 启用小车控制参数
@@ -53,17 +83,10 @@ def generate_launch_description():
         description='Enable robot car control'
     )
     
-    # 启用双目测距参数
-    enable_stereo_arg = DeclareLaunchArgument(
-        'enable_stereo',
-        default_value='true',
-        description='Enable stereo vision for distance measurement'
-    )
-    
     # 启用可视化参数
     enable_visualization_arg = DeclareLaunchArgument(
         'enable_visualization',
-        default_value='true',
+        default_value='false',
         description='Enable visualization windows'
     )
     
@@ -77,18 +100,21 @@ def generate_launch_description():
         parameters=[{
             'tracking_mode': LaunchConfiguration('tracking_mode'),
             'target_features_file': LaunchConfiguration('target_features_file'),
-            'camera_topic': LaunchConfiguration('camera_topic'),
+            # 相机参数
+            'camera_id': LaunchConfiguration('camera_id'),
+            'frame_width': LaunchConfiguration('frame_width'),
+            'frame_height': LaunchConfiguration('frame_height'),
+            'fps_limit': LaunchConfiguration('fps_limit'),
+            'is_stereo_camera': LaunchConfiguration('is_stereo_camera'),
+            # 功能控制参数
             'enable_car_control': LaunchConfiguration('enable_car_control'),
-            'enable_distance_measure': LaunchConfiguration('enable_stereo'),
-            # ByteTracker参数
+            'enable_distance_measure': LaunchConfiguration('is_stereo_camera'),
+            # ByteTracker算法参数
             'track_thresh': 0.5,      # 跟踪阈值
             'track_buffer': 100,      # 轨迹缓冲
             'match_thresh': 0.8,      # 匹配阈值
             'color_weight': 0.5       # 颜色权重
-        }],
-        remappings=[
-            ('/camera/image_raw', LaunchConfiguration('camera_topic'))
-        ]
+        }]
     )
     
     # ========== 特征提取节点 ==========
@@ -100,18 +126,8 @@ def generate_launch_description():
         output='screen'
     )
     
-    # ========== 双目视觉节点（条件启动） ==========
-    
-    stereo_vision_node = Node(
-        package='following_robot',
-        executable='stereo_vision_node',
-        name='stereo_vision_node',
-        output='screen',
-        condition=IfCondition(LaunchConfiguration('enable_stereo')),
-        parameters=[{
-            # 双目相机参数可以在这里配置
-        }]
-    )
+    # ========== 双目视觉功能已集成到ByteTracker节点 ==========
+    # 注意: stereo_vision_node已被移除，距离测量功能现在由bytetracker_node内置提供
     
     # ========== 小车控制节点（条件启动） ==========
     
@@ -154,14 +170,19 @@ def generate_launch_description():
     # 添加启动参数
     ld.add_action(tracking_mode_arg)
     ld.add_action(target_features_file_arg)
-    ld.add_action(camera_topic_arg)
+    ld.add_action(camera_id_arg)
+    ld.add_action(frame_width_arg)
+    ld.add_action(frame_height_arg)
+    ld.add_action(fps_limit_arg)
+    ld.add_action(is_stereo_camera_arg)
     ld.add_action(enable_car_control_arg)
-    ld.add_action(enable_stereo_arg)
     ld.add_action(enable_visualization_arg)
     
     # 添加日志信息
     ld.add_action(LogInfo(
-        msg=['启动ByteTracker跟踪系统，模式: ', LaunchConfiguration('tracking_mode')]
+        msg=['启动ByteTracker跟踪系统，模式: ', LaunchConfiguration('tracking_mode'),
+             ', 相机ID: ', LaunchConfiguration('camera_id'),
+             ', 立体相机: ', LaunchConfiguration('is_stereo_camera')]
     ))
     
     # 添加核心节点
@@ -169,7 +190,6 @@ def generate_launch_description():
     ld.add_action(feature_extraction_node)
     
     # 添加条件节点
-    ld.add_action(stereo_vision_node)
     ld.add_action(robot_control_node)
     ld.add_action(rviz_node)
     
