@@ -82,6 +82,12 @@ async def companion_websocket_endpoint(websocket: WebSocket, client_id: str):
                     if client_id in clients:
                         clients[client_id]["last_active"] = datetime.datetime.now()
 
+                # 同时更新自适应视频管理器中的客户端状态
+                adaptive_video_manager.update_client_status(client_id, {
+                    "last_message_time": time.time(),
+                    "connection_active": True
+                })
+
                 if message_type == "ping":
                     # 处理ping消息
                     timestamp = message.get("timestamp", 0)
@@ -102,6 +108,12 @@ async def companion_websocket_endpoint(websocket: WebSocket, client_id: str):
                         "echo_timestamp": timestamp,
                         "companion_id": companion_id,
                         "companion_online": companion_online
+                    })
+                    
+                    # 额外更新adaptive_video_manager中的客户端状态
+                    adaptive_video_manager.update_client_status(client_id, {
+                        "last_message_time": time.time(),
+                        "connection_active": True
                     })
 
                 elif message_type == "client_init":
@@ -263,6 +275,32 @@ async def ros2_bridge_websocket_endpoint(websocket: WebSocket, robot_id: str):
         
         logger.info(f"✅ ROS2桥接节点 {robot_id} 连接成功")
         
+        # 启动心跳任务
+        async def heartbeat_task():
+            """定期发送心跳保持连接活跃"""
+            while True:
+                try:
+                    await asyncio.sleep(15)  # 每15秒发送一次心跳
+                    if robot_id in companions:
+                        await websocket.send_json({
+                            "type": "heartbeat",
+                            "timestamp": int(time.time() * 1000),
+                            "server_initiated": True
+                        })
+                        # 更新状态
+                        adaptive_video_manager.update_companion_status(robot_id, {
+                            "last_message_time": time.time(),
+                            "connection_active": True
+                        })
+                    else:
+                        break
+                except Exception as e:
+                    logger.debug(f"心跳任务停止: {e}")
+                    break
+        
+        # 启动心跳任务
+        heartbeat_handle = asyncio.create_task(heartbeat_task())
+        
         while True:
             try:
                 # 接收来自ROS2桥接节点的消息
@@ -273,10 +311,22 @@ async def ros2_bridge_websocket_endpoint(websocket: WebSocket, robot_id: str):
                     if robot_id in companions:
                         companions[robot_id]["last_active"] = datetime.datetime.now()
                 
+                # 同时更新自适应视频管理器中的状态
+                adaptive_video_manager.update_companion_status(robot_id, {
+                    "last_message_time": time.time(),
+                    "connection_active": True
+                })
+                
                 # 处理不同类型的消息
                 msg_type = message.get("type", "")
                 
-                if msg_type == "tracking_result":
+                if msg_type == "robot_init":
+                    # 机器人初始化消息
+                    logger.info(f"🤖 ROS2桥接节点 {robot_id} 初始化完成")
+                    # 通知所有关联客户端机器人已就绪
+                    await broadcast_companion_status(robot_id, True)
+                    
+                elif msg_type == "tracking_result":
                     # 跟踪结果 - 转发给所有关联的客户端
                     await broadcast_tracking_result(robot_id, message)
                     
@@ -284,7 +334,7 @@ async def ros2_bridge_websocket_endpoint(websocket: WebSocket, robot_id: str):
                     # 视频帧 - 通过自适应视频管理器处理
                     await adaptive_video_manager.handle_video_frame(robot_id, message)
                     
-                elif msg_type == "robot_status":
+                elif msg_type == "robot_status" or msg_type == "robot_status_update":
                     # 机器人状态更新
                     await handle_robot_status_update(robot_id, message)
                     
@@ -294,6 +344,23 @@ async def ros2_bridge_websocket_endpoint(websocket: WebSocket, robot_id: str):
                         "type": "heartbeat_ack",
                         "timestamp": int(time.time() * 1000)
                     })
+                    # 额外更新adaptive_video_manager状态
+                    adaptive_video_manager.update_companion_status(robot_id, {
+                        "last_message_time": time.time(),
+                        "connection_active": True
+                    })
+                    
+                elif msg_type == "command_response":
+                    # 命令响应 - 处理来自ROS2桥接节点的响应
+                    await handle_command_response(robot_id, message)
+                    
+                elif msg_type == "quality_adjustment_result":
+                    # 质量调整结果
+                    await handle_quality_adjustment_result(robot_id, message)
+                    
+                elif msg_type == "interaction_event":
+                    # 交互事件
+                    await handle_interaction_event(robot_id, message)
                     
                 else:
                     logger.warning(f"ROS2桥接节点 {robot_id} 发送了未知消息类型: {msg_type}")
@@ -310,6 +377,10 @@ async def ros2_bridge_websocket_endpoint(websocket: WebSocket, robot_id: str):
     except Exception as e:
         logger.error(f"ROS2桥接节点 {robot_id} 连接异常: {e}")
     finally:
+        # 取消心跳任务
+        if 'heartbeat_handle' in locals():
+            heartbeat_handle.cancel()
+            
         # 清理连接
         await handle_companion_disconnect(robot_id)
         logger.info(f"🔌 ROS2桥接节点 {robot_id} 连接已清理")
@@ -779,6 +850,13 @@ async def startup_event():
 
     # 初始化自适应视频管理器
     adaptive_video_manager = CompanionAdaptiveVideoManager()
+    
+    # 设置质量命令回调函数
+    async def quality_command_callback(companion_id, message):
+        """质量命令回调函数"""
+        await forward_command_to_companion(companion_id, "quality_adjustment", message)
+    
+    adaptive_video_manager.set_quality_command_callback(quality_command_callback)
     logger.info("伴侣自适应视频管理器已初始化")
 
     # 启动连接监控

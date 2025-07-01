@@ -71,11 +71,19 @@ class CompanionAdaptiveVideoManager:
         self.companion_to_clients = defaultdict(set)  # 映射伴侣到观看它的客户端
         self.lock = threading.RLock()  # 用于线程安全访问共享数据
 
+        # 质量命令回调函数
+        self.quality_command_callback = None
+        
         # 启动监控线程
         self.running = True
         self.monitor_thread = threading.Thread(target=self._monitor_loop)
         self.monitor_thread.daemon = True
         self.monitor_thread.start()
+
+    def set_quality_command_callback(self, callback):
+        """设置质量命令回调函数"""
+        self.quality_command_callback = callback
+        logger.info("质量命令回调函数已设置")
 
     def register_client(self, client_id, websocket):
         """注册一个微信客户端"""
@@ -180,7 +188,15 @@ class CompanionAdaptiveVideoManager:
         with self.lock:
             if client_id in self.clients:
                 client = self.clients[client_id]
+                
+                # 更新最后活跃时间
                 client["last_seen"] = time.time()
+
+                # 处理来自server.py的连接活跃信号
+                if "last_message_time" in status_data:
+                    client["last_seen"] = status_data["last_message_time"]
+                if "connection_active" in status_data:
+                    client["connection_status"] = "connected" if status_data["connection_active"] else "disconnected"
 
                 # 更新客户端报告的状态
                 if "buffer_health" in status_data:
@@ -221,7 +237,15 @@ class CompanionAdaptiveVideoManager:
         with self.lock:
             if companion_id in self.companions:
                 companion = self.companions[companion_id]
+                
+                # 更新最后活跃时间
                 companion["last_seen"] = time.time()
+
+                # 处理来自server.py的连接活跃信号
+                if "last_message_time" in status_data:
+                    companion["last_seen"] = status_data["last_message_time"]
+                if "connection_active" in status_data:
+                    companion["connection_status"] = "connected" if status_data["connection_active"] else "disconnected"
 
                 # 更新伴侣报告的状态
                 if "upload_bandwidth" in status_data:
@@ -327,14 +351,38 @@ class CompanionAdaptiveVideoManager:
                     "timestamp": int(time.time() * 1000)
                 }
                 
-                # 发送到伴侣WebSocket（这里需要异步处理）
-                import asyncio
-                if hasattr(companion_ws, 'send_json'):
+                # 通过回调函数发送消息（避免异步问题）
+                if self.quality_command_callback:
                     try:
-                        asyncio.create_task(companion_ws.send_json(message))
+                        import asyncio
+                        import inspect
+                        
+                        # 检查回调函数是否是协程函数
+                        if inspect.iscoroutinefunction(self.quality_command_callback):
+                            # 如果有活动的事件循环，创建任务；否则用线程执行
+                            try:
+                                loop = asyncio.get_running_loop()
+                                asyncio.create_task(self.quality_command_callback(companion_id, message))
+                            except RuntimeError:
+                                # 没有活动的事件循环，使用线程调用
+                                def run_async_callback():
+                                    try:
+                                        asyncio.run(self.quality_command_callback(companion_id, message))
+                                    except Exception as e:
+                                        logger.error(f"异步回调执行失败: {e}")
+                                
+                                import threading
+                                thread = threading.Thread(target=run_async_callback, daemon=True)
+                                thread.start()
+                        else:
+                            # 同步回调函数，直接调用
+                            self.quality_command_callback(companion_id, message)
+                            
                         logger.info(f"已向伴侣 {companion_id} 发送质量调整命令: {preset}")
                     except Exception as e:
                         logger.error(f"向伴侣 {companion_id} 发送质量调整命令失败: {e}")
+                else:
+                    logger.warning(f"无质量命令回调函数，无法向伴侣 {companion_id} 发送命令")
                         
         except Exception as e:
             logger.error(f"发送质量命令到伴侣失败: {e}")
@@ -383,38 +431,7 @@ class CompanionAdaptiveVideoManager:
             # 通知伴侣调整质量
             self._send_quality_command_to_companion(companion_id, best_preset)
 
-    def _send_quality_command_to_companion(self, companion_id, preset):
-        """向伴侣发送质量调整命令"""
-        if companion_id in self.companions:
-            companion = self.companions[companion_id]
-            ws = companion["websocket"]
 
-            quality_config = self.QUALITY_PRESETS[preset]
-            command = {
-                "type": "quality_adjustment",
-                "preset": preset,
-                "resolution": {
-                    "width": quality_config["resolution"][0],
-                    "height": quality_config["resolution"][1]
-                },
-                "fps": quality_config["fps"],
-                "bitrate": quality_config["bitrate"],
-                "quality": quality_config["quality"]
-            }
-
-            try:
-                # 异步发送消息 - 注意：这里需要在异步环境中调用
-                import asyncio
-                if hasattr(ws, 'send_json'):
-                    # FastAPI WebSocket
-                    asyncio.create_task(ws.send_json(command))
-                else:
-                    # 兼容同步WebSocket
-                    ws.send(json.dumps(command))
-                logger.info(f"已向伴侣 {companion_id} 发送质量调整命令: {preset}")
-            except Exception as e:
-                logger.error(f"向伴侣 {companion_id} 发送质量命令失败: {e}")
-                companion["connection_status"] = "connection_error"
 
     def _send_quality_info_to_client(self, client_id, preset):
         """向客户端发送质量信息"""
@@ -431,11 +448,19 @@ class CompanionAdaptiveVideoManager:
             }
 
             try:
-                # 异步发送消息
+                # 异步发送消息 - 安全处理
                 import asyncio
+                import inspect
+                
                 if hasattr(ws, 'send_json'):
-                    # FastAPI WebSocket
-                    asyncio.create_task(ws.send_json(info))
+                    # FastAPI WebSocket - 需要异步处理
+                    try:
+                        loop = asyncio.get_running_loop()
+                        asyncio.create_task(ws.send_json(info))
+                    except RuntimeError:
+                        # 没有活动的事件循环，记录错误
+                        logger.error(f"无活动事件循环，无法向客户端 {client_id} 发送质量信息")
+                        return
                 else:
                     # 兼容同步WebSocket
                     ws.send(json.dumps(info))
@@ -451,11 +476,18 @@ class CompanionAdaptiveVideoManager:
             ws = client["websocket"]
 
             try:
-                # 异步发送消息
+                # 异步发送消息 - 安全处理
                 import asyncio
+                
                 if hasattr(ws, 'send_json'):
-                    # FastAPI WebSocket
-                    asyncio.create_task(ws.send_json(message))
+                    # FastAPI WebSocket - 需要异步处理
+                    try:
+                        loop = asyncio.get_running_loop()
+                        asyncio.create_task(ws.send_json(message))
+                    except RuntimeError:
+                        # 没有活动的事件循环，记录错误
+                        logger.error(f"无活动事件循环，无法向客户端 {client_id} 发送消息")
+                        return
                 else:
                     # 兼容同步WebSocket
                     ws.send(json.dumps(message))
@@ -497,22 +529,22 @@ class CompanionAdaptiveVideoManager:
                     self._check_connection_status()
 
                     if current_time - last_full_check_time >= full_check_interval:
-                        # 检查离线客户端
+                        # 检查离线客户端 - 延长超时时间
                         offline_clients = []
                         for client_id, client in self.clients.items():
-                            if current_time - client["last_seen"] > 30:
+                            if current_time - client["last_seen"] > 60:  # 60秒超时
                                 offline_clients.append(client_id)
-                                logger.warning(f"客户端 {client_id} 已超过30秒无响应")
+                                logger.warning(f"客户端 {client_id} 已超过60秒无响应")
 
                         for client_id in offline_clients:
                             self.disconnect_client(client_id)
 
-                        # 检查离线伴侣
+                        # 检查离线伴侣 - 延长超时时间
                         offline_companions = []
                         for companion_id, companion in self.companions.items():
-                            if current_time - companion["last_seen"] > 30:
+                            if current_time - companion["last_seen"] > 60:  # 60秒超时
                                 offline_companions.append(companion_id)
-                                logger.warning(f"伴侣 {companion_id} 已超过30秒无响应")
+                                logger.warning(f"伴侣 {companion_id} 已超过60秒无响应")
 
                         for companion_id in offline_companions:
                             self.disconnect_companion(companion_id)
@@ -530,17 +562,21 @@ class CompanionAdaptiveVideoManager:
 
         # 检查客户端连接
         for client_id, client in self.clients.items():
-            if current_time - client["last_seen"] > 15:
+            if current_time - client["last_seen"] > 30:  # 30秒警告
                 client["connection_status"] = "warning"
-            if client["buffer_health"] < 30 or client["latency"] > 800:
+            elif client["buffer_health"] < 30 or client["latency"] > 800:
                 client["connection_status"] = "poor_network"
+            else:
+                client["connection_status"] = "connected"
 
         # 检查伴侣连接
         for companion_id, companion in self.companions.items():
-            if current_time - companion["last_seen"] > 15:
+            if current_time - companion["last_seen"] > 30:  # 30秒警告
                 companion["connection_status"] = "warning"
-            if companion["signal_strength"] < 30:
+            elif companion.get("signal_strength", 100) < 30:
                 companion["connection_status"] = "poor_signal"
+            else:
+                companion["connection_status"] = "connected"
 
     def get_companion_status(self, companion_id):
         """获取伴侣状态"""
