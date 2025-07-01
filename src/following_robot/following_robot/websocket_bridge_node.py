@@ -67,7 +67,7 @@ class WebSocketBridgeNode(Node):
             # 直接声明参数，不调用单独的方法
             # WebSocket服务器配置
             self.declare_parameter('websocket_host', '101.201.150.96')
-            self.declare_parameter('websocket_port', 1235)
+            self.declare_parameter('websocket_port', 1234)
             self.declare_parameter('robot_id', 'companion_robot_001')
             self.declare_parameter('reconnect_interval', 5.0)
             
@@ -219,7 +219,7 @@ class WebSocketBridgeNode(Node):
     def connect_websocket(self):
         """连接到WebSocket服务器"""
         try:
-            ws_url = f"ws://{self.ws_host}:{self.ws_port}/ws/companion_robot/{self.robot_id}"
+            ws_url = f"ws://{self.ws_host}:{self.ws_port}/ws/ros2_bridge/{self.robot_id}"
             self.get_logger().info(f'🔗 正在连接WebSocket服务器: {ws_url}')
             
             self.ws = websocket.WebSocketApp(
@@ -440,6 +440,11 @@ class WebSocketBridgeNode(Node):
                 cmd_msg = String()
                 cmd_msg.data = 'emergency_stop'
                 self.command_publisher.publish(cmd_msg)
+                
+            elif command == 'request_video_stream':
+                # 请求视频流 - 直接开启视频流传输
+                self.enable_image_stream = True
+                self.get_logger().info('📹 视频流已开启')
                 
             # 发送命令响应
             response = {

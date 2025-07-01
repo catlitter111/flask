@@ -442,7 +442,7 @@ Page({
       
       // 批量更新数据，减少渲染次数
       const updateData = {
-        videoBase64: `data:image/jpeg;base64,${data.data}`,
+        videoBase64: `data:image/jpeg;base64,${data.frame_data || data.data}`,
         receivedFrames: this.data.receivedFrames + 1,
         lastImageUpdateTime: now
       };

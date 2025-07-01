@@ -10,6 +10,7 @@ import time
 import random
 import base64
 import os
+import uuid
 from pathlib import Path
 
 # 导入伴侣自适应视频管理器
@@ -252,7 +253,7 @@ async def ros2_bridge_websocket_endpoint(websocket: WebSocket, robot_id: str):
         await broadcast_companion_status(robot_id, True)
         
         # 连接到自适应视频管理器
-        adaptive_video_manager.connect_companion(robot_id, websocket)
+        adaptive_video_manager.register_companion(robot_id, websocket)
         
         logger.info(f"✅ ROS2桥接节点 {robot_id} 连接成功")
         

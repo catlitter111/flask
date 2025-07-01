@@ -6,7 +6,7 @@
 
 # 服务器连接配置
 server:
-  host: "172.20.39.181"           # WebSocket服务器地址
+  host: "101.201.150.96"           # WebSocket服务器地址
   port: 1234                       # WebSocket服务器端口
   endpoint: "/ws/ros2_bridge"      # WebSocket端点路径
   timeout: 30                      # 连接超时时间(秒)

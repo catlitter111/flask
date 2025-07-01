@@ -483,6 +483,75 @@ class CompanionAdaptiveVideoManager:
                 return self.clients[client_id].copy()
             return None
 
+    async def handle_video_frame(self, companion_id, message):
+        """处理来自ROS2桥接节点的视频帧"""
+        try:
+            with self.lock:
+                if companion_id not in self.companion_to_clients:
+                    logger.debug(f"伴侣 {companion_id} 没有连接的客户端")
+                    return
+                
+                # 获取连接到此伴侣的所有客户端
+                client_ids = list(self.companion_to_clients[companion_id])
+                
+            if not client_ids:
+                return
+                
+            # 为每个客户端转发视频帧
+            import asyncio
+            tasks = []
+            
+            for client_id in client_ids:
+                if client_id in self.clients:
+                    client = self.clients[client_id]
+                    ws = client["websocket"]
+                    
+                    # 根据客户端质量设置调整消息
+                    current_preset = client.get("current_preset", "medium")
+                    
+                    # 准备发送给客户端的消息
+                    client_message = {
+                        "type": "video_frame",
+                        "robot_id": companion_id,
+                        "frame_data": message.get("frame_data"),
+                        "sequence": message.get("sequence", 0),
+                        "timestamp": message.get("timestamp", 0),
+                        "width": message.get("width", 640),
+                        "height": message.get("height", 480),
+                        "quality": message.get("quality", 80),
+                        "server_timestamp": int(time.time() * 1000),
+                        "quality_preset": current_preset
+                    }
+                    
+                    # 异步发送消息
+                    task = self._send_frame_to_client(client_id, ws, client_message)
+                    tasks.append(task)
+            
+            # 并发发送给所有客户端
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+                logger.debug(f"视频帧已转发给 {len(tasks)} 个客户端")
+                
+        except Exception as e:
+            logger.error(f"处理视频帧失败: {e}")
+    
+    async def _send_frame_to_client(self, client_id, websocket, message):
+        """向单个客户端发送视频帧"""
+        try:
+            if hasattr(websocket, 'send_json'):
+                await websocket.send_json(message)
+            else:
+                # 兼容同步WebSocket
+                import json
+                websocket.send(json.dumps(message))
+                
+        except Exception as e:
+            logger.error(f"向客户端 {client_id} 发送视频帧失败: {e}")
+            # 标记客户端连接有问题
+            with self.lock:
+                if client_id in self.clients:
+                    self.clients[client_id]["connection_status"] = "connection_error"
+
     def shutdown(self):
         """关闭管理器"""
         self.running = False
