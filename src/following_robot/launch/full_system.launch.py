@@ -41,7 +41,7 @@ def generate_launch_description():
     
     declare_websocket_port = DeclareLaunchArgument(
         'websocket_port',
-        default_value='1235',
+        default_value='1234',
         description='WebSocket服务器端口'
     )
     
@@ -53,7 +53,7 @@ def generate_launch_description():
     
     declare_camera_index = DeclareLaunchArgument(
         'camera_index',
-        default_value='1',
+        default_value='0',
         description='摄像头设备索引'
     )
     
@@ -65,8 +65,8 @@ def generate_launch_description():
     
     declare_tracking_mode = DeclareLaunchArgument(
         'tracking_mode',
-        default_value='single_target',
-        description='跟踪模式: multi_target 或 single_target'
+        default_value='single',
+        description='跟踪模式: multi 或 single'
     )
     
     declare_image_quality = DeclareLaunchArgument(
@@ -88,16 +88,16 @@ def generate_launch_description():
         name='bytetracker_node',
         output='screen',
         parameters=[{
-            'camera_index': LaunchConfiguration('camera_index'),
-            'enable_stereo_vision': LaunchConfiguration('enable_stereo'),
+            'camera_id': LaunchConfiguration('camera_index'),
+            'is_stereo_camera': LaunchConfiguration('enable_stereo'),
             'tracking_mode': LaunchConfiguration('tracking_mode'),
             'model_path': PathJoinSubstitution([
-                following_robot_share, 'data', 'yolo11n.rknn'
+                following_robot_share, 'data', 'best3.rknn'
             ]),
             'pose_model_path': PathJoinSubstitution([
-                following_robot_share, 'data', 'yolo11n-pose.rknn'
+                following_robot_share, 'data', 'yolov8_pose.rknn'
             ]),
-            'target_features_path': PathJoinSubstitution([
+            'target_features_file': PathJoinSubstitution([
                 following_robot_share, 'data', 'demo_person_features.xlsx'
             ]),
         }],
@@ -122,6 +122,8 @@ def generate_launch_description():
             'robot_id': LaunchConfiguration('robot_id'),
             'image_quality': LaunchConfiguration('image_quality'),
             'frame_rate': LaunchConfiguration('frame_rate'),
+            'image_width': 640,
+            'image_height': 480,
             'enable_image_stream': True,
             'enable_status_report': True,
             'enable_command_receive': True,

@@ -2903,11 +2903,11 @@ class ByteTrackerNode(Node):
             self.processing_time = total_time
             
             # 每10帧输出一次性能信息
-            if self.frame_count % 10 == 0:
-                self.get_logger().info(f"📊 性能统计 (第{self.frame_count}帧): "
-                                     f"总耗时={total_time:.3f}s, FPS={fps:.1f}, "
-                                     f"检测={detection_time:.3f}s, 跟踪={tracking_time:.3f}s, "
-                                     f"发布={publish_time:.3f}s")
+            # if self.frame_count % 10 == 0:
+            #     self.get_logger().info(f"📊 性能统计 (第{self.frame_count}帧): "
+            #                          f"总耗时={total_time:.3f}s, FPS={fps:.1f}, "
+            #                          f"检测={detection_time:.3f}s, 跟踪={tracking_time:.3f}s, "
+            #                          f"发布={publish_time:.3f}s")
 
         except Exception as e:
             self.get_logger().error(f"❌ 处理第{self.frame_count}帧时发生错误: {e}")

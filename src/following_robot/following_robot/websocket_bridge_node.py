@@ -63,58 +63,74 @@ class WebSocketBridgeNode(Node):
     def __init__(self):
         super().__init__('websocket_bridge_node')
         
-        # 初始化参数
-        self.declare_parameters()
-        self.setup_variables()
+        try:
+            # 直接声明参数，不调用单独的方法
+            # WebSocket服务器配置
+            self.declare_parameter('websocket_host', '101.201.150.96')
+            self.declare_parameter('websocket_port', 1235)
+            self.declare_parameter('robot_id', 'companion_robot_001')
+            self.declare_parameter('reconnect_interval', 5.0)
+            
+            # 图像处理配置
+            self.declare_parameter('image_quality', 80)
+            self.declare_parameter('image_width', 640)
+            self.declare_parameter('image_height', 480)
+            self.declare_parameter('frame_rate', 15)
+            
+            # 功能开关
+            self.declare_parameter('enable_image_stream', True)
+            self.declare_parameter('enable_status_report', True)
+            self.declare_parameter('enable_command_receive', True)
+            
+            self.get_logger().info('✅ 参数声明完成')
+            
+            # 初始化变量
+            self.setup_variables()
+            
+            # 初始化ROS2组件
+            self.setup_ros_components()
+            
+            # 启动WebSocket连接
+            self.setup_websocket()
+            
+            # 启动心跳和状态监控
+            self.setup_timers()
+            
+            self.get_logger().info('🌉 WebSocket桥接节点已启动')
+            
+        except Exception as e:
+            self.get_logger().error(f'❌ 节点初始化失败: {e}')
+            raise
         
-        # 初始化ROS2组件
-        self.setup_ros_components()
-        
-        # 启动WebSocket连接
-        self.setup_websocket()
-        
-        # 启动心跳和状态监控
-        self.setup_timers()
-        
-        self.get_logger().info('🌉 WebSocket桥接节点已启动')
-        
-    def declare_parameters(self):
-        """声明ROS2参数"""
-        # WebSocket服务器配置
-        self.declare_parameter('websocket_host', '172.20.39.181')
-        self.declare_parameter('websocket_port', 1234)
-        self.declare_parameter('robot_id', 'companion_robot_001')
-        self.declare_parameter('reconnect_interval', 5.0)
-        
-        # 图像处理配置
-        self.declare_parameter('image_quality', 80)  # JPEG质量
-        self.declare_parameter('image_width', 640)   # 图像宽度
-        self.declare_parameter('image_height', 480)  # 图像高度
-        self.declare_parameter('frame_rate', 15)     # 发送帧率
-        
-        # 功能开关
-        self.declare_parameter('enable_image_stream', True)
-        self.declare_parameter('enable_status_report', True)
-        self.declare_parameter('enable_command_receive', True)
+
         
     def setup_variables(self):
         """初始化变量"""
         # WebSocket配置
-        self.ws_host = self.get_parameter('websocket_host').value
-        self.ws_port = self.get_parameter('websocket_port').value
-        self.robot_id = self.get_parameter('robot_id').value
-        self.reconnect_interval = self.get_parameter('reconnect_interval').value
+        self.ws_host = str(self.get_parameter('websocket_host').value)
+        ws_port_param = self.get_parameter('websocket_port').value
+        self.ws_port = int(ws_port_param) if ws_port_param is not None else 1235
+        self.robot_id = str(self.get_parameter('robot_id').value)
+        reconnect_param = self.get_parameter('reconnect_interval').value
+        self.reconnect_interval = float(reconnect_param) if reconnect_param is not None else 5.0
         
         # 图像配置
-        self.image_quality = self.get_parameter('image_quality').value
-        self.image_width = self.get_parameter('image_width').value
-        self.image_height = self.get_parameter('image_height').value
-        self.frame_rate = self.get_parameter('frame_rate').value
+        quality_param = self.get_parameter('image_quality').value
+        self.image_quality = int(quality_param) if quality_param is not None else 80
+        width_param = self.get_parameter('image_width').value
+        self.image_width = int(width_param) if width_param is not None else 640
+        height_param = self.get_parameter('image_height').value
+        self.image_height = int(height_param) if height_param is not None else 480
+        rate_param = self.get_parameter('frame_rate').value
+        self.frame_rate = int(rate_param) if rate_param is not None else 15
         
         # 功能开关
-        self.enable_image_stream = self.get_parameter('enable_image_stream').value
-        self.enable_status_report = self.get_parameter('enable_status_report').value
-        self.enable_command_receive = self.get_parameter('enable_command_receive').value
+        stream_param = self.get_parameter('enable_image_stream').value
+        self.enable_image_stream = bool(stream_param) if stream_param is not None else True
+        status_param = self.get_parameter('enable_status_report').value
+        self.enable_status_report = bool(status_param) if status_param is not None else True
+        command_param = self.get_parameter('enable_command_receive').value
+        self.enable_command_receive = bool(command_param) if command_param is not None else True
         
         # WebSocket相关
         self.ws = None
