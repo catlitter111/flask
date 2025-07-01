@@ -58,6 +58,69 @@ Page({
       app.globalData.featurePage = null;
       this.stopCamera();
     },
+
+    // === 连接状态处理 ===
+    updateConnectionStatus: function(isConnected, robotId) {
+      console.log('特征页面连接状态更新:', isConnected, robotId);
+      // 如果连接断开，停止正在进行的特征提取
+      if (!isConnected && this.data.extracting) {
+        this.setData({
+          extracting: false,
+          extractProgress: 0
+        });
+        wx.showToast({
+          title: '连接断开，提取已停止',
+          icon: 'none'
+        });
+      }
+    },
+
+    handleCompanionDisconnected: function(data) {
+      console.log('特征页面处理伴侣断开连接:', data);
+      if (this.data.extracting) {
+        this.setData({
+          extracting: false,
+          extractProgress: 0
+        });
+        wx.showToast({
+          title: '机器人断开，特征提取已停止',
+          icon: 'none'
+        });
+      }
+    },
+
+    handleFeatureResult: function(data) {
+      console.log('收到特征提取结果:', data);
+      
+      // 处理特征提取结果
+      if (data.success) {
+        const featureData = {
+          id: data.feature_id || Date.now(),
+          timestamp: Date.now(),
+          features: data.features,
+          person_id: data.person_id,
+          confidence: data.confidence,
+          image_data: data.image_data
+        };
+        
+        this.saveFeature(featureData);
+        
+        wx.showToast({
+          title: '特征提取成功',
+          icon: 'success'
+        });
+      } else {
+        wx.showToast({
+          title: data.error || '特征提取失败',
+          icon: 'error'
+        });
+      }
+      
+      this.setData({
+        extracting: false,
+        extractProgress: 0
+      });
+    },
     
     // === 相机管理 ===
     checkCameraPermission: function() {

@@ -86,6 +86,44 @@ Page({
         this.stopRealtimeTracking();
       }
     },
+
+    // === 连接状态处理 ===
+    updateConnectionStatus: function(isConnected, robotId) {
+      console.log('历史页面连接状态更新:', isConnected, robotId);
+      // 历史页面可以根据连接状态更新实时跟踪功能的可用性
+      if (!isConnected && this.data.realtimeTracking) {
+        this.stopRealtimeTracking();
+      }
+    },
+
+    handleCompanionDisconnected: function(data) {
+      console.log('历史页面处理伴侣断开连接:', data);
+      if (this.data.realtimeTracking) {
+        this.stopRealtimeTracking();
+        wx.showToast({
+          title: '机器人断开，实时跟踪已停止',
+          icon: 'none'
+        });
+      }
+    },
+
+    handleTrackingData: function(data) {
+      console.log('收到跟踪数据:', data);
+      // 处理实时跟踪数据
+      if (this.data.realtimeTracking) {
+        this.updateLiveTrackData(data);
+      }
+    },
+
+    handlePositionUpdate: function(data) {
+      console.log('收到位置更新:', data);
+      // 更新当前位置显示
+      if (data.robot_position) {
+        this.setData({
+          currentPosition: data.robot_position
+        });
+      }
+    },
     
     onPullDownRefresh: function() {
       this.refreshData(() => {
@@ -406,9 +444,38 @@ Page({
         icon: 'success'
       });
       
-      console.log('⏹️ 停止实时跟踪');
+            console.log('⏹️ 停止实时跟踪');
     },
-    
+
+    updateLiveTrackData: function(data) {
+      if (!this.data.realtimeTracking) return;
+      
+      const trackPoint = {
+        latitude: data.robot_position?.y || 0,
+        longitude: data.robot_position?.x || 0,
+        timestamp: Date.now(),
+        robot_position: data.robot_position,
+        target_position: data.target_position,
+        distance: data.distance || 0,
+        following_mode: data.following_mode
+      };
+      
+      const liveData = [...this.data.liveTrackData, trackPoint];
+      
+      this.setData({
+        liveTrackData: liveData
+      });
+      
+      // 限制数据量
+      if (liveData.length > 1000) {
+        this.setData({
+          liveTrackData: liveData.slice(-800)
+        });
+      }
+      
+      console.log('📍 更新实时跟踪数据');
+    },
+
     recordCurrentPosition: function() {
       wx.getLocation({
         type: 'gcj02',

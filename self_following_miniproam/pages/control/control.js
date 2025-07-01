@@ -594,6 +594,142 @@ Page({
       app.sendSocketMessage(msg);
     },
     
+    // 更新连接状态
+    updateConnectionStatus: function(isConnected, robotId) {
+      console.log('更新连接状态:', isConnected, robotId);
+      
+      if (robotId === this.data.robotId) {
+        this.setData({
+          robotConnected: isConnected,
+          reconnectingRobot: false
+        });
+        
+        if (isConnected) {
+          console.log('机器人已连接');
+          this.setData({
+            signalStrength: '良好',
+            connectionStatusText: '已连接'
+          });
+          
+          // 如果机器人重新连接，请求初始状态
+          this.requestRobotStatus();
+          this.requestVideoStream();
+        } else {
+          console.log('机器人连接断开');
+          this.setData({
+            signalStrength: '未连接',
+            batteryLevel: 0,
+            videoExpired: true,
+            connectionStatusText: '未连接'
+          });
+        }
+        
+        // 更新全局连接状态检查
+        this.checkGlobalConnectionState();
+      }
+    },
+
+    // 显示质量调整请求已接收
+    showQualityRequestReceived: function(preset) {
+      console.log('质量调整请求已接收:', preset);
+      wx.showToast({
+        title: `质量调整为${preset}`,
+        icon: 'none',
+        duration: 1500
+      });
+    },
+
+    // 显示视频流请求已发送
+    showVideoStreamRequestSent: function() {
+      console.log('视频流请求已发送');
+      wx.showToast({
+        title: '视频流请求已发送',
+        icon: 'none',
+        duration: 1500
+      });
+    },
+
+    // 更新视频质量
+    updateVideoQuality: function(data) {
+      console.log('更新视频质量:', data);
+      
+      this.setData({
+        currentQuality: data.preset || this.data.currentQuality,
+        videoResolution: data.resolution || this.data.videoResolution,
+        videoFps: data.fps || this.data.videoFps
+      });
+      
+      wx.showToast({
+        title: `视频质量: ${data.preset}`,
+        icon: 'none',
+        duration: 1500
+      });
+    },
+
+    // 处理伴侣状态更新
+    handleCompanionStatusUpdate: function(data) {
+      console.log('伴侣状态更新:', data);
+      
+      // 更新伴侣相关状态
+      if (data.following_mode) {
+        this.setData({
+          autoStatus: data.following_mode
+        });
+      }
+      
+      if (data.emotion_state) {
+        // 可以添加情绪状态显示
+        console.log('情绪状态:', data.emotion_state);
+      }
+      
+      if (data.interaction_mode !== undefined) {
+        // 更新交互模式
+        console.log('交互模式:', data.interaction_mode);
+      }
+    },
+
+    // 处理交互事件
+    handleInteractionEvent: function(data) {
+      console.log('交互事件:', data);
+      
+      switch (data.event_type) {
+        case 'gesture_detected':
+          wx.showToast({
+            title: '检测到手势',
+            icon: 'none'
+          });
+          break;
+        case 'voice_command':
+          wx.showToast({
+            title: '收到语音命令',
+            icon: 'none'
+          });
+          break;
+        case 'emotion_change':
+          wx.showToast({
+            title: `情绪变化: ${data.emotion}`,
+            icon: 'none'
+          });
+          break;
+      }
+    },
+
+    // 处理伴侣断开连接
+    handleCompanionDisconnected: function(data) {
+      console.log('伴侣断开连接:', data);
+      
+      this.setData({
+        robotConnected: false,
+        signalStrength: '未连接',
+        batteryLevel: 0,
+        videoExpired: true,
+        connectionStatusText: '伴侣已断开'
+      });
+      
+      // 更新全局连接状态
+      this.checkGlobalConnectionState();
+    },
+
     // 更新机器人状态
     updateRobotStatus: function(statusData) {
       if (!statusData) return;
