@@ -85,13 +85,9 @@ ament_target_dependencies(parameter_node rclcpp)
 install(PROGRAMS scripts/cmd_vel_to_ackermann_drive.py DESTINATION lib/${PROJECT_NAME})
 
 install(TARGETS
-dlrobot_robot_node
-parameter_node
-
-DESTINATION lib/${PROJECT_NAME}
-  ARCHIVE DESTINATION lib  # Using standard ROS 2 'lib' destination
-  LIBRARY DESTINATION lib  # Using standard ROS 2 'lib' destination
-  RUNTIME DESTINATION bin  # Using standard ROS 2 'bin' destination
+  dlrobot_robot_node
+  parameter_node
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 install(

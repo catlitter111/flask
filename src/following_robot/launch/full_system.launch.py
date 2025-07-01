@@ -20,6 +20,7 @@ import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.conditions import IfCondition, UnlessCondition
 from launch_ros.actions import Node, ComposableNodeContainer
 from launch_ros.substitutions import FindPackageShare
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -81,6 +82,24 @@ def generate_launch_description():
         description='视频帧率'
     )
     
+    declare_use_ackermann = DeclareLaunchArgument(
+        'use_ackermann',
+        default_value='false',
+        description='是否使用阿克曼转向控制'
+    )
+    
+    declare_serial_port = DeclareLaunchArgument(
+        'serial_port',
+        default_value='/dev/ttyS7',
+        description='串口设备路径'
+    )
+    
+    declare_serial_baud = DeclareLaunchArgument(
+        'serial_baud',
+        default_value='115200',
+        description='串口波特率'
+    )
+    
     # ByteTracker节点
     bytetracker_node = Node(
         package='following_robot',
@@ -134,23 +153,96 @@ def generate_launch_description():
         emulate_tty=True,
     )
     
-    # 状态监控节点（可选）
-    status_monitor_node = Node(
+    # 机器人控制节点
+    robot_control_node = Node(
         package='following_robot',
-        executable='status_monitor_node',
-        name='status_monitor_node',
+        executable='robot_control_node',
+        name='robot_control_node',
         output='screen',
         parameters=[{
-            'robot_id': LaunchConfiguration('robot_id'),
-            'monitor_interval': 2.0,
-            'publish_system_stats': True,
+            'max_linear_speed': 0.5,
+            'max_angular_speed': 1.0,
+            'min_follow_distance': 1.0,
+            'max_follow_distance': 3.0,
+            'follow_speed_factor': 0.3,
+            'wheelbase': 0.143,
+            'use_ackermann': LaunchConfiguration('use_ackermann'),
+            'safety_enabled': True,
         }],
         respawn=True,
         respawn_delay=3.0,
         emulate_tty=True,
-        # 这个节点是可选的，如果不存在不会影响主要功能
-        condition=None,
     )
+    
+    # 底层硬件驱动节点 - 普通模式 (差分驱动)
+    dlrobot_driver_node = Node(
+        package='turn_on_dlrobot_robot',
+        executable='dlrobot_robot_node',
+        name='dlrobot_robot_node',
+        output='screen',
+        parameters=[{
+            'usart_port_name': LaunchConfiguration('serial_port'),
+            'serial_baud_rate': LaunchConfiguration('serial_baud'),
+            'robot_frame_id': 'base_footprint',
+            'odom_frame_id': 'odom_combined',
+            'cmd_vel': 'cmd_vel',
+            'akm_cmd_vel': 'none',
+            'product_number': 0,
+        }],
+        condition=UnlessCondition(LaunchConfiguration('use_ackermann')),
+        respawn=True,
+        respawn_delay=3.0,
+        emulate_tty=True,
+    )
+    
+    # 底层硬件驱动节点 - 阿克曼模式
+    dlrobot_driver_node_akm = Node(
+        package='turn_on_dlrobot_robot',
+        executable='dlrobot_robot_node',
+        name='dlrobot_robot_node',
+        output='screen',
+        parameters=[{
+            'usart_port_name': LaunchConfiguration('serial_port'),
+            'serial_baud_rate': LaunchConfiguration('serial_baud'),
+            'robot_frame_id': 'base_footprint',
+            'odom_frame_id': 'odom_combined',
+            'cmd_vel': 'cmd_vel',
+            'akm_cmd_vel': 'ackermann_cmd',
+            'product_number': 0,
+        }],
+        condition=IfCondition(LaunchConfiguration('use_ackermann')),
+        respawn=True,
+        respawn_delay=3.0,
+        emulate_tty=True,
+    )
+    
+    # Twist到Ackermann消息转换节点 (仅在阿克曼模式下使用)
+    cmd_vel_to_ackermann_node = Node(
+        package='turn_on_dlrobot_robot',
+        executable='cmd_vel_to_ackermann_drive.py',
+        name='cmd_vel_to_ackermann_drive',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('use_ackermann')),
+        respawn=True,
+        respawn_delay=3.0,
+        emulate_tty=True,
+    )
+    
+    # 状态监控节点（可选）
+    # status_monitor_node = Node(
+    #     package='following_robot',
+    #     executable='status_monitor_node',
+    #     name='status_monitor_node',
+    #     output='screen',
+    #     parameters=[{
+    #         'robot_id': LaunchConfiguration('robot_id'),
+    #         'monitor_interval': 2.0,
+    #         'publish_system_stats': True,
+    #     }],
+    #     respawn=True,
+    #     respawn_delay=3.0,
+    #     emulate_tty=True,
+    # )
     
     return LaunchDescription([
         # 声明参数
@@ -162,9 +254,16 @@ def generate_launch_description():
         declare_tracking_mode,
         declare_image_quality,
         declare_frame_rate,
+        declare_use_ackermann,
+        declare_serial_port,
+        declare_serial_baud,
         
         # 启动节点
         bytetracker_node,
         websocket_bridge_node,
+        robot_control_node,
+        dlrobot_driver_node,
+        dlrobot_driver_node_akm,
+        cmd_vel_to_ackermann_node,
         # status_monitor_node,  # 注释掉直到实现
     ]) 

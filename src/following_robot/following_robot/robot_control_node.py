@@ -32,6 +32,7 @@ class ControlMode(Enum):
     FOLLOWING = "following"    # 人体跟随
     NAVIGATION = "navigation"  # 导航模式
     STOP = "stop"             # 停止模式
+    INTERACTION = "interaction"  # 交互模式
 
 
 class RobotControlNode(Node):
@@ -68,6 +69,10 @@ class RobotControlNode(Node):
         self.obstacle_detected = False
         self.emergency_stop = False
         
+        # 电机控制参数
+        self.motor_speed = 50  # 电机速度百分比 (0-100)
+        self.control_type = "motor"  # 控制类型：motor 或 companion
+        
         self.setup_parameters()
         self.setup_publishers()
         self.setup_subscribers()
@@ -90,14 +95,14 @@ class RobotControlNode(Node):
         self.declare_parameter('safety_enabled', True)
         
         # 获取参数值
-        self.max_linear_speed = self.get_parameter('max_linear_speed').value
-        self.max_angular_speed = self.get_parameter('max_angular_speed').value
-        self.min_follow_distance = self.get_parameter('min_follow_distance').value
-        self.max_follow_distance = self.get_parameter('max_follow_distance').value
-        self.follow_speed_factor = self.get_parameter('follow_speed_factor').value
-        self.wheelbase = self.get_parameter('wheelbase').value
-        self.use_ackermann = self.get_parameter('use_ackermann').value
-        self.safety_enabled = self.get_parameter('safety_enabled').value
+        self.max_linear_speed = float(self.get_parameter('max_linear_speed').value or 0.5)
+        self.max_angular_speed = float(self.get_parameter('max_angular_speed').value or 1.0)
+        self.min_follow_distance = float(self.get_parameter('min_follow_distance').value or 1.0)
+        self.max_follow_distance = float(self.get_parameter('max_follow_distance').value or 3.0)
+        self.follow_speed_factor = float(self.get_parameter('follow_speed_factor').value or 0.3)
+        self.wheelbase = float(self.get_parameter('wheelbase').value or 0.143)
+        self.use_ackermann = bool(self.get_parameter('use_ackermann').value or False)
+        self.safety_enabled = bool(self.get_parameter('safety_enabled').value or True)
 
     def setup_publishers(self):
         """设置发布者"""
@@ -120,6 +125,14 @@ class RobotControlNode(Node):
     def setup_subscribers(self):
         """设置订阅者"""
         qos = QoSProfile(depth=10)
+        
+        # 来自WebSocket桥接节点的控制命令订阅（重要！）
+        self.command_subscription = self.create_subscription(
+            String,
+            '/robot_control/command',
+            self.command_callback,
+            qos
+        )
         
         # 手动控制订阅
         self.manual_cmd_sub = self.create_subscription(
@@ -166,6 +179,147 @@ class RobotControlNode(Node):
         
         # 安全检查定时器（10Hz）
         self.safety_timer = self.create_timer(0.1, self.safety_check)
+
+    def command_callback(self, msg):
+        """处理来自WebSocket桥接节点的命令"""
+        command = msg.data
+        self.get_logger().info(f"🎮🔥 [小车控制节点] 收到WebSocket命令: {command}")
+        
+        try:
+            # 解析命令
+            if ':' in command:
+                cmd_type, cmd_value = command.split(':', 1)
+            else:
+                cmd_type = command
+                cmd_value = ""
+            
+            # 处理模式切换命令
+            if cmd_type == 'start_auto_mode':
+                self.set_control_mode(ControlMode.FOLLOWING)
+                self.get_logger().info("🤖 启动自动跟随模式")
+                
+            elif cmd_type == 'pause_auto_mode':
+                self.set_control_mode(ControlMode.STOP)
+                self.get_logger().info("⏸️ 暂停自动模式")
+                
+            elif cmd_type == 'start_interaction':
+                self.set_control_mode(ControlMode.INTERACTION)
+                self.control_type = "companion"
+                self.get_logger().info("🤝 启动交互模式")
+                
+            elif cmd_type == 'stop_interaction':
+                self.set_control_mode(ControlMode.MANUAL)
+                self.control_type = "motor"
+                self.get_logger().info("🛑 停止交互模式")
+                
+            # 处理电机控制命令
+            elif cmd_type.startswith('motor_'):
+                self.handle_motor_command(cmd_type, cmd_value)
+                
+            # 处理伴侣交互命令
+            elif cmd_type.startswith('companion_'):
+                self.handle_companion_command(cmd_type, cmd_value)
+                
+            # 处理设置命令
+            elif cmd_type == 'set_motor_speed':
+                try:
+                    self.motor_speed = max(0, min(100, int(cmd_value)))
+                    self.get_logger().info(f"⚡ 设置电机速度: {self.motor_speed}%")
+                except ValueError:
+                    self.get_logger().warn(f"无效的电机速度值: {cmd_value}")
+                    
+            elif cmd_type == 'switch_control_type':
+                if cmd_value in ['motor', 'companion']:
+                    self.control_type = cmd_value
+                    self.get_logger().info(f"🔄 切换控制类型: {self.control_type}")
+                else:
+                    self.get_logger().warn(f"无效的控制类型: {cmd_value}")
+                    
+            elif cmd_type == 'emergency_stop':
+                self.emergency_stop = True
+                self.send_stop_command()
+                self.get_logger().warn("🚨 紧急停止激活")
+                
+            else:
+                self.get_logger().warn(f"⚠️ 未知命令: {command}")
+                
+        except Exception as e:
+            self.get_logger().error(f"❌ 命令处理失败: {e}")
+
+    def handle_motor_command(self, cmd_type, cmd_value):
+        """处理电机控制命令"""
+        try:
+            # 解析速度参数
+            if cmd_value:
+                speed = max(0, min(100, int(cmd_value)))
+            else:
+                speed = self.motor_speed
+            
+            # 将百分比转换为实际速度值
+            linear_vel = (speed / 100.0) * self.max_linear_speed
+            angular_vel = (speed / 100.0) * self.max_angular_speed
+            
+            # 根据命令类型设置运动参数
+            if cmd_type == 'motor_forward':
+                self.send_velocity_command(linear_vel, 0.0)
+                self.get_logger().info(f"🔺 电机前进: {speed}%")
+                
+            elif cmd_type == 'motor_backward':
+                self.send_velocity_command(-linear_vel, 0.0)
+                self.get_logger().info(f"🔻 电机后退: {speed}%")
+                
+            elif cmd_type == 'motor_left':
+                self.send_velocity_command(0.0, angular_vel)
+                self.get_logger().info(f"◀️ 电机左转: {speed}%")
+                
+            elif cmd_type == 'motor_right':
+                self.send_velocity_command(0.0, -angular_vel)
+                self.get_logger().info(f"▶️ 电机右转: {speed}%")
+                
+            elif cmd_type == 'motor_stop':
+                self.send_stop_command()
+                self.get_logger().info("🛑 电机停止")
+                
+            # 切换到手动控制模式
+            if self.control_mode != ControlMode.MANUAL:
+                self.set_control_mode(ControlMode.MANUAL)
+                
+        except Exception as e:
+            self.get_logger().error(f"❌ 电机命令处理失败: {e}")
+
+    def handle_companion_command(self, cmd_type, cmd_value):
+        """处理伴侣交互命令"""
+        try:
+            self.get_logger().info(f"🤝 伴侣交互命令: {cmd_type}")
+            
+            # 这里可以根据具体的伴侣机器人功能来实现
+            # 目前先发送基本的运动命令作为演示
+            if cmd_type == 'companion_look_up':
+                # 可以控制头部或相机向上
+                self.get_logger().info("👀 伴侣向上看")
+                
+            elif cmd_type == 'companion_look_down':
+                # 可以控制头部或相机向下
+                self.get_logger().info("👀 伴侣向下看")
+                
+            elif cmd_type == 'companion_turn_left':
+                self.send_velocity_command(0.0, 0.3)
+                self.get_logger().info("↰ 伴侣左转")
+                
+            elif cmd_type == 'companion_turn_right':
+                self.send_velocity_command(0.0, -0.3)
+                self.get_logger().info("↱ 伴侣右转")
+                
+            elif cmd_type == 'companion_stop':
+                self.send_stop_command()
+                self.get_logger().info("🛑 伴侣停止")
+                
+            # 确保处于交互模式
+            if self.control_mode != ControlMode.INTERACTION:
+                self.set_control_mode(ControlMode.INTERACTION)
+                
+        except Exception as e:
+            self.get_logger().error(f"❌ 伴侣命令处理失败: {e}")
 
     def manual_cmd_callback(self, msg):
         """手动控制命令回调"""
@@ -228,9 +382,9 @@ class RobotControlNode(Node):
         """处理跟随控制逻辑"""
         try:
             # 计算距离和角度
-            distance = person_pos.distance
-            angle_x = person_pos.angle_x  # 水平角度
-            angle_y = person_pos.angle_y  # 垂直角度（暂不使用）
+            distance = float(person_pos.distance) if person_pos.distance is not None else 0.0
+            angle_x = float(person_pos.angle_x) if person_pos.angle_x is not None else 0.0
+            angle_y = float(person_pos.angle_y) if person_pos.angle_y is not None else 0.0
             
             # 距离控制
             linear_vel = 0.0
@@ -270,7 +424,10 @@ class RobotControlNode(Node):
         if self.emergency_stop:
             return
         
-        # 限制速度范围
+        # 确保参数为浮点数并限制速度范围
+        linear_x = float(linear_x) if linear_x is not None else 0.0
+        angular_z = float(angular_z) if angular_z is not None else 0.0
+        
         linear_x = max(-self.max_linear_speed, min(self.max_linear_speed, linear_x))
         angular_z = max(-self.max_angular_speed, min(self.max_angular_speed, angular_z))
         
@@ -352,6 +509,8 @@ class RobotControlNode(Node):
                 "target_person": self.target_person_name,
                 "following_enabled": self.following_enabled,
                 "emergency_stop": self.emergency_stop,
+                "motor_speed": self.motor_speed,
+                "control_type": self.control_type,
                 "last_detection": time.time() - self.last_detection_time if self.last_detection_time > 0 else -1
             }
             status_msg.data = str(status_info)
