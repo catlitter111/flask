@@ -40,16 +40,40 @@ ros2:
 image:
   # 图像编码设置
   encoding: "jpg"                  # 图像编码格式: jpg, png, webp
-  quality: 80                      # 图像质量 (1-100)
+  quality: 65                      # 默认图像质量 (1-100)，降低以减少延迟
   
   # 图像缩放设置
-  max_width: 640                   # 最大宽度
-  max_height: 480                  # 最大高度
+  max_width: 480                   # 默认最大宽度，降低以减少数据量
+  max_height: 360                  # 默认最大高度
   maintain_aspect_ratio: true      # 保持宽高比
   
   # 性能优化
   skip_frames: 1                   # 跳帧设置，1表示不跳帧，2表示发送每2帧
   buffer_size: 3                   # 图像缓冲区大小
+  
+  # 压缩优化设置
+  compression:
+    enable_adaptive: true          # 启用自适应压缩
+    poor_network_quality: 25       # 网络差时的质量
+    fair_network_quality: 45       # 网络一般时的质量
+    good_network_quality: 65       # 网络好时的质量
+    
+    # 网络质量评估阈值
+    thresholds:
+      large_frame_size: 50000      # 大帧阈值 (字节)
+      medium_frame_size: 25000     # 中等帧阈值 (字节)
+      high_latency: 500            # 高延迟阈值 (毫秒)
+      
+    # 预处理选项
+    preprocessing:
+      enable_noise_reduction: true # 启用降噪
+      enable_color_reduction: true # 启用颜色深度降低
+      bilateral_filter: true       # 双边滤波
+      
+    # 编码优化
+    jpeg_options:
+      enable_optimize: true        # 启用JPEG优化
+      enable_progressive: true     # 启用渐进式JPEG
 
 # 数据传输配置
 transmission:

@@ -20,13 +20,15 @@ Page({
       
       // 视频质量相关数据
       currentQuality: 'medium', // 当前视频质量预设
-      qualityPresets: ['high', 'medium', 'low', 'very_low', 'minimum'],
+      qualityPresets: ['ultra_high', 'high', 'medium', 'low', 'very_low', 'minimum', 'ultra_low'],
       qualityLabels: {
+        'ultra_high': '超高清 (800×600)',
         'high': '高清 (640×480)',
         'medium': '标准 (480×360)',
         'low': '流畅 (320×240)', 
         'very_low': '省流 (240×180)',
-        'minimum': '最小 (160×120)'
+        'minimum': '最小 (160×120)',
+        'ultra_low': '极简 (120×90)'
       },
       bufferHealth: 100,       // 缓冲健康度(0-100)
       frameLatency: 0,         // 帧延迟(ms)

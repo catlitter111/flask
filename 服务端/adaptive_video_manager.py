@@ -12,42 +12,56 @@ logger = logging.getLogger("CompanionAdaptiveVideoManager")
 class CompanionAdaptiveVideoManager:
     """管理多个伴侣设备的视频质量自适应"""
 
-    # 预设质量配置
+    # 预设质量配置 - 优化了延迟和压缩
     QUALITY_PRESETS = {
+        "ultra_high": {
+            "resolution": (800, 600),
+            "fps": 20,
+            "bitrate": 1200,  # Kbps
+            "quality": 85,  # JPEG质量(1-100)
+            "min_bandwidth": 1500  # 需要的最小带宽(Kbps)
+        },
         "high": {
             "resolution": (640, 480),
             "fps": 15,
-            "bitrate": 800,  # Kbps
-            "quality": 80,  # JPEG质量(1-100)
-            "min_bandwidth": 1000  # 需要的最小带宽(Kbps)
+            "bitrate": 600,  # 降低码率
+            "quality": 75,  # 降低质量以减少延迟
+            "min_bandwidth": 800
         },
         "medium": {
             "resolution": (480, 360),
-            "fps": 10,
-            "bitrate": 500,
-            "quality": 70,
-            "min_bandwidth": 600
+            "fps": 12,  # 稍微提高帧率
+            "bitrate": 350,  # 降低码率
+            "quality": 65,
+            "min_bandwidth": 450
         },
         "low": {
             "resolution": (320, 240),
-            "fps": 8,
-            "bitrate": 300,
-            "quality": 60,
-            "min_bandwidth": 350
+            "fps": 10,
+            "bitrate": 200,  # 大幅降低码率
+            "quality": 55,
+            "min_bandwidth": 250
         },
         "very_low": {
             "resolution": (240, 180),
-            "fps": 5,
-            "bitrate": 150,
-            "quality": 50,
-            "min_bandwidth": 200
+            "fps": 8,
+            "bitrate": 120,
+            "quality": 45,
+            "min_bandwidth": 150
         },
         "minimum": {
             "resolution": (160, 120),
+            "fps": 5,
+            "bitrate": 60,  # 最小码率
+            "quality": 35,
+            "min_bandwidth": 80
+        },
+        "ultra_low": {
+            "resolution": (120, 90),
             "fps": 3,
-            "bitrate": 80,
-            "quality": 40,
-            "min_bandwidth": 100
+            "bitrate": 30,  # 极低码率
+            "quality": 25,
+            "min_bandwidth": 40
         }
     }
 
@@ -236,7 +250,7 @@ class CompanionAdaptiveVideoManager:
                     companion["last_quality_change"] = current_time
 
     def _check_client_quality_adjustment(self, client_id):
-        """检查是否需要根据客户端状态调整质量"""
+        """检查是否需要根据客户端状态调整质量 - 激进策略"""
         client = self.clients[client_id]
         companion_id = client.get("companion_id")
 
@@ -248,25 +262,82 @@ class CompanionAdaptiveVideoManager:
         latency = client["latency"]
         jitter = client["jitter"]
 
-        # 根据网络状况调整质量
-        if buffer_health < 20:
-            new_preset = self._get_lower_preset(current_preset, 2)
-        elif buffer_health < 40:
-            new_preset = self._get_lower_preset(current_preset, 1)
+        # 更激进的质量调整策略
+        new_preset = None
+        reason = ""
+
+        # 极高延迟 - 立即降到最低
+        if latency > 2000:
+            new_preset = "ultra_low"
+            reason = f"极高延迟({latency}ms)"
+        elif latency > 1000:
+            new_preset = self._get_lower_preset(current_preset, 3)
+            reason = f"高延迟({latency}ms)"
         elif latency > 500:
+            new_preset = self._get_lower_preset(current_preset, 2)
+            reason = f"延迟过高({latency}ms)"
+        
+        # 缓冲健康度检查
+        elif buffer_health < 15:
+            new_preset = self._get_lower_preset(current_preset, 3)
+            reason = f"缓冲极差({buffer_health}%)"
+        elif buffer_health < 30:
+            new_preset = self._get_lower_preset(current_preset, 2)
+            reason = f"缓冲较差({buffer_health}%)"
+        elif buffer_health < 50:
             new_preset = self._get_lower_preset(current_preset, 1)
+            reason = f"缓冲偏低({buffer_health}%)"
+        
+        # 抖动检查
+        elif jitter > 200:
+            new_preset = self._get_lower_preset(current_preset, 2)
+            reason = f"抖动严重({jitter}ms)"
         elif jitter > 100:
             new_preset = self._get_lower_preset(current_preset, 1)
-        elif buffer_health > 90 and latency < 150 and jitter < 50:
+            reason = f"抖动偏高({jitter}ms)"
+        
+        # 网络状况良好时适度提升
+        elif (buffer_health > 85 and latency < 100 and jitter < 30 and 
+              current_preset in ["ultra_low", "minimum", "very_low"]):
             new_preset = self._get_higher_preset(current_preset, 1)
-        else:
-            return
+            reason = f"网络状况改善"
+        elif (buffer_health > 95 and latency < 50 and jitter < 20):
+            new_preset = self._get_higher_preset(current_preset, 1)
+            reason = f"网络状况优秀"
 
-        if new_preset != current_preset:
+        if new_preset and new_preset != current_preset:
             logger.info(f"客户端 {client_id} 质量调整: {current_preset} -> {new_preset}")
-            logger.info(f"调整依据: 缓冲={buffer_health}%, 延迟={latency}ms, 抖动={jitter}ms")
+            logger.info(f"调整依据: {reason} (缓冲={buffer_health}%, 延迟={latency}ms, 抖动={jitter}ms)")
             client["current_preset"] = new_preset
+            client["quality_change_time"] = time.time()
             self._send_quality_info_to_client(client_id, new_preset)
+            
+            # 同时通知伴侣调整编码质量
+            self._send_quality_command_to_companion(companion_id, new_preset)
+            
+    def _send_quality_command_to_companion(self, companion_id, preset):
+        """向伴侣发送质量调整命令"""
+        try:
+            if companion_id in self.companions:
+                companion_ws = self.companions[companion_id]
+                message = {
+                    "type": "quality_adjustment",
+                    "preset": preset,
+                    "immediate": True,
+                    "timestamp": int(time.time() * 1000)
+                }
+                
+                # 发送到伴侣WebSocket（这里需要异步处理）
+                import asyncio
+                if hasattr(companion_ws, 'send_json'):
+                    try:
+                        asyncio.create_task(companion_ws.send_json(message))
+                        logger.info(f"已向伴侣 {companion_id} 发送质量调整命令: {preset}")
+                    except Exception as e:
+                        logger.error(f"向伴侣 {companion_id} 发送质量调整命令失败: {e}")
+                        
+        except Exception as e:
+            logger.error(f"发送质量命令到伴侣失败: {e}")
 
     def _check_companion_quality_adjustment(self, companion_id):
         """检查是否需要根据伴侣状态调整质量"""
@@ -394,23 +465,25 @@ class CompanionAdaptiveVideoManager:
 
     def _get_lower_preset(self, current_preset, steps=1):
         """获取比当前更低的质量预设"""
-        presets = list(self.QUALITY_PRESETS.keys())
+        # 按质量从高到低排序
+        presets = ["ultra_high", "high", "medium", "low", "very_low", "minimum", "ultra_low"]
         try:
             current_index = presets.index(current_preset)
             target_index = min(len(presets) - 1, current_index + steps)
             return presets[target_index]
         except ValueError:
-            return "medium"
+            return "low"  # 默认返回较低质量
 
     def _get_higher_preset(self, current_preset, steps=1):
         """获取比当前更高的质量预设"""
-        presets = list(self.QUALITY_PRESETS.keys())
+        # 按质量从高到低排序
+        presets = ["ultra_high", "high", "medium", "low", "very_low", "minimum", "ultra_low"]
         try:
             current_index = presets.index(current_preset)
             target_index = max(0, current_index - steps)
             return presets[target_index]
         except ValueError:
-            return "medium"
+            return "medium"  # 默认返回中等质量
 
     def _monitor_loop(self):
         """监控循环，定期检查所有连接的状态"""

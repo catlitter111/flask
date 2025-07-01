@@ -212,6 +212,12 @@ async def companion_websocket_endpoint(websocket: WebSocket, client_id: str):
                             "preset": preset
                         })
                         logger.info(f"客户端 {client_id} 请求调整质量为 {preset}")
+                        
+                        # 立即向机器人发送质量调整命令
+                        await forward_command_to_companion(companion_id, "quality_adjustment", {
+                            "preset": preset,
+                            "immediate": True  # 立即生效
+                        })
 
             except json.JSONDecodeError:
                 logger.error(f"收到无效JSON: {data}")

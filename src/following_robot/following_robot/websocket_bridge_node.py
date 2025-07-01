@@ -164,6 +164,20 @@ class WebSocketBridgeNode(Node):
         self.pending_commands = []
         self.command_lock = threading.Lock()
         
+        # 图像压缩优化
+        self.network_quality = 'good'  # good, fair, poor
+        self.adaptive_quality = True
+        self.compression_stats = {
+            'total_frames': 0,
+            'total_size': 0,
+            'avg_compression_ratio': 1.0,
+            'last_update': time.time()
+        }
+        
+        # 跳帧控制
+        self.frame_skip_counter = 0
+        self.current_skip_rate = 1  # 1=不跳帧, 2=每2帧发送1帧
+        
         self.get_logger().info(f'🔧 配置完成 - 服务器: {self.ws_host}:{self.ws_port}')
         
     def setup_ros_components(self):
@@ -330,21 +344,34 @@ class WebSocketBridgeNode(Node):
         if current_time - self.last_frame_time < self.frame_interval:
             return
             
+        # 跳帧控制
+        self.frame_skip_counter += 1
+        if self.frame_skip_counter % self.current_skip_rate != 0:
+            return
+            
         try:
             # 转换为OpenCV图像
             cv_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             
-            # 调整图像大小
-            if cv_image.shape[1] != self.image_width or cv_image.shape[0] != self.image_height:
-                cv_image = cv2.resize(cv_image, (self.image_width, self.image_height))
+            # 动态调整图像大小（基于网络状况）
+            target_width, target_height = self.get_adaptive_resolution()
+            if cv_image.shape[1] != target_width or cv_image.shape[0] != target_height:
+                cv_image = cv2.resize(cv_image, (target_width, target_height), interpolation=cv2.INTER_AREA)
             
-            # 编码为JPEG
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.image_quality]
-            result, encimg = cv2.imencode('.jpg', cv_image, encode_param)
+            # 应用预处理优化
+            cv_image = self.preprocess_image(cv_image)
             
-            if result:
+            # 选择最佳编码格式和参数
+            encoded_data, format_type = self.encode_image_optimized(cv_image)
+            
+            if encoded_data is not None:
                 # 转换为base64
-                img_base64 = base64.b64encode(encimg).decode('utf-8')
+                img_base64 = base64.b64encode(encoded_data).decode('utf-8')
+                
+                # 计算压缩率
+                original_size = cv_image.shape[0] * cv_image.shape[1] * cv_image.shape[2]
+                compressed_size = len(encoded_data)
+                compression_ratio = original_size / compressed_size
                 
                 # 准备消息
                 self.frame_sequence += 1
@@ -354,15 +381,20 @@ class WebSocketBridgeNode(Node):
                     'frame_data': img_base64,
                     'sequence': self.frame_sequence,
                     'timestamp': int(current_time * 1000),
-                    'width': self.image_width,
-                    'height': self.image_height,
-                    'quality': self.image_quality
+                    'width': target_width,
+                    'height': target_height,
+                    'quality': self.image_quality,
+                    'format': format_type,
+                    'compressed_size': compressed_size,
+                    'compression_ratio': round(compression_ratio, 2)
                 }
                 
                 # 发送图像
                 if self.send_ws_message(frame_message):
                     self.last_frame_time = current_time
-                    self.get_logger().debug(f'📹 发送视频帧 #{self.frame_sequence}')
+                    self.get_logger().debug(f'📹 发送视频帧 #{self.frame_sequence} '
+                                          f'({target_width}x{target_height}, {compressed_size}B, '
+                                          f'压缩率:{compression_ratio:.1f}x)')
                     
         except Exception as e:
             self.get_logger().error(f'❌ 图像处理失败: {e}')
@@ -446,6 +478,10 @@ class WebSocketBridgeNode(Node):
                 self.enable_image_stream = True
                 self.get_logger().info('📹 视频流已开启')
                 
+            elif command == 'quality_adjustment':
+                # 质量调整命令
+                self.handle_quality_adjustment(data)
+                
             # 发送命令响应
             response = {
                 'type': 'command_response',
@@ -472,13 +508,15 @@ class WebSocketBridgeNode(Node):
         """处理视频质量调整"""
         preset = data.get('preset', 'medium')
         
-        # 质量预设映射
+        # 质量预设映射 - 优化压缩和延迟
         quality_mapping = {
-            'high': {'width': 640, 'height': 480, 'quality': 90, 'fps': 20},
-            'medium': {'width': 480, 'height': 360, 'quality': 80, 'fps': 15},
-            'low': {'width': 320, 'height': 240, 'quality': 70, 'fps': 10},
-            'very_low': {'width': 240, 'height': 180, 'quality': 60, 'fps': 8},
-            'minimum': {'width': 160, 'height': 120, 'quality': 50, 'fps': 5}
+            'ultra_high': {'width': 800, 'height': 600, 'quality': 85, 'fps': 20},
+            'high': {'width': 640, 'height': 480, 'quality': 75, 'fps': 15},
+            'medium': {'width': 480, 'height': 360, 'quality': 65, 'fps': 12},
+            'low': {'width': 320, 'height': 240, 'quality': 55, 'fps': 10},
+            'very_low': {'width': 240, 'height': 180, 'quality': 45, 'fps': 8},
+            'minimum': {'width': 160, 'height': 120, 'quality': 35, 'fps': 5},
+            'ultra_low': {'width': 120, 'height': 90, 'quality': 25, 'fps': 3}
         }
         
         if preset in quality_mapping:
@@ -558,6 +596,167 @@ class WebSocketBridgeNode(Node):
             
         self.send_ws_message(status_message)
         
+    def get_adaptive_resolution(self):
+        """根据网络状况动态调整分辨率"""
+        if self.network_quality == 'poor':
+            return min(160, self.image_width), min(120, self.image_height)
+        elif self.network_quality == 'fair':
+            return min(240, self.image_width), min(180, self.image_height)
+        else:  # good
+            return min(480, self.image_width), min(360, self.image_height)
+    
+    def preprocess_image(self, image):
+        """图像预处理优化"""
+        try:
+            # 如果网络质量差，应用更激进的优化
+            if self.network_quality == 'poor':
+                # 降噪和锐化
+                image = cv2.bilateralFilter(image, 5, 50, 50)
+                # 减少颜色深度
+                image = (image // 8) * 8
+            elif self.network_quality == 'fair':
+                # 轻微降噪
+                image = cv2.bilateralFilter(image, 3, 30, 30)
+            
+            return image
+        except Exception as e:
+            self.get_logger().warning(f'图像预处理失败: {e}')
+            return image
+    
+    def encode_image_optimized(self, image):
+        """优化的图像编码"""
+        try:
+            # 根据网络质量选择编码参数
+            if self.network_quality == 'poor':
+                # 极低质量，最大压缩
+                quality = max(20, self.image_quality // 3)
+                encode_param = [
+                    int(cv2.IMWRITE_JPEG_QUALITY), quality,
+                    int(cv2.IMWRITE_JPEG_OPTIMIZE), 1,
+                    int(cv2.IMWRITE_JPEG_PROGRESSIVE), 1
+                ]
+            elif self.network_quality == 'fair':
+                # 中等质量
+                quality = max(40, self.image_quality // 2)
+                encode_param = [
+                    int(cv2.IMWRITE_JPEG_QUALITY), quality,
+                    int(cv2.IMWRITE_JPEG_OPTIMIZE), 1
+                ]
+            else:
+                # 标准质量
+                quality = self.image_quality
+                encode_param = [
+                    int(cv2.IMWRITE_JPEG_QUALITY), quality,
+                    int(cv2.IMWRITE_JPEG_OPTIMIZE), 1
+                ]
+            
+            # 尝试JPEG编码
+            success, encoded_data = cv2.imencode('.jpg', image, encode_param)
+            
+            if success:
+                # 更新压缩统计
+                self.update_compression_stats(len(encoded_data))
+                return encoded_data.tobytes(), 'jpeg'
+            else:
+                self.get_logger().error('JPEG编码失败')
+                return None, None
+                
+        except Exception as e:
+            self.get_logger().error(f'图像编码失败: {e}')
+            return None, None
+    
+    def update_compression_stats(self, compressed_size):
+        """更新压缩统计信息"""
+        try:
+            self.compression_stats['total_frames'] += 1
+            self.compression_stats['total_size'] += compressed_size
+            
+            # 每10帧更新一次网络质量评估
+            if self.compression_stats['total_frames'] % 10 == 0:
+                avg_size = self.compression_stats['total_size'] / self.compression_stats['total_frames']
+                self.evaluate_network_quality(avg_size)
+                
+        except Exception as e:
+            self.get_logger().warning(f'更新压缩统计失败: {e}')
+    
+    def evaluate_network_quality(self, avg_frame_size):
+        """评估网络质量并调整参数"""
+        try:
+            # 基于平均帧大小和延迟评估网络质量
+            if avg_frame_size > 50000:  # 50KB
+                new_quality = 'poor'
+                new_skip_rate = 3  # 每3帧发送1帧
+            elif avg_frame_size > 25000:  # 25KB
+                new_quality = 'fair'
+                new_skip_rate = 2  # 每2帧发送1帧
+            else:
+                new_quality = 'good'
+                new_skip_rate = 1  # 不跳帧
+            
+            # 更新网络质量
+            if new_quality != self.network_quality:
+                self.network_quality = new_quality
+                self.current_skip_rate = new_skip_rate
+                self.get_logger().info(f'📊 网络质量调整: {new_quality}, 跳帧率: {new_skip_rate}')
+                
+        except Exception as e:
+            self.get_logger().warning(f'网络质量评估失败: {e}')
+    
+    def handle_quality_adjustment(self, data):
+        """处理质量调整命令"""
+        try:
+            preset = data.get('preset', 'medium')
+            immediate = data.get('immediate', False)
+            
+            # 质量预设映射 - 优化压缩和延迟
+            quality_mapping = {
+                'ultra_high': {'width': 800, 'height': 600, 'quality': 85, 'fps': 20, 'skip': 1},
+                'high': {'width': 640, 'height': 480, 'quality': 75, 'fps': 15, 'skip': 1},
+                'medium': {'width': 480, 'height': 360, 'quality': 65, 'fps': 12, 'skip': 1},
+                'low': {'width': 320, 'height': 240, 'quality': 55, 'fps': 10, 'skip': 1},
+                'very_low': {'width': 240, 'height': 180, 'quality': 45, 'fps': 8, 'skip': 2},
+                'minimum': {'width': 160, 'height': 120, 'quality': 35, 'fps': 5, 'skip': 2},
+                'ultra_low': {'width': 120, 'height': 90, 'quality': 25, 'fps': 3, 'skip': 3}
+            }
+            
+            if preset in quality_mapping:
+                settings = quality_mapping[preset]
+                
+                # 更新图像参数
+                self.image_width = settings['width']
+                self.image_height = settings['height']
+                self.image_quality = settings['quality']
+                self.current_skip_rate = settings['skip']
+                
+                # 更新帧率
+                target_fps = settings['fps']
+                self.frame_interval = 1.0 / target_fps if target_fps > 0 else 1.0 / 10
+                
+                # 根据预设调整网络质量评估
+                if preset in ['ultra_low', 'minimum']:
+                    self.network_quality = 'poor'
+                elif preset in ['very_low', 'low']:
+                    self.network_quality = 'fair'
+                else:
+                    self.network_quality = 'good'
+                
+                self.get_logger().info(f'🎛️ 质量调整完成: {preset} '
+                                     f'({self.image_width}x{self.image_height}, '
+                                     f'质量:{self.image_quality}, '
+                                     f'帧率:{target_fps}fps, '
+                                     f'跳帧:{self.current_skip_rate})')
+                
+                if immediate:
+                    # 立即重置帧计数器以立即生效
+                    self.frame_skip_counter = 0
+                    self.last_frame_time = 0
+                    
+            else:
+                self.get_logger().warning(f'未知的质量预设: {preset}')
+                
+        except Exception as e:
+            self.get_logger().error(f'质量调整失败: {e}')
+    
     def destroy_node(self):
         """节点销毁时的清理工作"""
         self.get_logger().info('🔄 正在关闭WebSocket桥接节点...')
