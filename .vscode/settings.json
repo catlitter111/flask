@@ -37,5 +37,6 @@
     "debug.showInlineBreakpointCandidates": true,
     "editor.rulers": [88, 120],
     "editor.wordWrap": "bounded",
-    "editor.wordWrapColumn": 120
+    "editor.wordWrapColumn": 120,
+    "cmake.sourceDirectory": "D:/BaiduNetdiskDownload/大纲版源码/flask/src/custom_msgs"
 } 

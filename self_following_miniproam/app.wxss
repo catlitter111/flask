@@ -1,0 +1,340 @@
+/**app.wxss - 机器人伴侣主题样式 **/
+
+/* 全局配色变量 */
+page {
+  --primary-color: #2196F3;      /* 科技蓝 */
+  --secondary-color: #00BCD4;    /* 电光蓝 */
+  --accent-color: #FF9800;       /* 机械橙 */
+  --dark-bg: #37474F;            /* 深空灰 */
+  --light-bg: #ECEFF1;           /* 浅灰背景 */
+  --text-primary: #212121;       /* 主文字色 */
+  --text-secondary: #757575;     /* 次要文字色 */
+  --text-light: #B0BEC5;         /* 浅色文字 */
+  --border-color: #E0E0E0;       /* 边框色 */
+  --success-color: #4CAF50;      /* 成功色 */
+  --warning-color: #FF5722;      /* 警告色 */
+  --robot-shadow: 0 4rpx 12rpx rgba(33, 150, 243, 0.2);
+}
+
+/* 全局基础样式 */
+.container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #ECEFF1 0%, #CFD8DC 100%);
+  color: var(--text-primary);
+}
+
+/* 通用卡片样式 */
+.card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 30rpx;
+  margin: 20rpx;
+  box-shadow: var(--robot-shadow);
+  border: 2rpx solid transparent;
+  transition: all 0.3s ease;
+}
+
+.card:hover {
+  transform: translateY(-4rpx);
+  box-shadow: 0 8rpx 24rpx rgba(33, 150, 243, 0.3);
+}
+
+.card.active {
+  border-color: var(--primary-color);
+  background: linear-gradient(135deg, #ffffff 0%, #f8fffe 100%);
+}
+
+/* 机器人主题按钮 */
+.robot-btn {
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+  color: #ffffff;
+  border-radius: 50rpx;
+  padding: 24rpx 48rpx;
+  font-size: 32rpx;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: var(--robot-shadow);
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.robot-btn:active {
+  transform: scale(0.95);
+}
+
+.robot-btn.secondary {
+  background: linear-gradient(135deg, #ffffff 0%, #f5f5f5 100%);
+  color: var(--primary-color);
+  border: 2rpx solid var(--primary-color);
+}
+
+.robot-btn.accent {
+  background: linear-gradient(135deg, var(--accent-color) 0%, #FF7043 100%);
+}
+
+.robot-btn.disabled {
+  opacity: 0.5;
+  background: var(--text-light);
+  color: #ffffff;
+}
+
+/* 状态指示器 */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 8rpx 16rpx;
+  border-radius: 20rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.status-indicator.connected {
+  background: rgba(76, 175, 80, 0.1);
+  color: var(--success-color);
+}
+
+.status-indicator.connecting {
+  background: rgba(255, 152, 0, 0.1);
+  color: var(--accent-color);
+}
+
+.status-indicator.disconnected {
+  background: rgba(255, 87, 34, 0.1);
+  color: var(--warning-color);
+}
+
+/* 标题样式 */
+.title {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 20rpx;
+}
+
+.subtitle {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 16rpx;
+}
+
+.section-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--primary-color);
+  margin-bottom: 12rpx;
+  padding-left: 12rpx;
+  border-left: 4rpx solid var(--primary-color);
+}
+
+/* 信息列表 */
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--border-color);
+}
+
+.info-item:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  font-size: 28rpx;
+  color: var(--text-secondary);
+}
+
+.info-value {
+  font-size: 28rpx;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* 进度条 */
+.progress-bar {
+  width: 100%;
+  height: 8rpx;
+  background: var(--border-color);
+  border-radius: 4rpx;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+  border-radius: 4rpx;
+  transition: width 0.3s ease;
+}
+
+/* 徽章 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40rpx;
+  height: 40rpx;
+  padding: 4rpx 12rpx;
+  background: var(--accent-color);
+  color: #ffffff;
+  font-size: 20rpx;
+  font-weight: 600;
+  border-radius: 20rpx;
+}
+
+.badge.primary {
+  background: var(--primary-color);
+}
+
+.badge.success {
+  background: var(--success-color);
+}
+
+.badge.warning {
+  background: var(--warning-color);
+}
+
+/* 机器人主题图标 */
+.robot-icon {
+  width: 60rpx;
+  height: 60rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 32rpx;
+  box-shadow: var(--robot-shadow);
+}
+
+.robot-icon.large {
+  width: 100rpx;
+  height: 100rpx;
+  font-size: 48rpx;
+}
+
+/* 动画效果 */
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.pulse-animation {
+  animation: pulse 2s infinite;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rotate-animation {
+  animation: rotate 1s linear infinite;
+}
+
+/* 页面切换动画 */
+.page-enter {
+  animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* 响应式设计 */
+@media (max-width: 750rpx) {
+  .card {
+    margin: 15rpx;
+    padding: 24rpx;
+  }
+  
+  .title {
+    font-size: 36rpx;
+  }
+  
+  .robot-btn {
+    padding: 20rpx 40rpx;
+    font-size: 28rpx;
+  }
+}
+
+/* 通用工具类 */
+.flex {
+  display: flex;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flex-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-primary {
+  color: var(--primary-color);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-light {
+  color: var(--text-light);
+}
+
+.bg-primary {
+  background: var(--primary-color);
+}
+
+.bg-accent {
+  background: var(--accent-color);
+}
+
+.mt-20 {
+  margin-top: 20rpx;
+}
+
+.mb-20 {
+  margin-bottom: 20rpx;
+}
+
+.p-20 {
+  padding: 20rpx;
+}
+
+.border-radius {
+  border-radius: 16rpx;
+} 

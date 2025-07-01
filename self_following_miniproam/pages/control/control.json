@@ -1,0 +1,7 @@
+{
+    "navigationBarTitleText": "机器人伴侣控制",
+    "navigationBarBackgroundColor": "#007ACC",
+    "navigationBarTextStyle": "white",
+    "enablePullDownRefresh": false,
+    "usingComponents": {}
+  }

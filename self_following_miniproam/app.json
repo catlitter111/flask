@@ -1,0 +1,70 @@
+{
+  "pages": [
+    "pages/control/control",
+    "pages/history/history",
+    "pages/feature/feature",
+    "pages/assistant/assistant"
+  ],
+  "window": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "机器人伴侣",
+    "navigationBarBackgroundColor": "#2196F3",
+    "navigationStyle": "default",
+    "backgroundColor": "#37474F",
+    "backgroundTextStyle": "light",
+    "enablePullDownRefresh": false
+  },
+  "tabBar": {
+    "color": "#B0BEC5",
+    "selectedColor": "#2196F3",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/control/control",
+        "text": "控制中心",
+        "iconPath": "images/control.png",
+        "selectedIconPath": "images/control-active.png"
+      },
+      {
+        "pagePath": "pages/history/history", 
+        "text": "跟踪历史",
+        "iconPath": "images/history.png",
+        "selectedIconPath": "images/history-active.png"
+      },
+      {
+        "pagePath": "pages/feature/feature",
+        "text": "特征提取", 
+        "iconPath": "images/feature.png",
+        "selectedIconPath": "images/feature-active.png"
+      },
+      {
+        "pagePath": "pages/assistant/assistant",
+        "text": "AI助手",
+        "iconPath": "images/assistant.png",
+        "selectedIconPath": "images/assistant-active.png"
+      }
+    ]
+  },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "需要获取您的地理位置以记录机器人跟踪轨迹"
+    },
+    "scope.camera": {
+      "desc": "需要使用相机进行人体特征识别和提取"
+    },
+    "scope.writePhotosAlbum": {
+      "desc": "需要访问相册保存特征图片或跟踪记录"
+    }
+  },
+  "networkTimeout": {
+    "request": 10000,
+    "downloadFile": 10000
+  },
+  "style": "v2",
+  "componentFramework": "glass-easel",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents",
+  "requiredBackgroundModes": ["location"],
+  "usingComponents": {}
+}
