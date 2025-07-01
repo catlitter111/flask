@@ -1,1044 +1,661 @@
-# server.py - 机器人伴侣服务端 (去除华为IoT)
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-import json
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+机器人伴侣WebSocket服务端
+=======================
+
+功能说明：
+    - 提供WebSocket服务，连接微信小程序客户端和ROS2机器人节点
+    - 实现消息路由，在客户端和机器人之间转发消息
+    - 管理连接状态，处理心跳和重连
+    - 转发视频流、控制命令、状态更新等
+
+架构设计：
+    - 客户端连接：/ws/companion/{client_id}
+    - 机器人连接：/ws/ros2_bridge/{robot_id}
+    - 消息队列：处理并发消息
+    - 连接池：管理多个客户端和机器人
+
+作者：AI Assistant
+日期：2025
+"""
+
 import asyncio
+import json
 import logging
-import datetime
 import time
-import random
-import base64
-import os
 import uuid
-from pathlib import Path
+from datetime import datetime
+from typing import Dict, Set, Optional, Any, Union
+from dataclasses import dataclass, field
+from collections import defaultdict
 
-# 导入伴侣自适应视频管理器
-from adaptive_video_manager import CompanionAdaptiveVideoManager
+# 兼容不同版本的 websockets 库
+try:
+    # 尝试新版本的导入方式
+    from websockets.server import WebSocketServerProtocol
+    from websockets.legacy.server import WebSocketServerProtocol as LegacyWebSocketServerProtocol
 
-app = FastAPI(title="机器人伴侣服务端", version="2.0.0")
+    WebSocketType = Union[WebSocketServerProtocol, LegacyWebSocketServerProtocol]
+except ImportError:
+    try:
+        # 尝试旧版本的导入方式
+        from websockets import WebSocketServerProtocol
 
-# 允许跨域请求
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+        WebSocketType = WebSocketServerProtocol
+    except ImportError:
+        # 使用通用类型
+        import websockets
+
+        WebSocketType = Any
+
+import websockets
+from websockets.exceptions import ConnectionClosed
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-
-# 日志配置
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("CompanionServer")
-
-# 全局变量
-companions = {}  # 存储所有连接的伴侣机器人
-clients = {}  # 存储所有连接的微信客户端
-companion_to_clients = {}  # 伴侣ID到客户端ID的映射
-client_to_companion = {}  # 客户端ID到伴侣ID的映射
-lock = asyncio.Lock()  # 异步锁
-adaptive_video_manager = None  # 自适应视频管理器实例
-
-# 历史数据存储
-daily_companion_data = {}  # 格式: {companion_id: {date: {data}}}
-monthly_records = {}  # 格式: {companion_id: {year-month: [记录列表]}}
-
-# AI聊天相关
-pending_ai_requests = {}  # 格式: {request_id: {client_id, timestamp, ...}}
-
-# 伴侣交互历史记录
-interaction_history = {}  # 格式: {companion_id: [interaction_records...]}
-
-# 伴侣跟踪历史
-tracking_history = {}  # 格式: {companion_id: [tracking_records...]}
-
-
-# 微信客户端WebSocket连接处理
-@app.websocket("/ws/companion/{client_id}")
-async def companion_websocket_endpoint(websocket: WebSocket, client_id: str):
-    await websocket.accept()
-    logger.info(f"微信客户端 {client_id} 已连接")
-
-    # 注册客户端
-    async with lock:
-        clients[client_id] = {
-            "websocket": websocket,
-            "last_active": datetime.datetime.now(),
-            "connection_id": f"{client_id}_{datetime.datetime.now().timestamp()}"
-        }
-
-    # 注册到自适应视频管理器
-    adaptive_video_manager.register_client(client_id, websocket)
-
-    try:
-        while True:
-            # 检查WebSocket连接状态
-            if websocket.client_state.name != "CONNECTED":
-                logger.warning(f"微信客户端 {client_id} WebSocket连接已断开")
-                break
-                
-            try:
-                data = await websocket.receive_text()
-            except Exception as e:
-                logger.error(f"微信客户端 {client_id} 接收消息失败: {e}")
-                break
-                
-            try:
-                message = json.loads(data)
-                message_type = message.get("type", "")
-
-                # 更新客户端活跃时间
-                async with lock:
-                    if client_id in clients:
-                        clients[client_id]["last_active"] = datetime.datetime.now()
-
-                # 同时更新自适应视频管理器中的客户端状态
-                adaptive_video_manager.update_client_status(client_id, {
-                    "last_message_time": time.time(),
-                    "connection_active": True
-                })
-
-                if message_type == "ping":
-                    # 处理ping消息
-                    timestamp = message.get("timestamp", 0)
-                    companion_id = None
-                    companion_online = False
-
-                    # 查找连接的伴侣
-                    async with lock:
-                        if client_id in client_to_companion:
-                            companion_id = client_to_companion[client_id]
-                            if companion_id in companions:
-                                companion_online = True
-
-                    # 发送pong响应
-                    await websocket.send_json({
-                        "type": "pong",
-                        "timestamp": timestamp,
-                        "echo_timestamp": timestamp,
-                        "companion_id": companion_id,
-                        "companion_online": companion_online
-                    })
-                    
-                    # 额外更新adaptive_video_manager中的客户端状态
-                    adaptive_video_manager.update_client_status(client_id, {
-                        "last_message_time": time.time(),
-                        "connection_active": True
-                    })
-
-                elif message_type == "client_init":
-                    # 客户端初始化
-                    companion_id = message.get("robot_id") or message.get("companion_id", "companion_robot_001")
-                    
-                    # 关联客户端和伴侣
-                    success = await connect_client_to_companion(client_id, companion_id)
-
-                    # 在自适应视频管理器中连接客户端和伴侣
-                    if success:
-                        adaptive_video_manager.connect_client_to_companion(client_id, companion_id)
-
-                    # 获取伴侣在线状态
-                    companion_online = companion_id in companions
-
-                    # 如果伴侣在线，发送初始状态
-                    if companion_online:
-                        companion_data = companions[companion_id].get("data", {})
-                        await websocket.send_json({
-                            "type": "robot_status_update",
-                            "data": companion_data
-                        })
-
-                    # 告知客户端伴侣连接状态
-                    await websocket.send_json({
-                        "type": "robot_connection_status",
-                        "robot_id": companion_id,
-                        "connected": companion_online,
-                        "timestamp": int(time.time() * 1000)
-                    })
-
-                elif message_type == "companion_command":
-                    # 处理伴侣控制命令
-                    companion_id = message.get("robot_id")
-                    command = message.get("command")
-                    params = message.get("params", {})
-
-                    logger.info(f"📋 收到伴侣控制命令: {command}, 参数: {params}")
-
-                    # 检查伴侣是否在线
-                    companion_online = companion_id in companions
-                    logger.info(f"🔍 检查伴侣状态 {companion_id}: {'在线' if companion_online else '离线'}")
-                    
-                    if companion_online:
-                        # 尝试转发命令到伴侣
-                        success = await forward_command_to_companion(companion_id, command, params)
-                        
-                        if success:
-                            # 发送成功响应
-                            await websocket.send_json({
-                                "type": "command_response",
-                                "command": command,
-                                "status": "success",
-                                "message": "命令已成功发送"
-                            })
-                        else:
-                            # 转发失败
-                            await websocket.send_json({
-                                "type": "command_response",
-                                "command": command,
-                                "status": "error",
-                                "message": "命令发送失败，伴侣连接异常"
-                            })
-                            
-                            # 通知客户端伴侣已断开
-                            await websocket.send_json({
-                                "type": "robot_connection_status",
-                                "robot_id": companion_id,
-                                "connected": False,
-                                "timestamp": int(time.time() * 1000)
-                            })
-                    else:
-                        await websocket.send_json({
-                            "type": "command_response",
-                            "command": command,
-                            "status": "error",
-                            "message": "伴侣机器人不在线"
-                        })
-                        
-                        # 发送连接状态更新
-                        await websocket.send_json({
-                            "type": "robot_connection_status",
-                            "robot_id": companion_id,
-                            "connected": False,
-                            "timestamp": int(time.time() * 1000)
-                        })
-
-                elif message_type == "get_robot_status":
-                    # 处理获取伴侣状态请求
-                    companion_id = message.get("robot_id")
-                    
-                    # 添加调试信息
-                    logger.info(f"🔍 客户端 {client_id} 查询伴侣 {companion_id} 状态")
-                    
-                    # 显示当前所有连接的伴侣
-                    async with lock:
-                        companion_list = list(companions.keys())
-                    logger.info(f"📋 当前连接的伴侣列表: {companion_list}")
-                    
-                    if companion_id in companions:
-                        logger.info(f"✅ 伴侣 {companion_id} 在线")
-                        await websocket.send_json({
-                            "type": "robot_connection_status",
-                            "robot_id": companion_id,
-                            "connected": True,
-                            "timestamp": int(time.time() * 1000)
-                        })
-                    else:
-                        logger.info(f"❌ 伴侣 {companion_id} 离线")
-                        await websocket.send_json({
-                            "type": "robot_connection_status",
-                            "robot_id": companion_id,
-                            "connected": False,
-                            "timestamp": int(time.time() * 1000)
-                        })
-
-                elif message_type == "request_video_stream":
-                    # 处理请求视频流
-                    companion_id = message.get("robot_id")
-                    if companion_id in companions:
-                        await forward_command_to_companion(companion_id, "request_video_stream", {})
-                        await websocket.send_json({
-                            "type": "video_stream_request_sent",
-                            "robot_id": companion_id,
-                            "timestamp": int(time.time() * 1000)
-                        })
-                    else:
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": "伴侣机器人不在线，无法请求视频流"
-                        })
-
-                elif message_type == "client_network_status":
-                    # 处理客户端网络状态更新
-                    status_data = message.get("status", {})
-                    adaptive_video_manager.update_client_status(client_id, status_data)
-
-                elif message_type == "client_quality_request":
-                    # 处理客户端质量调整请求
-                    companion_id = message.get("robot_id")
-                    preset = message.get("preset")
-
-                    if companion_id in companions:
-                        # 通知客户端请求已收到
-                        await websocket.send_json({
-                            "type": "quality_request_received",
-                            "preset": preset
-                        })
-                        logger.info(f"客户端 {client_id} 请求调整质量为 {preset}")
-                        
-                        # 立即向机器人发送质量调整命令
-                        await forward_command_to_companion(companion_id, "quality_adjustment", {
-                            "preset": preset,
-                            "immediate": True  # 立即生效
-                        })
-
-            except json.JSONDecodeError:
-                logger.error(f"收到无效JSON: {data}")
-            except Exception as e:
-                logger.error(f"处理微信客户端消息出错: {e}")
-
-    except WebSocketDisconnect:
-        logger.info(f"微信客户端 {client_id} 已断开连接")
-        await handle_client_disconnect(client_id)
-
-
-# 伴侣机器人WebSocket连接处理
-@app.websocket("/ws/ros2_bridge/{robot_id}")
-async def ros2_bridge_websocket_endpoint(websocket: WebSocket, robot_id: str):
-    """
-    ROS2桥接节点WebSocket端点
-    ========================
-    
-    专门为ROS2 WebSocket桥接节点设计的通信端点
-    处理来自ROS2系统的跟踪结果和视频流数据
-    """
-    connection_id = str(uuid.uuid4())[:8]
-    logger.info(f"🤖 ROS2桥接节点 {robot_id} 尝试连接 (连接ID: {connection_id})")
-    
-    try:
-        await websocket.accept()
-        
-        # 注册桥接连接
-        async with lock:
-            companions[robot_id] = {
-                "websocket": websocket,
-                "last_active": datetime.datetime.now(),
-                "connection_id": connection_id,
-                "type": "ros2_bridge",
-                "data": {}
-            }
-        
-        # 连接到自适应视频管理器
-        adaptive_video_manager.register_companion(robot_id, websocket)
-        
-        logger.info(f"✅ ROS2桥接节点 {robot_id} 连接成功")
-        
-        # 通知所有客户端机器人已连接 - 延迟一点确保连接稳定
-        await asyncio.sleep(0.5)
-        await broadcast_companion_status(robot_id, True)
-        
-        # 启动心跳任务
-        async def heartbeat_task():
-            """定期发送心跳保持连接活跃"""
-            while True:
-                try:
-                    await asyncio.sleep(15)  # 每15秒发送一次心跳
-                    if robot_id in companions:
-                        await websocket.send_json({
-                            "type": "heartbeat",
-                            "timestamp": int(time.time() * 1000),
-                            "server_initiated": True
-                        })
-                        # 更新状态
-                        adaptive_video_manager.update_companion_status(robot_id, {
-                            "last_message_time": time.time(),
-                            "connection_active": True
-                        })
-                    else:
-                        break
-                except Exception as e:
-                    logger.debug(f"心跳任务停止: {e}")
-                    break
-        
-        # 启动心跳任务
-        heartbeat_handle = asyncio.create_task(heartbeat_task())
-        
-        while True:
-            try:
-                # 检查WebSocket连接状态
-                if websocket.client_state.name != "CONNECTED":
-                    logger.warning(f"ROS2桥接节点 {robot_id} WebSocket连接已断开")
-                    break
-                    
-                # 接收来自ROS2桥接节点的消息
-                try:
-                    message = await websocket.receive_json()
-                except Exception as e:
-                    logger.error(f"ROS2桥接节点 {robot_id} 接收消息失败: {e}")
-                    break
-                
-                # 更新活动时间
-                async with lock:
-                    if robot_id in companions:
-                        companions[robot_id]["last_active"] = datetime.datetime.now()
-                
-                # 同时更新自适应视频管理器中的状态
-                adaptive_video_manager.update_companion_status(robot_id, {
-                    "last_message_time": time.time(),
-                    "connection_active": True
-                })
-                
-                # 处理不同类型的消息
-                msg_type = message.get("type", "")
-                
-                if msg_type == "robot_init":
-                    # 机器人初始化消息
-                    logger.info(f"🤖 ROS2桥接节点 {robot_id} 初始化完成")
-                    # 通知所有关联客户端机器人已就绪
-                    await broadcast_companion_status(robot_id, True)
-                    
-                elif msg_type == "tracking_result":
-                    # 跟踪结果 - 转发给所有关联的客户端
-                    await broadcast_tracking_result(robot_id, message)
-                    
-                elif msg_type == "video_frame":
-                    # 视频帧 - 通过自适应视频管理器处理
-                    await adaptive_video_manager.handle_video_frame(robot_id, message)
-                    
-                elif msg_type == "robot_status" or msg_type == "robot_status_update":
-                    # 机器人状态更新
-                    await handle_robot_status_update(robot_id, message)
-                    
-                elif msg_type == "heartbeat":
-                    # 心跳消息 - 保持连接活跃
-                    await websocket.send_json({
-                        "type": "heartbeat_ack",
-                        "timestamp": int(time.time() * 1000)
-                    })
-                    # 额外更新adaptive_video_manager状态
-                    adaptive_video_manager.update_companion_status(robot_id, {
-                        "last_message_time": time.time(),
-                        "connection_active": True
-                    })
-                    
-                elif msg_type == "command_response":
-                    # 命令响应 - 处理来自ROS2桥接节点的响应
-                    await handle_command_response(robot_id, message)
-                    
-                elif msg_type == "quality_adjustment_result":
-                    # 质量调整结果
-                    await handle_quality_adjustment_result(robot_id, message)
-                    
-                elif msg_type == "interaction_event":
-                    # 交互事件
-                    await handle_interaction_event(robot_id, message)
-                    
-                else:
-                    logger.warning(f"ROS2桥接节点 {robot_id} 发送了未知消息类型: {msg_type}")
-                    
-            except asyncio.TimeoutError:
-                logger.warning(f"ROS2桥接节点 {robot_id} 超时")
-                break
-            except Exception as e:
-                logger.error(f"处理ROS2桥接节点 {robot_id} 消息时出错: {e}")
-                break
-                
-    except WebSocketDisconnect:
-        logger.info(f"📱 ROS2桥接节点 {robot_id} 主动断开连接")
-    except Exception as e:
-        logger.error(f"ROS2桥接节点 {robot_id} 连接异常: {e}")
-    finally:
-        # 取消心跳任务
-        if 'heartbeat_handle' in locals():
-            heartbeat_handle.cancel()
-            
-        # 清理连接
-        await handle_companion_disconnect(robot_id)
-        logger.info(f"🔌 ROS2桥接节点 {robot_id} 连接已清理")
-
-@app.websocket("/ws/companion_robot/{companion_id}")
-async def companion_robot_websocket_endpoint(websocket: WebSocket, companion_id: str):
-    await websocket.accept()
-    logger.info(f"伴侣机器人 {companion_id} 已连接")
-
-    # 注册伴侣机器人
-    async with lock:
-        # 关闭旧连接
-        if companion_id in companions and "websocket" in companions[companion_id]:
-            try:
-                old_ws = companions[companion_id]["websocket"]
-                await old_ws.close(code=1000, reason="新连接替代")
-            except Exception as e:
-                logger.error(f"关闭旧连接失败: {e}")
-
-        companions[companion_id] = {
-            "websocket": websocket,
-            "last_active": datetime.datetime.now(),
-            "data": {},
-            "connection_id": f"{companion_id}_{datetime.datetime.now().timestamp()}"
-        }
-        
-        # 初始化伴侣到客户端的映射
-        if companion_id not in companion_to_clients:
-            companion_to_clients[companion_id] = []
-
-    # 注册到自适应视频管理器
-    adaptive_video_manager.register_companion(companion_id, websocket)
-
-    # 通知所有关联的客户端伴侣已连接
-    await broadcast_companion_status(companion_id, True)
-
-    try:
-        while True:
-            # 检查WebSocket连接状态
-            if websocket.client_state.name != "CONNECTED":
-                logger.warning(f"伴侣机器人 {companion_id} WebSocket连接已断开")
-                break
-                
-            try:
-                data = await websocket.receive_text()
-            except Exception as e:
-                logger.error(f"伴侣机器人 {companion_id} 接收消息失败: {e}")
-                break
-                
-            try:
-                message = json.loads(data)
-                message_type = message.get("type", "")
-
-                # 更新伴侣活跃时间
-                async with lock:
-                    if companion_id in companions:
-                        companions[companion_id]["last_active"] = datetime.datetime.now()
-
-                if message_type == "heartbeat":
-                    # 处理心跳消息
-                    await websocket.send_json({
-                        "type": "heartbeat_ack",
-                        "timestamp": message.get("timestamp", int(time.time() * 1000))
-                    })
-
-                elif message_type == "video_frame":
-                    # 转发视频帧
-                    message["server_timestamp"] = int(time.time() * 1000)
-                    await forward_video_frame_optimized(companion_id, message)
-
-                elif message_type == "robot_status_update":
-                    # 更新伴侣状态
-                    status_data = message.get("data", {})
-
-                    # 更新本地存储
-                    async with lock:
-                        if companion_id in companions:
-                            companions[companion_id]["data"].update(status_data)
-
-                    # 更新自适应视频管理器
-                    adaptive_video_manager.update_companion_status(companion_id, status_data)
-
-                    # 保存状态到本地历史记录
-                    await save_companion_status_to_history(companion_id, status_data)
-
-                    # 广播给客户端
-                    await broadcast_companion_update(companion_id)
-
-                elif message_type == "command_response":
-                    # 处理命令响应
-                    await handle_command_response(companion_id, message)
-
-                elif message_type == "quality_adjustment_result":
-                    # 处理质量调整结果
-                    await handle_quality_adjustment_result(companion_id, message)
-
-                elif message_type == "interaction_event":
-                    # 处理交互事件
-                    await handle_interaction_event(companion_id, message)
-
-            except json.JSONDecodeError:
-                logger.error(f"收到无效JSON: {data}")
-            except Exception as e:
-                logger.error(f"处理伴侣机器人消息出错: {e}")
-
-    except WebSocketDisconnect:
-        logger.info(f"伴侣机器人 {companion_id} 已断开连接")
-        await handle_companion_disconnect(companion_id)
-
-
-# 保存伴侣状态到历史记录
-async def save_companion_status_to_history(companion_id, status_data):
-    """保存伴侣状态到本地历史记录"""
-    try:
-        current_time = datetime.datetime.now()
-        date_str = current_time.strftime("%Y-%m-%d")
-        
-        async with lock:
-            if companion_id not in daily_companion_data:
-                daily_companion_data[companion_id] = {}
-            
-            if date_str not in daily_companion_data[companion_id]:
-                daily_companion_data[companion_id][date_str] = {
-                    "status_updates": [],
-                    "summary": {}
-                }
-            
-            # 添加状态更新记录
-            status_record = status_data.copy()
-            status_record["timestamp"] = int(current_time.timestamp() * 1000)
-            status_record["time"] = current_time.strftime("%H:%M:%S")
-            
-            daily_companion_data[companion_id][date_str]["status_updates"].append(status_record)
-            
-            # 更新摘要信息
-            daily_companion_data[companion_id][date_str]["summary"].update(status_data)
-            
-            # 保持最近30天的记录
-            dates = list(daily_companion_data[companion_id].keys())
-            if len(dates) > 30:
-                dates.sort()
-                old_dates = dates[:-30]
-                for old_date in old_dates:
-                    del daily_companion_data[companion_id][old_date]
-                    
-        logger.debug(f"已保存伴侣 {companion_id} 状态到历史记录")
-        
-    except Exception as e:
-        logger.error(f"保存伴侣状态历史记录出错: {e}")
-
-
-# 处理命令响应
-async def handle_command_response(companion_id, message):
-    """处理来自伴侣的命令响应"""
-    command = message.get("command")
-    status = message.get("status")
-    error = message.get("error")
-    
-    logger.info(f"伴侣 {companion_id} 命令响应: {command} - {status}")
-    
-    # 转发给所有关联的客户端
-    async with lock:
-        if companion_id in companion_to_clients:
-            for client_id in companion_to_clients[companion_id]:
-                if client_id in clients and "websocket" in clients[client_id]:
-                    try:
-                        await clients[client_id]["websocket"].send_json({
-                            "type": "command_response",
-                            "command": command,
-                            "status": status,
-                            "error": error,
-                            "companion_id": companion_id
-                        })
-                    except Exception as e:
-                        logger.error(f"向客户端 {client_id} 发送命令响应失败: {e}")
-
-
-# 处理质量调整结果
-async def handle_quality_adjustment_result(companion_id, message):
-    """处理质量调整结果"""
-    success = message.get("success", False)
-    preset = message.get("preset")
-    actual_resolution = message.get("actual_resolution")
-    actual_fps = message.get("actual_fps")
-
-    logger.info(f"伴侣 {companion_id} 质量调整结果: {preset} - {success}")
-
-    if success:
-        async with lock:
-            if companion_id in companion_to_clients:
-                for client_id in companion_to_clients[companion_id]:
-                    if client_id in clients and "websocket" in clients[client_id]:
-                        try:
-                            await clients[client_id]["websocket"].send_json({
-                                "type": "video_quality_update",
-                                "preset": preset,
-                                "resolution": actual_resolution,
-                                "fps": actual_fps
-                            })
-                        except Exception as e:
-                            logger.error(f"通知客户端 {client_id} 质量更新失败: {e}")
-
-
-# 处理交互事件
-async def handle_interaction_event(companion_id, message):
-    """处理交互事件"""
-    event_type = message.get("event_type")
-    event_data = message.get("data", {})
-    timestamp = message.get("timestamp", int(time.time() * 1000))
-
-    logger.info(f"伴侣 {companion_id} 交互事件: {event_type}")
-
-    # 保存到交互历史
-    await save_interaction_to_history(companion_id, {
-        "event_type": event_type,
-        "data": event_data,
-        "timestamp": timestamp
+logger = logging.getLogger('companion_server')
+
+
+@dataclass
+class ClientConnection:
+    """客户端连接信息"""
+    websocket: WebSocketType  # 使用兼容的类型
+    client_id: str
+    client_type: str  # 'companion' or 'ros2_bridge'
+    robot_id: Optional[str] = None
+    connected_at: float = field(default_factory=time.time)
+    last_heartbeat: float = field(default_factory=time.time)
+    capabilities: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RobotInfo:
+    """机器人信息"""
+    robot_id: str
+    bridge_connection: Optional[ClientConnection] = None
+    companion_clients: Set[str] = field(default_factory=set)
+    status: Dict[str, Any] = field(default_factory=lambda: {
+        'connected': False,
+        'battery_level': 0,
+        'signal_strength': 'unknown',
+        'mode': 'idle',
+        'last_update': 0
     })
-
-    # 转发给客户端
-    async with lock:
-        if companion_id in companion_to_clients:
-            for client_id in companion_to_clients[companion_id]:
-                if client_id in clients and "websocket" in clients[client_id]:
-                    try:
-                        await clients[client_id]["websocket"].send_json({
-                            "type": "interaction_event",
-                            "event_type": event_type,
-                            "data": event_data,
-                            "companion_id": companion_id,
-                            "timestamp": timestamp
-                        })
-                    except Exception as e:
-                        logger.error(f"向客户端 {client_id} 发送交互事件失败: {e}")
+    video_streaming: bool = False
+    last_video_frame: Optional[Dict] = None
 
 
-# 保存交互事件到历史
-async def save_interaction_to_history(companion_id, interaction_data):
-    """保存交互事件到历史记录"""
-    try:
-        async with lock:
-            if companion_id not in interaction_history:
-                interaction_history[companion_id] = []
+class CompanionServer:
+    """机器人伴侣WebSocket服务器"""
 
-            current_time = datetime.datetime.now()
-            interaction_record = interaction_data.copy()
-            interaction_record["saved_timestamp"] = int(current_time.timestamp() * 1000)
-            interaction_record["saved_date"] = current_time.strftime("%Y-%m-%d")
-            interaction_record["saved_time"] = current_time.strftime("%H:%M:%S")
+    def __init__(self, host: str = '0.0.0.0', port: int = 1234):
+        self.host = host
+        self.port = port
 
-            interaction_history[companion_id].append(interaction_record)
+        # 连接管理
+        self.connections: Dict[str, ClientConnection] = {}
+        self.robots: Dict[str, RobotInfo] = {}
 
-            # 保持最近200条记录
-            if len(interaction_history[companion_id]) > 200:
-                interaction_history[companion_id] = interaction_history[companion_id][-200:]
+        # 消息队列
+        self.message_queues: Dict[str, asyncio.Queue] = defaultdict(lambda: asyncio.Queue(maxsize=1000))
 
-            logger.debug(f"已保存交互记录到历史 - 伴侣: {companion_id}")
+        # 统计信息
+        self.stats = {
+            'total_connections': 0,
+            'messages_sent': 0,
+            'messages_received': 0,
+            'video_frames_forwarded': 0,
+            'commands_forwarded': 0,
+            'errors': 0,
+            'start_time': time.time()
+        }
 
-    except Exception as e:
-        logger.error(f"保存交互历史记录出错: {e}")
+        # 心跳配置
+        self.heartbeat_interval = 30  # 秒
+        self.heartbeat_timeout = 60  # 秒
 
+        logger.info(f"🚀 服务器初始化 - {host}:{port}")
 
-# 转发控制命令到伴侣
-async def forward_command_to_companion(companion_id, command, params):
-    """转发控制命令到伴侣机器人"""
-    logger.info(f"🚀 开始转发命令到伴侣 {companion_id}: {command}")
-    
-    async with lock:
-        # 详细检查伴侣连接状态
-        if companion_id not in companions:
-            logger.warning(f"❌ 伴侣 {companion_id} 不在companions字典中")
-            return False
-            
-        if "websocket" not in companions[companion_id]:
-            logger.warning(f"❌ 伴侣 {companion_id} 没有websocket连接")
-            return False
-            
-        logger.info(f"✅ 伴侣 {companion_id} 连接检查通过，准备发送命令")
-        
+    def get_websockets_version(self):
+        """获取websockets库版本"""
         try:
-            ws = companions[companion_id]["websocket"]
-            
-            # 检查WebSocket连接状态
-            if ws.client_state.name != "CONNECTED":
-                logger.warning(f"伴侣 {companion_id} WebSocket连接已断开，无法转发命令")
-                # 清理断开的连接
-                await handle_companion_disconnect(companion_id)
-                return False
-            
-            await ws.send_json({
-                "type": "companion_command",
-                "command": command,
-                "params": params,
-                "timestamp": int(time.time() * 1000)
+            import websockets
+            version_str = getattr(websockets, '__version__', '0.0')
+            version_parts = version_str.split('.')
+            major = int(version_parts[0]) if len(version_parts) > 0 else 0
+            minor = int(version_parts[1]) if len(version_parts) > 1 else 0
+            return (major, minor)
+        except:
+            return (0, 0)
+
+    async def start(self):
+        """启动服务器"""
+        logger.info("🌟 正在启动机器人伴侣服务器...")
+
+        # 启动心跳检查任务
+        asyncio.create_task(self.heartbeat_checker())
+
+        # 启动统计信息记录任务
+        asyncio.create_task(self.stats_logger())
+
+        # 检测 websockets 版本并使用相应的启动方式
+        version = self.get_websockets_version()
+        logger.info(f"检测到 websockets 版本: {version[0]}.{version[1]}")
+
+        if version >= (11, 0):
+            # 新版本需要使用不同的方式
+            logger.info("使用新版本 websockets 服务器启动方式")
+            await self._start_new_version()
+        else:
+            # 旧版本的启动方式
+            logger.info("使用旧版本 websockets 服务器启动方式")
+            await self._start_legacy_version()
+
+    async def _start_new_version(self):
+        """新版本 websockets 的启动方式"""
+        import websockets
+
+        # 对于新版本，使用process_request来获取路径信息
+        async def process_request(connection, request):
+            """处理请求并提取路径信息"""
+            # 将路径信息存储在连接对象上
+            connection._custom_path = request.path
+            return None  # 继续正常的握手过程
+
+        # 创建处理函数包装器
+        async def handler(websocket):
+            # 从连接对象获取路径
+            path = getattr(websocket, '_custom_path', getattr(websocket, 'path', '/'))
+            await self.handle_connection(websocket, path)
+
+        # 使用新版本的服务器
+        async with websockets.serve(
+                handler,
+                self.host,
+                self.port,
+                process_request=process_request,
+                ping_interval=20,
+                ping_timeout=10
+        ):
+            logger.info(f"✅ 服务器已启动 - ws://{self.host}:{self.port}")
+            await asyncio.Future()  # 永久运行
+
+    async def _start_legacy_version(self):
+        """旧版本 websockets 的启动方式"""
+        # 旧版本的启动方式
+        async with websockets.serve(
+                self.handle_connection,
+                self.host,
+                self.port,
+                ping_interval=20,
+                ping_timeout=10
+        ):
+            logger.info(f"✅ 服务器已启动 - ws://{self.host}:{self.port}")
+            await asyncio.Future()  # 永久运行
+
+    async def handle_connection(self, websocket, path: str = None):
+        """处理新的WebSocket连接"""
+        client_id = None
+        connection_type = None
+
+        try:
+            # 兼容新旧版本的 websockets 库获取路径
+            if path is None:
+                # 尝试多种方式获取路径
+                path = getattr(websocket, 'path', None)
+                if path is None:
+                    path = getattr(websocket, '_custom_path', None)
+                if path is None:
+                    # 如果还是获取不到，尝试从request_headers获取
+                    try:
+                        if hasattr(websocket, 'request_headers'):
+                            # 从请求头获取路径信息（备用方案）
+                            path = '/'
+                        else:
+                            path = '/'
+                    except:
+                        path = '/'
+
+            # 解析连接路径
+            parts = path.strip('/').split('/')
+
+            if len(parts) >= 3:
+                if parts[0] == 'ws':
+                    if parts[1] == 'companion' and len(parts) == 3:
+                        # 小程序客户端连接
+                        connection_type = 'companion'
+                        client_id = parts[2]
+                    elif parts[1] == 'ros2_bridge' and len(parts) == 3:
+                        # ROS2节点连接
+                        connection_type = 'ros2_bridge'
+                        robot_id = parts[2]
+                        client_id = f"bridge_{robot_id}"
+
+            if not client_id or not connection_type:
+                logger.warning(f"❌ 无效的连接路径: {path}")
+                await websocket.close(1002, "Invalid path")
+                return
+
+            # 创建连接记录
+            connection = ClientConnection(
+                websocket=websocket,
+                client_id=client_id,
+                client_type=connection_type
+            )
+
+            # 添加到连接池
+            self.connections[client_id] = connection
+            self.stats['total_connections'] += 1
+
+            # 获取远程地址（兼容不同版本）
+            try:
+                remote_address = getattr(websocket, 'remote_address', 'unknown')
+                if remote_address == 'unknown':
+                    # 尝试其他方式获取远程地址
+                    if hasattr(websocket, 'transport') and hasattr(websocket.transport, 'get_extra_info'):
+                        remote_address = websocket.transport.get_extra_info('peername', 'unknown')
+            except:
+                remote_address = 'unknown'
+
+            logger.info(f"🔗 新连接 - 类型: {connection_type}, ID: {client_id}, 地址: {remote_address}")
+
+            # 处理消息
+            if connection_type == 'companion':
+                await self.handle_companion_client(connection)
+            else:  # ros2_bridge
+                await self.handle_ros2_bridge(connection, robot_id)
+
+        except ConnectionClosed:
+            logger.info(f"🔌 连接关闭 - ID: {client_id}")
+        except Exception as e:
+            logger.error(f"❌ 连接处理错误: {e}", exc_info=True)
+            self.stats['errors'] += 1
+        finally:
+            # 清理连接
+            if client_id and client_id in self.connections:
+                await self.cleanup_connection(client_id)
+
+    async def handle_companion_client(self, connection: ClientConnection):
+        """处理小程序客户端连接"""
+        try:
+            # 发送欢迎消息
+            await self.send_message(connection.websocket, {
+                'type': 'server_welcome',
+                'server_version': '2.0.0',
+                'timestamp': int(time.time() * 1000)
             })
-            logger.info(f"✅ 向伴侣 {companion_id} 转发命令: {command}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ 向伴侣 {companion_id} 转发命令失败: {e}")
-            # 连接可能已断开，清理状态
-            await handle_companion_disconnect(companion_id)
-            return False
 
+            # 消息处理循环
+            async for message in connection.websocket:
+                try:
+                    data = json.loads(message)
+                    self.stats['messages_received'] += 1
 
-# 优化后的视频帧转发
-async def forward_video_frame_optimized(companion_id, message):
-    """优化的视频帧转发"""
-    async with lock:
-        if companion_id in companion_to_clients:
-            for client_id in companion_to_clients[companion_id]:
-                if client_id in clients and "websocket" in clients[client_id]:
-                    try:
-                        await clients[client_id]["websocket"].send_json(message)
-                    except Exception as e:
-                        logger.error(f"向客户端 {client_id} 发送视频帧失败: {e}")
+                    await self.handle_companion_message(connection, data)
 
+                except json.JSONDecodeError:
+                    logger.error(f"❌ 消息解析失败: {message}")
+                except Exception as e:
+                    logger.error(f"❌ 消息处理错误: {e}")
 
-# 连接客户端到伴侣
-async def connect_client_to_companion(client_id, companion_id):
-    """连接客户端到伴侣"""
-    async with lock:
-        # 如果客户端已关联其他伴侣，先取消关联
-        if client_id in client_to_companion:
-            old_companion_id = client_to_companion[client_id]
-            if old_companion_id in companion_to_clients and client_id in companion_to_clients[old_companion_id]:
-                companion_to_clients[old_companion_id].remove(client_id)
+        except ConnectionClosed:
+            pass
 
-        # 建立新的关联
-        client_to_companion[client_id] = companion_id
-        if companion_id not in companion_to_clients:
-            companion_to_clients[companion_id] = []
-        if client_id not in companion_to_clients[companion_id]:
-            companion_to_clients[companion_id].append(client_id)
+    async def handle_companion_message(self, connection: ClientConnection, data: Dict):
+        """处理小程序客户端消息"""
+        message_type = data.get('type', '')
 
-        logger.info(f"客户端 {client_id} 已连接到伴侣 {companion_id}")
-        return companion_id in companions
+        logger.debug(f"📱 小程序消息 - 类型: {message_type}, 客户端: {connection.client_id}")
 
+        if message_type == 'client_init':
+            # 客户端初始化
+            robot_id = data.get('robot_id')
+            if robot_id:
+                connection.robot_id = robot_id
 
-# 广播伴侣状态
-async def broadcast_companion_status(companion_id, is_connected):
-    """向所有关联客户端广播伴侣状态"""
-    async with lock:
-        if companion_id in companion_to_clients:
-            for client_id in companion_to_clients[companion_id]:
-                if client_id in clients and "websocket" in clients[client_id]:
-                    try:
-                        await clients[client_id]["websocket"].send_json({
-                            "type": "robot_connection_status",
-                            "robot_id": companion_id,
-                            "connected": is_connected,
-                            "timestamp": int(time.time() * 1000)
-                        })
-                    except Exception as e:
-                        logger.error(f"通知客户端 {client_id} 伴侣状态变更失败: {e}")
+                # 获取或创建机器人信息
+                if robot_id not in self.robots:
+                    self.robots[robot_id] = RobotInfo(robot_id=robot_id)
 
+                # 添加客户端到机器人的客户端列表
+                self.robots[robot_id].companion_clients.add(connection.client_id)
 
-# 广播伴侣更新
-async def broadcast_companion_update(companion_id):
-    """广播伴侣数据更新"""
-    async with lock:
-        if companion_id in companion_to_clients and companion_id in companions and "data" in companions[companion_id]:
-            companion_data = companions[companion_id]["data"]
+                # 更新客户端能力
+                connection.capabilities = data.get('capabilities', {})
 
-            for client_id in companion_to_clients[companion_id]:
-                if client_id in clients and "websocket" in clients[client_id]:
-                    try:
-                        await clients[client_id]["websocket"].send_json({
-                            "type": "robot_status_update",
-                            "data": companion_data
-                        })
-                    except Exception as e:
-                        logger.error(f"向客户端 {client_id} 发送状态更新失败: {e}")
+                logger.info(f"👤 客户端初始化 - 客户端: {connection.client_id}, 机器人: {robot_id}")
 
+                # 发送机器人连接状态
+                await self.send_robot_connection_status(connection, robot_id)
 
-# 广播跟踪结果
-async def broadcast_tracking_result(robot_id, message):
-    """向所有关联客户端广播跟踪结果"""
-    async with lock:
-        if robot_id in companion_to_clients:
-            for client_id in companion_to_clients[robot_id]:
-                if client_id in clients and "websocket" in clients[client_id]:
-                    try:
-                        # 转换ROS2跟踪结果为客户端格式
-                        client_message = {
-                            "type": "tracking_data",
-                            "robot_id": robot_id,
-                            "timestamp": message.get("timestamp", int(time.time() * 1000)),
-                            "data": {
-                                "mode": message.get("mode", "unknown"),
-                                "total_tracks": message.get("total_tracks", 0),
-                                "target_detected": message.get("target_detected", False),
-                                "target_position": {
-                                    "x": message.get("target_x", 0),
-                                    "y": message.get("target_y", 0),
-                                    "width": message.get("target_width", 0),
-                                    "height": message.get("target_height", 0)
-                                },
-                                "confidence": message.get("confidence", 0.0),
-                                "distance": message.get("distance", 0.0),
-                                "tracking_status": message.get("tracking_status", "idle"),
-                                "fps": message.get("fps", 0.0)
-                            }
-                        }
-                        
-                        await clients[client_id]["websocket"].send_json(client_message)
-                    except Exception as e:
-                        logger.error(f"向客户端 {client_id} 发送跟踪结果失败: {e}")
+                # 如果机器人已连接，请求初始状态
+                if self.robots[robot_id].bridge_connection:
+                    await self.request_robot_status(robot_id)
 
+        elif message_type == 'companion_command':
+            # 转发控制命令到机器人
+            robot_id = data.get('robot_id') or connection.robot_id
+            if robot_id:
+                await self.forward_to_robot(robot_id, data)
 
-# 处理机器人状态更新
-async def handle_robot_status_update(robot_id, message):
-    """处理来自ROS2桥接节点的机器人状态更新"""
-    try:
-        async with lock:
-            if robot_id in companions:
-                # 更新机器人状态数据
-                companions[robot_id]["data"].update(message.get("data", {}))
-        
-        # 广播状态更新给所有关联的客户端
-        await broadcast_companion_update(robot_id)
-        
-        logger.debug(f"机器人 {robot_id} 状态已更新")
-        
-    except Exception as e:
-        logger.error(f"处理机器人 {robot_id} 状态更新时出错: {e}")
+        elif message_type == 'client_quality_request':
+            # 转发视频质量调整请求
+            robot_id = data.get('robot_id') or connection.robot_id
+            if robot_id:
+                # 先确认收到请求
+                await self.send_message(connection.websocket, {
+                    'type': 'quality_request_received',
+                    'preset': data.get('preset', 'medium'),
+                    'timestamp': int(time.time() * 1000)
+                })
 
+                # 转发到机器人
+                await self.forward_to_robot(robot_id, {
+                    'type': 'quality_adjustment',
+                    'preset': data.get('preset', 'medium'),
+                    'immediate': True,
+                    'timestamp': data.get('timestamp')
+                })
 
-# 处理客户端断开连接
-async def handle_client_disconnect(client_id):
-    """处理客户端断开连接"""
-    async with lock:
-        if client_id in clients:
-            del clients[client_id]
-        if client_id in client_to_companion:
-            companion_id = client_to_companion[client_id]
-            if companion_id in companion_to_clients and client_id in companion_to_clients[companion_id]:
-                companion_to_clients[companion_id].remove(client_id)
-            del client_to_companion[client_id]
+        elif message_type == 'get_robot_status':
+            # 请求机器人状态
+            robot_id = data.get('robot_id') or connection.robot_id
+            if robot_id:
+                await self.request_robot_status(robot_id)
 
-    # 从自适应视频管理器中断开客户端
-    adaptive_video_manager.disconnect_client(client_id)
+        elif message_type == 'ping':
+            # 心跳消息
+            connection.last_heartbeat = time.time()
+            await self.send_message(connection.websocket, {
+                'type': 'pong',
+                'echo_timestamp': data.get('timestamp'),
+                'server_timestamp': int(time.time() * 1000)
+            })
 
+        elif message_type == 'client_network_status':
+            # 客户端网络状态报告
+            logger.info(f"📊 客户端网络状态 - {connection.client_id}: {data.get('status', {})}")
 
-# 处理伴侣断开连接
-async def handle_companion_disconnect(companion_id):
-    """处理伴侣断开连接"""
-    async with lock:
-        if companion_id in companions:
-            del companions[companion_id]
-
-    # 通知所有关联的客户端伴侣已断开
-    await broadcast_companion_status(companion_id, False)
-
-    # 从自适应视频管理器中断开伴侣
-    adaptive_video_manager.disconnect_companion(companion_id)
-
-
-# 连接监控
-async def connection_monitor():
-    """定期检查连接状态，清理过期连接"""
-    while True:
+    async def handle_ros2_bridge(self, connection: ClientConnection, robot_id: str):
+        """处理ROS2桥接节点连接"""
         try:
-            current_time = datetime.datetime.now()
+            # 记录机器人连接
+            connection.robot_id = robot_id
 
-            # 检查伴侣连接状态
-            async with lock:
-                expired_companions = []
-                for companion_id, companion in companions.items():
-                    # 检查超时或WebSocket连接状态
-                    is_timeout = (current_time - companion["last_active"]).total_seconds() > 30
-                    is_disconnected = False
-                    
-                    if "websocket" in companion:
-                        try:
-                            ws = companion["websocket"]
-                            if ws.client_state.name != "CONNECTED":
-                                is_disconnected = True
-                        except Exception:
-                            is_disconnected = True
-                    
-                    if is_timeout or is_disconnected:
-                        expired_companions.append(companion_id)
-                        if is_timeout:
-                            logger.warning(f"⏰ 伴侣 {companion_id} 连接超时，清理连接")
-                        if is_disconnected:
-                            logger.warning(f"🔌 伴侣 {companion_id} WebSocket连接已断开，清理连接")
+            if robot_id not in self.robots:
+                self.robots[robot_id] = RobotInfo(robot_id=robot_id)
 
-                for companion_id in expired_companions:
-                    await handle_companion_disconnect(companion_id)
+            self.robots[robot_id].bridge_connection = connection
+            self.robots[robot_id].status['connected'] = True
 
-                # 检查客户端连接状态
-                expired_clients = []
-                for client_id, client in clients.items():
-                    if (current_time - client["last_active"]).total_seconds() > 60:
-                        expired_clients.append(client_id)
+            logger.info(f"🤖 机器人连接 - ID: {robot_id}")
 
-                for client_id in expired_clients:
-                    logger.warning(f"客户端 {client_id} 连接超时，清理连接")
-                    await handle_client_disconnect(client_id)
+            # 通知所有关联的客户端
+            await self.notify_robot_connection_change(robot_id, True)
 
-        except Exception as e:
-            logger.error(f"连接监控错误: {e}")
+            # 消息处理循环
+            async for message in connection.websocket:
+                try:
+                    data = json.loads(message)
+                    self.stats['messages_received'] += 1
 
-        await asyncio.sleep(10)
+                    await self.handle_robot_message(connection, data)
 
+                except json.JSONDecodeError:
+                    logger.error(f"❌ 消息解析失败: {message}")
+                except Exception as e:
+                    logger.error(f"❌ 消息处理错误: {e}")
 
-# 启动事件
-@app.on_event("startup")
-async def startup_event():
-    """服务器启动时的初始化工作"""
-    global adaptive_video_manager
+        except ConnectionClosed:
+            pass
 
-    # 初始化自适应视频管理器
-    adaptive_video_manager = CompanionAdaptiveVideoManager()
-    
-    # 设置质量命令回调函数
-    async def quality_command_callback(companion_id, message):
-        """质量命令回调函数"""
-        await forward_command_to_companion(companion_id, "quality_adjustment", message)
-    
-    adaptive_video_manager.set_quality_command_callback(quality_command_callback)
-    logger.info("伴侣自适应视频管理器已初始化")
+    async def handle_robot_message(self, connection: ClientConnection, data: Dict):
+        """处理机器人消息"""
+        message_type = data.get('type', '')
+        robot_id = data.get('robot_id') or connection.robot_id
 
-    # 启动连接监控
-    asyncio.create_task(connection_monitor())
-    
-    logger.info("机器人伴侣服务端已启动 (不含IoT功能)")
+        logger.debug(f"🤖 机器人消息 - 类型: {message_type}, 机器人: {robot_id}")
 
+        if message_type == 'robot_init':
+            # 机器人初始化
+            connection.capabilities = data.get('capabilities', {})
+            logger.info(f"🔧 机器人初始化 - ID: {robot_id}, 能力: {connection.capabilities}")
 
-# 关闭事件
-@app.on_event("shutdown")
-def shutdown_event():
-    """服务器关闭时的清理工作"""
-    if adaptive_video_manager:
-        adaptive_video_manager.shutdown()
+        elif message_type == 'video_frame':
+            # 转发视频帧到所有客户端
+            await self.forward_video_frame(robot_id, data)
+            self.stats['video_frames_forwarded'] += 1
 
-    logger.info("伴侣服务器已关闭")
+        elif message_type == 'robot_status_update':
+            # 更新机器人状态
+            if robot_id in self.robots:
+                status_data = data.get('data', {})
+                self.robots[robot_id].status.update(status_data)
+                self.robots[robot_id].status['last_update'] = time.time()
 
+            # 转发状态到所有客户端
+            await self.forward_to_companions(robot_id, data)
 
-# 健康检查路由
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "service": "companion_robot"}
+        elif message_type == 'command_response':
+            # 转发命令响应到客户端
+            await self.forward_to_companions(robot_id, data)
+            self.stats['commands_forwarded'] += 1
 
+        elif message_type == 'quality_adjustment_result':
+            # 转发质量调整结果
+            actual_resolution = data.get('actual_resolution', '480x360')
+            actual_fps = data.get('actual_fps', 10)
+            preset = data.get('preset', 'medium')
 
-# 获取伴侣状态API
-@app.get("/api/companion/{companion_id}/status")
-def get_companion_status(companion_id: str):
-    """获取伴侣状态"""
-    if companion_id in companions:
-        return {
-            "status": "online",
-            "data": companions[companion_id].get("data", {}),
-            "connection_info": {
-                "connected_at": companions[companion_id]["last_active"].isoformat(),
-                "connection_id": companions[companion_id]["connection_id"]
+            quality_update = {
+                'type': 'video_quality_update',
+                'preset': preset,
+                'resolution': actual_resolution,
+                'fps': actual_fps,
+                'timestamp': data.get('timestamp')
             }
+
+            await self.forward_to_companions(robot_id, quality_update)
+
+        elif message_type == 'heartbeat':
+            # 机器人心跳
+            connection.last_heartbeat = time.time()
+            await self.send_message(connection.websocket, {
+                'type': 'heartbeat_ack',
+                'timestamp': int(time.time() * 1000)
+            })
+
+    async def forward_video_frame(self, robot_id: str, frame_data: Dict):
+        """转发视频帧到客户端"""
+        if robot_id not in self.robots:
+            return
+
+        robot = self.robots[robot_id]
+        robot.last_video_frame = frame_data
+        robot.video_streaming = True
+
+        # 添加服务器时间戳
+        frame_data['server_timestamp'] = int(time.time() * 1000)
+
+        # 转发到所有连接的客户端
+        tasks = []
+        for client_id in robot.companion_clients.copy():
+            if client_id in self.connections:
+                client = self.connections[client_id]
+                if client.capabilities.get('video_receive', True):
+                    tasks.append(self.send_message(client.websocket, frame_data))
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def forward_to_robot(self, robot_id: str, message: Dict):
+        """转发消息到机器人"""
+        if robot_id not in self.robots:
+            logger.warning(f"⚠️ 机器人未连接: {robot_id}")
+            return
+
+        robot = self.robots[robot_id]
+        if robot.bridge_connection and robot.bridge_connection.client_id in self.connections:
+            bridge = robot.bridge_connection
+            await self.send_message(bridge.websocket, message)
+            logger.info(f"➡️ 转发到机器人 - 类型: {message.get('type')}, 机器人: {robot_id}")
+        else:
+            logger.warning(f"⚠️ 机器人桥接未连接: {robot_id}")
+
+    async def forward_to_companions(self, robot_id: str, message: Dict):
+        """转发消息到所有关联的客户端"""
+        if robot_id not in self.robots:
+            return
+
+        robot = self.robots[robot_id]
+        tasks = []
+
+        for client_id in robot.companion_clients.copy():
+            if client_id in self.connections:
+                tasks.append(self.send_message(self.connections[client_id].websocket, message))
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def notify_robot_connection_change(self, robot_id: str, connected: bool):
+        """通知客户端机器人连接状态变化"""
+        notification = {
+            'type': 'robot_connection_status',
+            'robot_id': robot_id,
+            'connected': connected,
+            'timestamp': int(time.time() * 1000)
         }
-    else:
-        return {"status": "offline", "data": {}}
+
+        await self.forward_to_companions(robot_id, notification)
+
+    async def send_robot_connection_status(self, connection: ClientConnection, robot_id: str):
+        """发送机器人连接状态到客户端"""
+        connected = False
+        if robot_id in self.robots and self.robots[robot_id].bridge_connection:
+            connected = True
+
+        await self.send_message(connection.websocket, {
+            'type': 'robot_connection_status',
+            'robot_id': robot_id,
+            'connected': connected,
+            'timestamp': int(time.time() * 1000)
+        })
+
+    async def request_robot_status(self, robot_id: str):
+        """请求机器人状态"""
+        await self.forward_to_robot(robot_id, {
+            'type': 'request_status',
+            'timestamp': int(time.time() * 1000)
+        })
+
+    async def send_message(self, websocket, message: Dict):
+        """发送消息到WebSocket"""
+        try:
+            await websocket.send(json.dumps(message))
+            self.stats['messages_sent'] += 1
+        except ConnectionClosed:
+            logger.debug("连接已关闭，无法发送消息")
+        except Exception as e:
+            logger.error(f"❌ 发送消息失败: {e}")
+            self.stats['errors'] += 1
+
+    async def cleanup_connection(self, client_id: str):
+        """清理断开的连接"""
+        if client_id not in self.connections:
+            return
+
+        connection = self.connections[client_id]
+        logger.info(f"🧹 清理连接 - 类型: {connection.client_type}, ID: {client_id}")
+
+        if connection.client_type == 'companion':
+            # 清理小程序客户端
+            if connection.robot_id and connection.robot_id in self.robots:
+                self.robots[connection.robot_id].companion_clients.discard(client_id)
+
+        elif connection.client_type == 'ros2_bridge':
+            # 清理机器人连接
+            if connection.robot_id and connection.robot_id in self.robots:
+                robot = self.robots[connection.robot_id]
+                robot.bridge_connection = None
+                robot.status['connected'] = False
+                robot.video_streaming = False
+
+                # 通知所有客户端
+                await self.notify_robot_connection_change(connection.robot_id, False)
+
+        # 从连接池移除
+        del self.connections[client_id]
+
+    async def heartbeat_checker(self):
+        """定期检查心跳超时的连接"""
+        while True:
+            try:
+                current_time = time.time()
+                timeout_connections = []
+
+                for client_id, connection in self.connections.items():
+                    if current_time - connection.last_heartbeat > self.heartbeat_timeout:
+                        timeout_connections.append(client_id)
+
+                for client_id in timeout_connections:
+                    logger.warning(f"💔 心跳超时 - ID: {client_id}")
+                    if client_id in self.connections:
+                        await self.connections[client_id].websocket.close(1001, "Heartbeat timeout")
+
+            except Exception as e:
+                logger.error(f"❌ 心跳检查错误: {e}")
+
+            await asyncio.sleep(self.heartbeat_interval)
+
+    async def stats_logger(self):
+        """定期记录统计信息"""
+        while True:
+            try:
+                uptime = int(time.time() - self.stats['start_time'])
+                hours, remainder = divmod(uptime, 3600)
+                minutes, seconds = divmod(remainder, 60)
+
+                logger.info(f"""
+📊 服务器统计信息
+================
+运行时间: {hours}小时 {minutes}分钟 {seconds}秒
+当前连接数: {len(self.connections)}
+机器人数量: {len(self.robots)}
+总连接数: {self.stats['total_connections']}
+接收消息: {self.stats['messages_received']}
+发送消息: {self.stats['messages_sent']}
+视频帧转发: {self.stats['video_frames_forwarded']}
+命令转发: {self.stats['commands_forwarded']}
+错误数: {self.stats['errors']}
+                """)
+
+                # 详细的机器人状态
+                for robot_id, robot in self.robots.items():
+                    connected = "已连接" if robot.bridge_connection else "未连接"
+                    clients = len(robot.companion_clients)
+                    logger.info(f"🤖 机器人 {robot_id}: {connected}, 客户端数: {clients}")
+
+            except Exception as e:
+                logger.error(f"❌ 统计记录错误: {e}")
+
+            await asyncio.sleep(300)  # 每5分钟记录一次
 
 
-# 获取伴侣历史数据API
-@app.get("/api/companion/{companion_id}/history/{date}")
-def get_companion_history(companion_id: str, date: str):
-    """获取伴侣指定日期的历史数据"""
-    if companion_id in daily_companion_data and date in daily_companion_data[companion_id]:
-        return {
-            "status": "success",
-            "date": date,
-            "data": daily_companion_data[companion_id][date]
-        }
-    else:
-        return {"status": "not_found", "message": "指定日期的数据不存在"}
+async def main():
+    """主函数"""
+    server = CompanionServer(host='172.20.39.181', port=1234)
+    await server.start()
 
 
-# 获取伴侣交互历史API
-@app.get("/api/companion/{companion_id}/interactions")
-def get_companion_interactions(companion_id: str, limit: int = 50):
-    """获取伴侣交互历史"""
-    if companion_id in interaction_history:
-        interactions = interaction_history[companion_id][-limit:]
-        return {
-            "status": "success",
-            "companion_id": companion_id,
-            "interactions": interactions,
-            "total_count": len(interaction_history[companion_id])
-        }
-    else:
-        return {
-            "status": "success",
-            "companion_id": companion_id,
-            "interactions": [],
-            "total_count": 0
-        }
-
-
-# 启动服务器
-if __name__ == "__main__":
-    uvicorn.run(app, host="172.20.39.181", port=1234)
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("🛑 服务器停止")
+    except Exception as e:
+        logger.error(f"❌ 服务器错误: {e}", exc_info=True)

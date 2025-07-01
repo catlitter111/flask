@@ -278,16 +278,21 @@ Page({
         });
         
         // 如果超过指定时间未收到新帧，且机器人连接状态为已连接，则认为视频已过期
-        if (lastFrameAge > that.data.videoExpireTimeout && that.data.robotConnected) {
+        // 但是给机器人重连后一定的缓冲时间来恢复视频流
+        const robotConnectAge = now - that.data.lastRobotStatusTime;
+        const allowVideoRecoveryTime = 10000; // 给机器人10秒时间来恢复视频流
+        
+        if (lastFrameAge > that.data.videoExpireTimeout && 
+            that.data.robotConnected && 
+            robotConnectAge > allowVideoRecoveryTime) {
           // 如果之前视频未过期，则发出警告
           if (!that.data.videoExpired) {
-            console.warn('视频帧已过期，最后一帧接收时间:', new Date(that.data.lastFrameReceived));
+            console.warn('🎥 视频帧已过期，最后一帧接收时间:', new Date(that.data.lastFrameReceived));
+            console.warn('🎥 机器人连接时长:', robotConnectAge, 'ms，视频帧年龄:', lastFrameAge, 'ms');
             that.setData({
               videoExpired: true
             });
           }
-          
-          // 视频流将自动恢复
         }
         
         // 如果机器人状态长时间未更新，认为机器人可能离线
@@ -306,7 +311,13 @@ Page({
         } else if (that.data.connected) {
           if (that.data.robotConnected) {
             if (that.data.videoExpired) {
-              statusText = '视频超时';
+              // 检查是否刚重连，给一些恢复时间
+              const robotConnectAge = now - that.data.lastRobotStatusTime;
+              if (robotConnectAge < 15000) { // 15秒内
+                statusText = '视频恢复中...';
+              } else {
+                statusText = '视频超时';
+              }
             } else {
               statusText = '伴侣在线';
             }
@@ -513,10 +524,13 @@ Page({
           reconnectingRobot: false,
           robotReconnectAttempts: 0,
           signalStrength: '已连接',
-          connectionStatusText: '伴侣在线'
+          connectionStatusText: '伴侣在线',
+          // 重置视频相关状态，给视频流恢复时间
+          videoExpired: false,
+          lastFrameReceived: now  // 重置最后帧接收时间，避免立即触发视频过期
         });
         
-        // 视频流将自动恢复
+        console.log('🔗 机器人重新连接，等待视频流恢复...');
       } else {
         // 机器人断开连接
         this.setData({
@@ -598,10 +612,17 @@ Page({
         });
         
         if (isConnected) {
+          const now = Date.now();
           this.setData({
             signalStrength: '良好',
-            connectionStatusText: '已连接'
+            connectionStatusText: '已连接',
+            // 重置视频相关状态，给视频流恢复时间
+            videoExpired: false,
+            lastFrameReceived: now,
+            lastRobotStatusTime: now
           });
+          
+          console.log('🔗 机器人重新连接 (来自updateConnectionStatus)，等待视频流恢复...');
           
           // 如果机器人重新连接，请求初始状态
           this.requestRobotStatus();
