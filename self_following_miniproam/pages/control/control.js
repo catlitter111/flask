@@ -157,12 +157,7 @@ Page({
       this.checkGlobalConnectionState();
       
       // 如果之前收到过视频帧但现在已经过期，请求重新开始视频流
-      const now = Date.now();
-      if (this.data.lastFrameReceived > 0 && 
-          now - this.data.lastFrameReceived > this.data.videoExpireTimeout && 
-          this.data.connected && this.data.robotConnected) {
-        this.requestVideoStream();
-      }
+      // 视频流将自动恢复
       
       // 新增：恢复用户保存的视频高度偏好
       const savedHeight = wx.getStorageSync('userVideoHeight');
@@ -292,14 +287,7 @@ Page({
             });
           }
           
-          // 如果超过更长时间，尝试请求视频流重新开始
-          if (lastFrameAge > that.data.videoExpireTimeout * 3 && 
-              now - that.data.lastConnectionAttempt > 10000) { // 至少10秒间隔
-            that.requestVideoStream();
-            that.setData({
-              lastConnectionAttempt: now
-            });
-          }
+          // 视频流将自动恢复
         }
         
         // 如果机器人状态长时间未更新，认为机器人可能离线
@@ -528,10 +516,7 @@ Page({
           connectionStatusText: '伴侣在线'
         });
         
-        // 如果已经超过视频过期时间未收到视频帧，请求重新开始视频流
-        if (now - this.data.lastFrameReceived > this.data.videoExpireTimeout) {
-          this.requestVideoStream();
-        }
+        // 视频流将自动恢复
       } else {
         // 机器人断开连接
         this.setData({
@@ -598,16 +583,21 @@ Page({
     
     // 更新连接状态
     updateConnectionStatus: function(isConnected, robotId) {
-      console.log('更新连接状态:', isConnected, robotId);
-      
       if (robotId === this.data.robotId) {
+        // 检查状态是否真的发生了变化
+        const currentConnectionState = this.data.robotConnected;
+        
+        if (currentConnectionState !== isConnected) {
+          // 状态改变时才输出日志
+          console.log(`🔗 机器人状态变更: ${isConnected ? '已连接' : '已断开'}`);
+        }
+        
         this.setData({
           robotConnected: isConnected,
           reconnectingRobot: false
         });
         
         if (isConnected) {
-          console.log('机器人已连接');
           this.setData({
             signalStrength: '良好',
             connectionStatusText: '已连接'
@@ -615,9 +605,7 @@ Page({
           
           // 如果机器人重新连接，请求初始状态
           this.requestRobotStatus();
-          this.requestVideoStream();
         } else {
-          console.log('机器人连接断开');
           this.setData({
             signalStrength: '未连接',
             batteryLevel: 0,
@@ -633,7 +621,6 @@ Page({
 
     // 显示质量调整请求已接收
     showQualityRequestReceived: function(preset) {
-      console.log('质量调整请求已接收:', preset);
       wx.showToast({
         title: `质量调整为${preset}`,
         icon: 'none',
@@ -641,20 +628,10 @@ Page({
       });
     },
 
-    // 显示视频流请求已发送
-    showVideoStreamRequestSent: function() {
-      console.log('视频流请求已发送');
-      wx.showToast({
-        title: '视频流请求已发送',
-        icon: 'none',
-        duration: 1500
-      });
-    },
+
 
     // 更新视频质量
     updateVideoQuality: function(data) {
-      console.log('更新视频质量:', data);
-      
       this.setData({
         currentQuality: data.preset || this.data.currentQuality,
         videoResolution: data.resolution || this.data.videoResolution,
@@ -670,8 +647,6 @@ Page({
 
     // 处理伴侣状态更新
     handleCompanionStatusUpdate: function(data) {
-      console.log('伴侣状态更新:', data);
-      
       // 更新伴侣相关状态
       if (data.following_mode) {
         this.setData({
@@ -692,8 +667,6 @@ Page({
 
     // 处理交互事件
     handleInteractionEvent: function(data) {
-      console.log('交互事件:', data);
-      
       switch (data.event_type) {
         case 'gesture_detected':
           wx.showToast({
@@ -718,7 +691,7 @@ Page({
 
     // 处理伴侣断开连接
     handleCompanionDisconnected: function(data) {
-      console.log('伴侣断开连接:', data);
+      console.log('💔 伴侣断开连接');
       
       this.setData({
         robotConnected: false,
@@ -788,14 +761,7 @@ Page({
         });
       }
       
-      // 如果连接状态为已连接但视频已过期，请求重新开始视频流
-      if (this.data.robotConnected && this.data.videoExpired && 
-          now - this.data.lastConnectionAttempt > 5000) { // 至少5秒间隔
-        this.requestVideoStream();
-        this.setData({
-          lastConnectionAttempt: now
-        });
-      }
+      // 视频流将自动恢复
     },
     
     // 计算缓冲健康度
@@ -892,18 +858,7 @@ Page({
       }, 5000);
     },
     
-    // 请求视频流重新开始
-    requestVideoStream: function() {
-      if (!this.data.connected) return;
-      
-      this.sendSocketMessage({
-        type: 'request_video_stream',
-        robot_id: this.data.robotId,
-        timestamp: Date.now()
-      });
-      
-      console.log('请求重新开始视频流');
-    },
+
     
     // 请求机器人状态
     requestRobotStatus: function() {

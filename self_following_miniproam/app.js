@@ -261,12 +261,7 @@ App({
         robot_id: this.globalData.robotId
       });
       
-      // 请求视频流
-      this.sendSocketMessage({
-        type: 'request_video_stream',
-        robot_id: this.globalData.robotId,
-        quality: this.globalData.videoQuality
-      });
+      // 视频流将自动开始传输
     },
     
     // 消息分发到对应页面
@@ -340,10 +335,7 @@ App({
           this.handleQualityRequestReceived(data);
           break;
           
-        case 'video_stream_request_sent':
-          // 视频流请求已发送
-          this.handleVideoStreamRequestSent(data);
-          break;
+
           
         case 'companion_disconnected':
           // 伴侣机器人断开连接
@@ -356,7 +348,7 @@ App({
           break;
           
         default:
-          console.log('🔍 未知消息类型:', data.type, data);
+          console.log('🔍 未知消息类型:', data.type);
       }
     },
     
@@ -394,8 +386,6 @@ App({
     
     // 处理命令响应
     handleCommandResponse: function(data) {
-      console.log('📋 命令执行响应:', data);
-      
       // 标记命令发送完成
       this.globalData.commandSending = false;
       
@@ -405,8 +395,10 @@ App({
       // 分发到控制页面
       if (this.globalData.controlPage && data.status) {
         if (data.status === 'success') {
-          console.log('✅ 命令执行成功:', data.command);
+          // 成功时只在控制台简单记录
+          console.log(`✅ ${data.command} 成功`);
         } else {
+          // 失败时详细记录
           console.error('❌ 命令执行失败:', data.command, data.error);
           wx.showToast({
             title: `命令执行失败: ${data.error || '未知错误'}`,
@@ -441,20 +433,20 @@ App({
     
     // 处理交互事件
     handleInteractionEvent: function(data) {
-      console.log('🤝 交互事件:', data);
-      
       // 根据交互类型处理
       switch (data.event_type) {
         case 'gesture_detected':
-          // 手势识别
+          console.log('🤝 检测到手势');
           break;
         case 'voice_command':
-          // 语音命令
+          console.log('🤝 收到语音命令');
           break;
         case 'emotion_change':
-          // 情绪变化
+          console.log('🤝 情绪变化:', data.emotion);
           this.globalData.emotionState = data.emotion;
           break;
+        default:
+          console.log('🤝 交互事件:', data.event_type);
       }
       
       if (this.globalData.controlPage) {
@@ -548,8 +540,6 @@ App({
       
       // 发送命令
       this.sendSocketMessage(command);
-      
-      console.log('📤 发送命令:', command);
     },
     
     // 发送控制命令
@@ -565,8 +555,6 @@ App({
       
       // 加入命令队列
       this.globalData.commandQueue.push(commandMessage);
-      
-      console.log('📋 命令已加入队列:', command, params);
     },
     
     // 请求视频流质量调整
@@ -579,7 +567,6 @@ App({
       });
       
       this.globalData.videoQuality = quality;
-      console.log('📹 请求调整视频质量为:', quality);
     },
     
     // 启动心跳机制
@@ -689,17 +676,24 @@ App({
     
     // 处理机器人连接状态更新
     handleRobotConnectionStatus: function(data) {
-      console.log('🔗 机器人连接状态更新:', data);
-      
       const isConnected = data.connected;
       const robotId = data.robot_id;
       const timestamp = data.timestamp;
       
       // 更新全局状态
       if (robotId === this.globalData.robotId) {
+        // 检查状态是否真的发生了变化
+        const currentConnectionState = this.globalData.robotConnected || false;
+        
+        if (currentConnectionState !== isConnected) {
+          // 状态改变时才输出日志
+          console.log(`🔗 机器人连接状态变更: ${isConnected ? '已连接' : '已断开'}`);
+          
+          this.globalData.robotConnected = isConnected;
+        }
+        
         // 更新连接状态相关的UI显示
         if (isConnected) {
-          console.log('✅ 机器人已连接');
           this.globalData.signalStrength = '良好';
           
           // 如果之前断开连接，现在重新连接了，请求初始状态
@@ -707,7 +701,6 @@ App({
             this.requestInitialStatus();
           }
         } else {
-          console.log('❌ 机器人已断开连接');
           this.globalData.signalStrength = '未连接';
           this.globalData.videoStreamActive = false;
           this.globalData.batteryLevel = 0;
@@ -730,8 +723,6 @@ App({
     
     // 处理视频质量更新
     handleVideoQualityUpdate: function(data) {
-      console.log('📹 视频质量更新:', data);
-      
       this.globalData.videoQuality = data.preset || this.globalData.videoQuality;
       
       // 解析分辨率字符串 (如 "640x480")
@@ -754,28 +745,18 @@ App({
         this.globalData.controlPage.updateVideoQuality(data);
       }
       
-      console.log('📹 视频质量已调整为:', this.globalData.videoQuality);
+      console.log('📹 视频质量调整为:', this.globalData.videoQuality);
     },
     
     // 处理质量调整请求已接收
     handleQualityRequestReceived: function(data) {
-      console.log('✅ 质量调整请求已收到:', data.preset);
-      
       // 显示请求已接收的提示
       if (this.globalData.controlPage) {
         this.globalData.controlPage.showQualityRequestReceived(data.preset);
       }
     },
     
-    // 处理视频流请求已发送
-    handleVideoStreamRequestSent: function(data) {
-      console.log('📡 视频流请求已发送:', data.robot_id);
-      
-      // 显示请求已发送的状态
-      if (this.globalData.controlPage) {
-        this.globalData.controlPage.showVideoStreamRequestSent();
-      }
-    },
+
     
     // 处理伴侣机器人断开连接
     handleCompanionDisconnected: function(data) {

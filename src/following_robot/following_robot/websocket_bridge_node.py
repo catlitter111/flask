@@ -109,7 +109,7 @@ class WebSocketBridgeNode(Node):
         # WebSocket配置
         self.ws_host = str(self.get_parameter('websocket_host').value)
         ws_port_param = self.get_parameter('websocket_port').value
-        self.ws_port = int(ws_port_param) if ws_port_param is not None else 1235
+        self.ws_port = int(ws_port_param) if ws_port_param is not None else 1234
         self.robot_id = str(self.get_parameter('robot_id').value)
         reconnect_param = self.get_parameter('reconnect_interval').value
         self.reconnect_interval = float(reconnect_param) if reconnect_param is not None else 5.0
