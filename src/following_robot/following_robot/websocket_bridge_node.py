@@ -482,6 +482,59 @@ class WebSocketBridgeNode(Node):
                 # 质量调整命令
                 self.handle_quality_adjustment(data)
                 
+            # 添加手动控制命令处理
+            elif command in ['forward', 'backward', 'left', 'right', 'stop']:
+                # 手动控制命令
+                self.handle_manual_control(command, params)
+                
+            elif command == 'start_auto':
+                # 开始自动模式
+                cmd_msg = String()
+                cmd_msg.data = 'start_auto_mode'
+                self.command_publisher.publish(cmd_msg)
+                self.get_logger().info('🤖 开始自动模式')
+                
+            elif command == 'pause_auto':
+                # 暂停自动模式
+                cmd_msg = String()
+                cmd_msg.data = 'pause_auto_mode'
+                self.command_publisher.publish(cmd_msg)
+                self.get_logger().info('⏸️ 暂停自动模式')
+                
+            elif command == 'startInteraction':
+                # 开始交互模式
+                cmd_msg = String()
+                cmd_msg.data = 'start_interaction'
+                self.command_publisher.publish(cmd_msg)
+                self.get_logger().info('🤝 开始交互模式')
+                
+            elif command == 'stopInteraction':
+                # 停止交互模式
+                cmd_msg = String()
+                cmd_msg.data = 'stop_interaction'
+                self.command_publisher.publish(cmd_msg)
+                self.get_logger().info('🛑 停止交互模式')
+                
+            elif command == 'set_motor_speed':
+                # 设置电机速度
+                speed = params.get('speed', 50)
+                cmd_msg = String()
+                cmd_msg.data = f'set_motor_speed:{speed}'
+                self.command_publisher.publish(cmd_msg)
+                self.get_logger().info(f'⚡ 设置电机速度: {speed}%')
+                
+            elif command == 'switch_control_type':
+                # 切换控制类型
+                control_type = params.get('control_type', 'motor')
+                cmd_msg = String()
+                cmd_msg.data = f'switch_control_type:{control_type}'
+                self.command_publisher.publish(cmd_msg)
+                self.get_logger().info(f'🔄 切换控制类型: {control_type}')
+                
+            else:
+                # 未知命令，记录日志但不报错
+                self.get_logger().warning(f'⚠️ 未知命令: {command}')
+                
             # 发送命令响应
             response = {
                 'type': 'command_response',
@@ -543,6 +596,42 @@ class WebSocketBridgeNode(Node):
             }
             self.send_ws_message(response)
             
+    def handle_manual_control(self, command, params):
+        """处理手动控制命令"""
+        try:
+            # 获取控制参数
+            speed = params.get('speed', 50)
+            control_type = params.get('control_type', 'motor')
+            
+            # 根据控制类型和命令构建ROS命令
+            if control_type == 'companion':
+                # 伴侣交互控制模式
+                companion_command_map = {
+                    'forward': 'companion_look_up',
+                    'backward': 'companion_look_down', 
+                    'left': 'companion_turn_left',
+                    'right': 'companion_turn_right',
+                    'stop': 'companion_stop'
+                }
+                ros_command = companion_command_map.get(command, f'companion_{command}')
+            else:
+                # 电机控制模式
+                if command == 'stop':
+                    ros_command = 'motor_stop'
+                else:
+                    ros_command = f'motor_{command}:{speed}'
+            
+            # 发布ROS命令
+            cmd_msg = String()
+            cmd_msg.data = ros_command
+            self.command_publisher.publish(cmd_msg)
+            
+            self.get_logger().info(f'🎮 手动控制: {command} (类型: {control_type}, 速度: {speed}%)')
+            
+        except Exception as e:
+            self.get_logger().error(f'❌ 手动控制命令处理失败: {e}')
+            raise
+    
     def handle_heartbeat_ack(self, data):
         """处理心跳确认"""
         pass  # 目前不需要特殊处理

@@ -1059,15 +1059,15 @@ Page({
         }
       }
       
-      // 通过WebSocket发送命令
-      this.sendSocketMessage({
-        type: 'command',
-        robot_id: this.data.robotId,
-        command: command,
-        params: params
-      });
-      
-      console.log('发送命令:', command, params);
+          // 通过WebSocket发送命令
+    this.sendSocketMessage({
+      type: 'companion_command',
+      robot_id: this.data.robotId,
+      command: command,
+      params: params
+    });
+    
+    console.log('发送命令:', command, params);
     },
   
     // 手动控制方向
