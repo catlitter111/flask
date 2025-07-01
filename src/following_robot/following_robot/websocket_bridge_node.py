@@ -441,7 +441,11 @@ class WebSocketBridgeNode(Node):
         command = data.get('command', '')
         params = data.get('params', {})
         
-        self.get_logger().info(f'📋 收到控制命令: {command}')
+        # 专门打印运动和模式切换指令
+        if command in ['forward', 'backward', 'left', 'right', 'stop', 'start_auto', 'pause_auto', 'startInteraction', 'stopInteraction']:
+            self.get_logger().info(f'🎮🔥 [运动/模式指令] 收到命令: {command}, 参数: {params}')
+        else:
+            self.get_logger().info(f'📋 收到控制命令: {command}')
         
         try:
             if command == 'start_tracking':
@@ -492,28 +496,28 @@ class WebSocketBridgeNode(Node):
                 cmd_msg = String()
                 cmd_msg.data = 'start_auto_mode'
                 self.command_publisher.publish(cmd_msg)
-                self.get_logger().info('🤖 开始自动模式')
+                self.get_logger().info('🤖🔥 [模式切换] start_auto -> ROS命令: "start_auto_mode"')
                 
             elif command == 'pause_auto':
                 # 暂停自动模式
                 cmd_msg = String()
                 cmd_msg.data = 'pause_auto_mode'
                 self.command_publisher.publish(cmd_msg)
-                self.get_logger().info('⏸️ 暂停自动模式')
+                self.get_logger().info('⏸️🔥 [模式切换] pause_auto -> ROS命令: "pause_auto_mode"')
                 
             elif command == 'startInteraction':
                 # 开始交互模式
                 cmd_msg = String()
                 cmd_msg.data = 'start_interaction'
                 self.command_publisher.publish(cmd_msg)
-                self.get_logger().info('🤝 开始交互模式')
+                self.get_logger().info('🤝🔥 [模式切换] startInteraction -> ROS命令: "start_interaction"')
                 
             elif command == 'stopInteraction':
                 # 停止交互模式
                 cmd_msg = String()
                 cmd_msg.data = 'stop_interaction'
                 self.command_publisher.publish(cmd_msg)
-                self.get_logger().info('🛑 停止交互模式')
+                self.get_logger().info('🛑🔥 [模式切换] stopInteraction -> ROS命令: "stop_interaction"')
                 
             elif command == 'set_motor_speed':
                 # 设置电机速度
@@ -626,7 +630,7 @@ class WebSocketBridgeNode(Node):
             cmd_msg.data = ros_command
             self.command_publisher.publish(cmd_msg)
             
-            self.get_logger().info(f'🎮 手动控制: {command} (类型: {control_type}, 速度: {speed}%)')
+            self.get_logger().info(f'🎮🔥 [手动控制执行] {command} -> ROS命令: "{ros_command}" (类型: {control_type}, 速度: {speed}%)')
             
         except Exception as e:
             self.get_logger().error(f'❌ 手动控制命令处理失败: {e}')
