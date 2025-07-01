@@ -72,7 +72,17 @@ async def companion_websocket_endpoint(websocket: WebSocket, client_id: str):
 
     try:
         while True:
-            data = await websocket.receive_text()
+            # 检查WebSocket连接状态
+            if websocket.client_state.name != "CONNECTED":
+                logger.warning(f"微信客户端 {client_id} WebSocket连接已断开")
+                break
+                
+            try:
+                data = await websocket.receive_text()
+            except Exception as e:
+                logger.error(f"微信客户端 {client_id} 接收消息失败: {e}")
+                break
+                
             try:
                 message = json.loads(data)
                 message_type = message.get("type", "")
@@ -152,19 +162,40 @@ async def companion_websocket_endpoint(websocket: WebSocket, client_id: str):
                     command = message.get("command")
                     params = message.get("params", {})
 
-                    logger.info(f"收到伴侣控制命令: {command}, 参数: {params}")
+                    logger.info(f"📋 收到伴侣控制命令: {command}, 参数: {params}")
 
-                    if companion_id in companions:
-                        # 转发命令到伴侣
-                        await forward_command_to_companion(companion_id, command, params)
+                    # 检查伴侣是否在线
+                    companion_online = companion_id in companions
+                    logger.info(f"🔍 检查伴侣状态 {companion_id}: {'在线' if companion_online else '离线'}")
+                    
+                    if companion_online:
+                        # 尝试转发命令到伴侣
+                        success = await forward_command_to_companion(companion_id, command, params)
                         
-                        # 发送命令响应
-                        await websocket.send_json({
-                            "type": "command_response",
-                            "command": command,
-                            "status": "success",
-                            "message": "命令已发送"
-                        })
+                        if success:
+                            # 发送成功响应
+                            await websocket.send_json({
+                                "type": "command_response",
+                                "command": command,
+                                "status": "success",
+                                "message": "命令已成功发送"
+                            })
+                        else:
+                            # 转发失败
+                            await websocket.send_json({
+                                "type": "command_response",
+                                "command": command,
+                                "status": "error",
+                                "message": "命令发送失败，伴侣连接异常"
+                            })
+                            
+                            # 通知客户端伴侣已断开
+                            await websocket.send_json({
+                                "type": "robot_connection_status",
+                                "robot_id": companion_id,
+                                "connected": False,
+                                "timestamp": int(time.time() * 1000)
+                            })
                     else:
                         await websocket.send_json({
                             "type": "command_response",
@@ -172,11 +203,29 @@ async def companion_websocket_endpoint(websocket: WebSocket, client_id: str):
                             "status": "error",
                             "message": "伴侣机器人不在线"
                         })
+                        
+                        # 发送连接状态更新
+                        await websocket.send_json({
+                            "type": "robot_connection_status",
+                            "robot_id": companion_id,
+                            "connected": False,
+                            "timestamp": int(time.time() * 1000)
+                        })
 
                 elif message_type == "get_robot_status":
                     # 处理获取伴侣状态请求
                     companion_id = message.get("robot_id")
+                    
+                    # 添加调试信息
+                    logger.info(f"🔍 客户端 {client_id} 查询伴侣 {companion_id} 状态")
+                    
+                    # 显示当前所有连接的伴侣
+                    async with lock:
+                        companion_list = list(companions.keys())
+                    logger.info(f"📋 当前连接的伴侣列表: {companion_list}")
+                    
                     if companion_id in companions:
+                        logger.info(f"✅ 伴侣 {companion_id} 在线")
                         await websocket.send_json({
                             "type": "robot_connection_status",
                             "robot_id": companion_id,
@@ -184,6 +233,7 @@ async def companion_websocket_endpoint(websocket: WebSocket, client_id: str):
                             "timestamp": int(time.time() * 1000)
                         })
                     else:
+                        logger.info(f"❌ 伴侣 {companion_id} 离线")
                         await websocket.send_json({
                             "type": "robot_connection_status",
                             "robot_id": companion_id,
@@ -267,13 +317,14 @@ async def ros2_bridge_websocket_endpoint(websocket: WebSocket, robot_id: str):
                 "data": {}
             }
         
-        # 通知所有客户端机器人已连接
-        await broadcast_companion_status(robot_id, True)
-        
         # 连接到自适应视频管理器
         adaptive_video_manager.register_companion(robot_id, websocket)
         
         logger.info(f"✅ ROS2桥接节点 {robot_id} 连接成功")
+        
+        # 通知所有客户端机器人已连接 - 延迟一点确保连接稳定
+        await asyncio.sleep(0.5)
+        await broadcast_companion_status(robot_id, True)
         
         # 启动心跳任务
         async def heartbeat_task():
@@ -303,8 +354,17 @@ async def ros2_bridge_websocket_endpoint(websocket: WebSocket, robot_id: str):
         
         while True:
             try:
+                # 检查WebSocket连接状态
+                if websocket.client_state.name != "CONNECTED":
+                    logger.warning(f"ROS2桥接节点 {robot_id} WebSocket连接已断开")
+                    break
+                    
                 # 接收来自ROS2桥接节点的消息
-                message = await websocket.receive_json()
+                try:
+                    message = await websocket.receive_json()
+                except Exception as e:
+                    logger.error(f"ROS2桥接节点 {robot_id} 接收消息失败: {e}")
+                    break
                 
                 # 更新活动时间
                 async with lock:
@@ -419,7 +479,17 @@ async def companion_robot_websocket_endpoint(websocket: WebSocket, companion_id:
 
     try:
         while True:
-            data = await websocket.receive_text()
+            # 检查WebSocket连接状态
+            if websocket.client_state.name != "CONNECTED":
+                logger.warning(f"伴侣机器人 {companion_id} WebSocket连接已断开")
+                break
+                
+            try:
+                data = await websocket.receive_text()
+            except Exception as e:
+                logger.error(f"伴侣机器人 {companion_id} 接收消息失败: {e}")
+                break
+                
             try:
                 message = json.loads(data)
                 message_type = message.get("type", "")
@@ -636,22 +706,43 @@ async def save_interaction_to_history(companion_id, interaction_data):
 # 转发控制命令到伴侣
 async def forward_command_to_companion(companion_id, command, params):
     """转发控制命令到伴侣机器人"""
+    logger.info(f"🚀 开始转发命令到伴侣 {companion_id}: {command}")
+    
     async with lock:
-        if companion_id in companions and "websocket" in companions[companion_id]:
-            try:
-                await companions[companion_id]["websocket"].send_json({
-                    "type": "companion_command",
-                    "command": command,
-                    "params": params,
-                    "timestamp": int(time.time() * 1000)
-                })
-                logger.info(f"向伴侣 {companion_id} 转发命令: {command}")
-                return True
-            except Exception as e:
-                logger.error(f"向伴侣 {companion_id} 转发命令失败: {e}")
+        # 详细检查伴侣连接状态
+        if companion_id not in companions:
+            logger.warning(f"❌ 伴侣 {companion_id} 不在companions字典中")
+            return False
+            
+        if "websocket" not in companions[companion_id]:
+            logger.warning(f"❌ 伴侣 {companion_id} 没有websocket连接")
+            return False
+            
+        logger.info(f"✅ 伴侣 {companion_id} 连接检查通过，准备发送命令")
+        
+        try:
+            ws = companions[companion_id]["websocket"]
+            
+            # 检查WebSocket连接状态
+            if ws.client_state.name != "CONNECTED":
+                logger.warning(f"伴侣 {companion_id} WebSocket连接已断开，无法转发命令")
+                # 清理断开的连接
+                await handle_companion_disconnect(companion_id)
                 return False
-        else:
-            logger.warning(f"找不到伴侣 {companion_id}")
+            
+            await ws.send_json({
+                "type": "companion_command",
+                "command": command,
+                "params": params,
+                "timestamp": int(time.time() * 1000)
+            })
+            logger.info(f"✅ 向伴侣 {companion_id} 转发命令: {command}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ 向伴侣 {companion_id} 转发命令失败: {e}")
+            # 连接可能已断开，清理状态
+            await handle_companion_disconnect(companion_id)
             return False
 
 
@@ -819,11 +910,26 @@ async def connection_monitor():
             async with lock:
                 expired_companions = []
                 for companion_id, companion in companions.items():
-                    if (current_time - companion["last_active"]).total_seconds() > 30:
+                    # 检查超时或WebSocket连接状态
+                    is_timeout = (current_time - companion["last_active"]).total_seconds() > 30
+                    is_disconnected = False
+                    
+                    if "websocket" in companion:
+                        try:
+                            ws = companion["websocket"]
+                            if ws.client_state.name != "CONNECTED":
+                                is_disconnected = True
+                        except Exception:
+                            is_disconnected = True
+                    
+                    if is_timeout or is_disconnected:
                         expired_companions.append(companion_id)
+                        if is_timeout:
+                            logger.warning(f"⏰ 伴侣 {companion_id} 连接超时，清理连接")
+                        if is_disconnected:
+                            logger.warning(f"🔌 伴侣 {companion_id} WebSocket连接已断开，清理连接")
 
                 for companion_id in expired_companions:
-                    logger.warning(f"伴侣 {companion_id} 连接超时，清理连接")
                     await handle_companion_disconnect(companion_id)
 
                 # 检查客户端连接状态

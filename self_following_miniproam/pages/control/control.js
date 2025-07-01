@@ -9,7 +9,7 @@ Page({
       signalStrength: '未连接',
       autoProgress: 0,
       autoStatus: '未启动',
-      robotId: 'companion_robot_123',
+      robotId: 'companion_robot_001',
       clientId: '',
       videoBase64: '',         // 视频帧base64数据
       reconnectCount: 0,
