@@ -1,0 +1,111 @@
+# WebSocket桥接节点配置文件
+# =============================
+# 
+# 此配置文件定义了ROS2 WebSocket桥接节点的运行参数
+# 包括服务器连接、图像处理、性能优化等设置
+
+# 服务器连接配置
+server:
+  host: "172.20.39.181"           # WebSocket服务器地址
+  port: 1234                       # WebSocket服务器端口
+  endpoint: "/ws/ros2_bridge"      # WebSocket端点路径
+  timeout: 30                      # 连接超时时间(秒)
+  reconnect_interval: 5            # 重连间隔(秒)
+  max_reconnect_attempts: 10       # 最大重连次数，-1表示无限重连
+
+# 机器人标识
+robot:
+  id: "robot_001"                  # 机器人唯一标识符
+  name: "Following Robot"          # 机器人名称
+  type: "mobile_tracker"           # 机器人类型
+
+# ROS2话题配置
+ros2:
+  topics:
+    # 订阅的话题
+    tracking_result: "/bytetracker/tracking_result"    # 跟踪结果话题
+    visualization: "/bytetracker/visualization"        # 可视化图像话题
+    robot_status: "/robot_status"                      # 机器人状态话题
+    
+    # 发布的话题
+    robot_command: "/robot_control/command"            # 机器人控制命令话题
+    
+  # QoS设置
+  qos:
+    reliability: "RELIABLE"        # 可靠性: RELIABLE 或 BEST_EFFORT
+    history: "KEEP_LAST"           # 历史策略: KEEP_LAST 或 KEEP_ALL
+    depth: 10                      # 队列深度
+
+# 图像处理配置
+image:
+  # 图像编码设置
+  encoding: "jpg"                  # 图像编码格式: jpg, png, webp
+  quality: 80                      # 图像质量 (1-100)
+  
+  # 图像缩放设置
+  max_width: 640                   # 最大宽度
+  max_height: 480                  # 最大高度
+  maintain_aspect_ratio: true      # 保持宽高比
+  
+  # 性能优化
+  skip_frames: 1                   # 跳帧设置，1表示不跳帧，2表示发送每2帧
+  buffer_size: 3                   # 图像缓冲区大小
+
+# 数据传输配置
+transmission:
+  # 批处理设置
+  batch_size: 1                    # 批量发送大小
+  batch_timeout: 50                # 批量超时时间(毫秒)
+  
+  # 压缩设置
+  enable_compression: true         # 启用数据压缩
+  compression_level: 6             # 压缩级别 (1-9)
+  
+  # 流控制
+  max_queue_size: 100              # 最大队列大小
+  drop_policy: "drop_oldest"       # 丢弃策略: drop_oldest, drop_newest
+
+# 性能监控配置
+monitoring:
+  enable_stats: true               # 启用性能统计
+  stats_interval: 10               # 统计输出间隔(秒)
+  
+  # 性能阈值
+  max_latency_ms: 100              # 最大延迟阈值(毫秒)
+  min_fps: 10                      # 最低帧率阈值
+  
+  # 日志级别
+  log_level: "INFO"                # DEBUG, INFO, WARN, ERROR
+
+# 心跳配置
+heartbeat:
+  enable: true                     # 启用心跳
+  interval: 30                     # 心跳间隔(秒)
+  timeout: 90                      # 心跳超时(秒)
+
+# 错误处理配置
+error_handling:
+  retry_on_failure: true           # 失败时重试
+  max_retries: 3                   # 最大重试次数
+  retry_delay: 1                   # 重试延迟(秒)
+  
+  # 错误恢复策略
+  recovery_strategy: "reconnect"   # 恢复策略: reconnect, restart, ignore
+
+# 安全配置
+security:
+  enable_ssl: false                # 启用SSL/TLS
+  verify_ssl: true                 # 验证SSL证书
+  cert_file: ""                    # 证书文件路径
+  key_file: ""                     # 私钥文件路径
+
+# 调试配置
+debug:
+  save_images: false               # 保存调试图像
+  image_save_path: "/tmp/debug_images"  # 图像保存路径
+  save_messages: false             # 保存调试消息
+  message_save_path: "/tmp/debug_messages"  # 消息保存路径
+  
+  # 性能分析
+  enable_profiling: false          # 启用性能分析
+  profile_output: "/tmp/profile.prof"  # 性能分析输出文件 

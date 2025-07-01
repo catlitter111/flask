@@ -30,6 +30,8 @@
   <exec_depend>python3-pillow</exec_depend>
   <exec_depend>python3-scipy</exec_depend>
   <exec_depend>python3-openpyxl</exec_depend>
+  <exec_depend>python3-websockets</exec_depend>
+  <exec_depend>python3-asyncio</exec_depend>
   
   <!-- 系统依赖 -->
   <exec_depend>libopencv-dev</exec_depend>

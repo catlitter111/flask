@@ -223,6 +223,90 @@ async def companion_websocket_endpoint(websocket: WebSocket, client_id: str):
 
 
 # 伴侣机器人WebSocket连接处理
+@app.websocket("/ws/ros2_bridge/{robot_id}")
+async def ros2_bridge_websocket_endpoint(websocket: WebSocket, robot_id: str):
+    """
+    ROS2桥接节点WebSocket端点
+    ========================
+    
+    专门为ROS2 WebSocket桥接节点设计的通信端点
+    处理来自ROS2系统的跟踪结果和视频流数据
+    """
+    connection_id = str(uuid.uuid4())[:8]
+    logger.info(f"🤖 ROS2桥接节点 {robot_id} 尝试连接 (连接ID: {connection_id})")
+    
+    try:
+        await websocket.accept()
+        
+        # 注册桥接连接
+        async with lock:
+            companions[robot_id] = {
+                "websocket": websocket,
+                "last_active": datetime.datetime.now(),
+                "connection_id": connection_id,
+                "type": "ros2_bridge",
+                "data": {}
+            }
+        
+        # 通知所有客户端机器人已连接
+        await broadcast_companion_status(robot_id, True)
+        
+        # 连接到自适应视频管理器
+        adaptive_video_manager.connect_companion(robot_id, websocket)
+        
+        logger.info(f"✅ ROS2桥接节点 {robot_id} 连接成功")
+        
+        while True:
+            try:
+                # 接收来自ROS2桥接节点的消息
+                message = await websocket.receive_json()
+                
+                # 更新活动时间
+                async with lock:
+                    if robot_id in companions:
+                        companions[robot_id]["last_active"] = datetime.datetime.now()
+                
+                # 处理不同类型的消息
+                msg_type = message.get("type", "")
+                
+                if msg_type == "tracking_result":
+                    # 跟踪结果 - 转发给所有关联的客户端
+                    await broadcast_tracking_result(robot_id, message)
+                    
+                elif msg_type == "video_frame":
+                    # 视频帧 - 通过自适应视频管理器处理
+                    await adaptive_video_manager.handle_video_frame(robot_id, message)
+                    
+                elif msg_type == "robot_status":
+                    # 机器人状态更新
+                    await handle_robot_status_update(robot_id, message)
+                    
+                elif msg_type == "heartbeat":
+                    # 心跳消息 - 保持连接活跃
+                    await websocket.send_json({
+                        "type": "heartbeat_ack",
+                        "timestamp": int(time.time() * 1000)
+                    })
+                    
+                else:
+                    logger.warning(f"ROS2桥接节点 {robot_id} 发送了未知消息类型: {msg_type}")
+                    
+            except asyncio.TimeoutError:
+                logger.warning(f"ROS2桥接节点 {robot_id} 超时")
+                break
+            except Exception as e:
+                logger.error(f"处理ROS2桥接节点 {robot_id} 消息时出错: {e}")
+                break
+                
+    except WebSocketDisconnect:
+        logger.info(f"📱 ROS2桥接节点 {robot_id} 主动断开连接")
+    except Exception as e:
+        logger.error(f"ROS2桥接节点 {robot_id} 连接异常: {e}")
+    finally:
+        # 清理连接
+        await handle_companion_disconnect(robot_id)
+        logger.info(f"🔌 ROS2桥接节点 {robot_id} 连接已清理")
+
 @app.websocket("/ws/companion_robot/{companion_id}")
 async def companion_robot_websocket_endpoint(websocket: WebSocket, companion_id: str):
     await websocket.accept()
@@ -561,6 +645,59 @@ async def broadcast_companion_update(companion_id):
                         })
                     except Exception as e:
                         logger.error(f"向客户端 {client_id} 发送状态更新失败: {e}")
+
+
+# 广播跟踪结果
+async def broadcast_tracking_result(robot_id, message):
+    """向所有关联客户端广播跟踪结果"""
+    async with lock:
+        if robot_id in companion_to_clients:
+            for client_id in companion_to_clients[robot_id]:
+                if client_id in clients and "websocket" in clients[client_id]:
+                    try:
+                        # 转换ROS2跟踪结果为客户端格式
+                        client_message = {
+                            "type": "tracking_data",
+                            "robot_id": robot_id,
+                            "timestamp": message.get("timestamp", int(time.time() * 1000)),
+                            "data": {
+                                "mode": message.get("mode", "unknown"),
+                                "total_tracks": message.get("total_tracks", 0),
+                                "target_detected": message.get("target_detected", False),
+                                "target_position": {
+                                    "x": message.get("target_x", 0),
+                                    "y": message.get("target_y", 0),
+                                    "width": message.get("target_width", 0),
+                                    "height": message.get("target_height", 0)
+                                },
+                                "confidence": message.get("confidence", 0.0),
+                                "distance": message.get("distance", 0.0),
+                                "tracking_status": message.get("tracking_status", "idle"),
+                                "fps": message.get("fps", 0.0)
+                            }
+                        }
+                        
+                        await clients[client_id]["websocket"].send_json(client_message)
+                    except Exception as e:
+                        logger.error(f"向客户端 {client_id} 发送跟踪结果失败: {e}")
+
+
+# 处理机器人状态更新
+async def handle_robot_status_update(robot_id, message):
+    """处理来自ROS2桥接节点的机器人状态更新"""
+    try:
+        async with lock:
+            if robot_id in companions:
+                # 更新机器人状态数据
+                companions[robot_id]["data"].update(message.get("data", {}))
+        
+        # 广播状态更新给所有关联的客户端
+        await broadcast_companion_update(robot_id)
+        
+        logger.debug(f"机器人 {robot_id} 状态已更新")
+        
+    except Exception as e:
+        logger.error(f"处理机器人 {robot_id} 状态更新时出错: {e}")
 
 
 # 处理客户端断开连接

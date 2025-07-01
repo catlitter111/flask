@@ -27,6 +27,8 @@ setup(
         'openpyxl',  # Excel文件处理
         'cv_bridge',  # ROS图像转换
         'lap',       # 匈牙利算法优化库（可选）
+        'websockets', # WebSocket客户端
+        'asyncio',   # 异步编程支持
     ],
     zip_safe=True,
     maintainer='monster',
@@ -41,6 +43,7 @@ setup(
             'robot_control_node = following_robot.robot_control_node:main',
             'test_display = scripts.test_display:test_display',
             'bytetracker_node = following_robot.bytetracker_node:main',
+            'websocket_bridge_node = following_robot.websocket_bridge_node:main',
         ],
     },
 )

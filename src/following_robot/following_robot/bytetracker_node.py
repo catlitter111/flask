@@ -40,7 +40,11 @@ from std_msgs.msg import String, Float32, Bool, Header
 
 # 自定义消息和服务
 from custom_msgs.srv import FeatureExtraction, GetDistance
-from custom_msgs.msg import TrackedPerson, TrackedPersonArray, TrackingMode, Position
+from custom_msgs.msg import TrackedPerson, TrackedPersonArray, TrackingMode, Position, TrackingResult, RobotStatus
+
+# ROS2 sensor messages for image publishing
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 
 # 导入现有检测模块
 try:
@@ -2676,6 +2680,9 @@ class ByteTrackerNode(Node):
         # 初始化基本组件
         self.lock = threading.Lock()
         
+        # OpenCV桥接器（用于图像消息转换）
+        self.bridge = CvBridge()
+        
         # 相机相关
         self.camera_config = CameraConfig()
         self.cap = None
@@ -2870,6 +2877,9 @@ class ByteTrackerNode(Node):
             # 📡 Step 4: 发布跟踪结果
             publish_start = time.time()
             self.publish_tracking_results(tracks, target_track)
+            
+            # 📡 发布TrackingResult消息（供WebSocket桥接节点使用）
+            self.publish_tracking_result(tracks, target_track, mode)
             
             # 🚗 Step 5: 小车控制（如果启用）
             if target_track and self.enable_car_control:
@@ -3353,6 +3363,100 @@ class ByteTrackerNode(Node):
         except Exception as e:
             self.get_logger().error(f"发布跟踪结果错误: {e}")
 
+    def publish_tracking_result(self, tracks, target_track, mode):
+        """
+        发布TrackingResult消息 - 供WebSocket桥接节点使用
+        ==============================================
+        
+        功能说明：
+            将跟踪结果转换为TrackingResult消息格式并发布
+            为WebSocket桥接提供标准化的跟踪数据
+        
+        参数：
+            tracks (list): 所有跟踪轨迹列表
+            target_track (STrack): 目标轨迹（单目标模式）
+            mode (str): 当前跟踪模式
+            
+        返回值：
+            无
+            
+        调用关系：
+            - 被process_frame()调用
+            
+        调用原因：
+            为WebSocket桥接节点提供结构化的跟踪结果
+        """
+        try:
+            msg = TrackingResult()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = "camera"
+            
+            # 基本信息
+            msg.mode = 'single_target' if mode in ['selecting', 'tracking'] else 'multi_target'
+            msg.total_tracks = len(tracks)
+            msg.target_detected = target_track is not None
+            
+            # 目标信息（单目标模式）
+            if target_track is not None:
+                msg.target_id = target_track.track_id
+                tlbr = target_track.tlbr
+                msg.target_x = float((tlbr[0] + tlbr[2]) / 2)  # 中心x
+                msg.target_y = float((tlbr[1] + tlbr[3]) / 2)  # 中心y
+                msg.target_width = float(tlbr[2] - tlbr[0])
+                msg.target_height = float(tlbr[3] - tlbr[1])
+                msg.confidence = float(target_track.score)
+                
+                # 计算距离（如果启用立体视觉）
+                if self.enable_distance_measure:
+                    distance = self.get_distance_at_point(int(msg.target_x), int(msg.target_y))
+                    msg.distance = float(distance / 1000.0)  # 转换为米
+                else:
+                    msg.distance = 0.0
+            else:
+                msg.target_id = -1
+                msg.target_x = 0.0
+                msg.target_y = 0.0
+                msg.target_width = 0.0
+                msg.target_height = 0.0
+                msg.confidence = 0.0
+                msg.distance = 0.0
+            
+            # 多目标信息
+            msg.track_ids = [track.track_id for track in tracks]
+            msg.track_confidences = [float(track.score) for track in tracks]
+            
+            # 位置列表
+            positions = []
+            for track in tracks:
+                tlbr = track.tlbr
+                pos = Point()
+                pos.x = float((tlbr[0] + tlbr[2]) / 2)
+                pos.y = float((tlbr[1] + tlbr[3]) / 2)
+                pos.z = 0.0
+                positions.append(pos)
+            msg.positions = positions
+            
+            # 状态信息
+            if target_track is not None:
+                msg.tracking_status = 'tracking'
+            elif len(tracks) > 0:
+                msg.tracking_status = 'idle'
+            else:
+                msg.tracking_status = 'searching'
+            
+            # 性能信息
+            if hasattr(self, 'fps'):
+                msg.fps = float(self.fps)
+            else:
+                msg.fps = 0.0
+            msg.frame_count = self.frame_count
+            
+            # 发布消息
+            self.tracking_result_pub.publish(msg)
+            
+        except Exception as e:
+            self.get_logger().error(f"发布TrackingResult消息错误: {e}")
+
     def get_distance_at_point(self, x, y):
         """
         获取指定像素点的距离 - 立体视觉深度测量
@@ -3631,6 +3735,14 @@ class ByteTrackerNode(Node):
         # 跟踪结果发布者
         self.tracked_persons_pub = self.create_publisher(
             TrackedPersonArray, '/bytetracker/tracked_persons', qos)
+
+        # 新增：TrackingResult发布者（供WebSocket桥接节点使用）
+        self.tracking_result_pub = self.create_publisher(
+            TrackingResult, '/bytetracker/tracking_result', qos)
+
+        # 可视化图像发布者（供WebSocket桥接节点使用）
+        self.visualization_pub = self.create_publisher(
+            Image, '/bytetracker/visualization', qos)
 
         # 跟踪状态发布者
         self.status_pub = self.create_publisher(
@@ -4389,12 +4501,12 @@ class ByteTrackerNode(Node):
 
     def publish_visualization(self, viz_frame):
         """
-        发布可视化图像 - 实时显示接口
-        ===========================
+        发布可视化图像 - 实时显示和ROS话题发布
+        ====================================
         
         功能说明：
-            显示跟踪可视化结果，当前使用直接显示方式
-            可扩展为ROS2图像话题发布
+            同时发布可视化图像到ROS话题和本地显示
+            为WebSocket桥接节点提供图像数据
         
         参数：
             viz_frame (np.array): 可视化图像
@@ -4406,17 +4518,31 @@ class ByteTrackerNode(Node):
             - 被process_frame()调用
             
         调用原因：
-            提供实时的视觉反馈
+            提供实时的视觉反馈并支持远程显示
             
         调试信息：
-            - 记录显示状态和异常情况
+            - 记录发布状态和异常情况
         """
         try:
-            # 直接显示图像而不是发布ROS消息
-            cv2.imshow('ByteTracker Visualization', viz_frame)
-            cv2.waitKey(1)
+            # 1. 发布ROS图像消息（供WebSocket桥接节点使用）
+            try:
+                img_msg = self.bridge.cv2_to_imgmsg(viz_frame, "bgr8")
+                img_msg.header.stamp = self.get_clock().now().to_msg()
+                img_msg.header.frame_id = "camera"
+                self.visualization_pub.publish(img_msg)
+            except Exception as e:
+                self.get_logger().debug(f"发布可视化图像ROS消息失败: {e}")
+            
+            # 2. 本地显示（调试用）
+            try:
+                cv2.imshow('ByteTracker Visualization', viz_frame)
+                cv2.waitKey(1)
+            except Exception as e:
+                # 在无显示环境中，这个错误是预期的，只记录debug级别
+                self.get_logger().debug(f"本地显示图像失败: {e}")
+                
         except Exception as e:
-            self.get_logger().error(f"显示可视化图像错误: {e}")
+            self.get_logger().error(f"发布可视化图像错误: {e}")
 
     def publish_status(self):
         """
