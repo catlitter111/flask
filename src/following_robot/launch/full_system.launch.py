@@ -169,6 +169,11 @@ def generate_launch_description():
             'use_ackermann': LaunchConfiguration('use_ackermann'),
             'safety_enabled': True,
         }],
+        remappings=[
+            # 确保话题名称一致
+            ('cmd_vel', '/cmd_vel'),
+            ('ackermann_cmd', '/ackermann_cmd'),
+        ],
         respawn=True,
         respawn_delay=3.0,
         emulate_tty=True,
@@ -189,6 +194,11 @@ def generate_launch_description():
             'akm_cmd_vel': 'none',
             'product_number': 0,
         }],
+        remappings=[
+            # 重映射话题到全局命名空间
+            ('cmd_vel', '/cmd_vel'),
+            ('odom', '/odom'),
+        ],
         condition=UnlessCondition(LaunchConfiguration('use_ackermann')),
         respawn=True,
         respawn_delay=3.0,
@@ -210,6 +220,12 @@ def generate_launch_description():
             'akm_cmd_vel': 'ackermann_cmd',
             'product_number': 0,
         }],
+        remappings=[
+            # 重映射话题到全局命名空间
+            ('cmd_vel', '/cmd_vel'),
+            ('ackermann_cmd', '/ackermann_cmd'),
+            ('odom', '/odom'),
+        ],
         condition=IfCondition(LaunchConfiguration('use_ackermann')),
         respawn=True,
         respawn_delay=3.0,
@@ -222,6 +238,11 @@ def generate_launch_description():
         executable='cmd_vel_to_ackermann_drive.py',
         name='cmd_vel_to_ackermann_drive',
         output='screen',
+        remappings=[
+            # 重映射话题到全局命名空间
+            ('cmd_vel', '/cmd_vel'),
+            ('ackermann_cmd', '/ackermann_cmd'),
+        ],
         condition=IfCondition(LaunchConfiguration('use_ackermann')),
         respawn=True,
         respawn_delay=3.0,

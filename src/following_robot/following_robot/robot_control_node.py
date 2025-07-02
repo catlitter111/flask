@@ -111,10 +111,10 @@ class RobotControlNode(Node):
         # 控制命令发布者
         if self.use_ackermann:
             self.cmd_publisher = self.create_publisher(
-                AckermannDriveStamped, '/ackermann_cmd', qos)
+                AckermannDriveStamped, 'ackermann_cmd', qos)
         else:
             self.cmd_publisher = self.create_publisher(
-                Twist, '/cmd_vel', qos)
+                Twist, 'cmd_vel', qos)
         
         # 状态发布者
         self.status_publisher = self.create_publisher(
@@ -442,6 +442,9 @@ class RobotControlNode(Node):
             msg.drive.steering_angle = steering_angle
             
             self.cmd_publisher.publish(msg)
+            # 只在有实际运动时打印日志
+            if abs(linear_x) > 0.001 or abs(steering_angle) > 0.001:
+                self.get_logger().info(f"🚗📤 [robot_control_node] 发布阿克曼命令: 速度={linear_x:.3f}, 转向角={steering_angle:.3f}")
         else:
             # 标准Twist控制
             msg = Twist()
@@ -453,6 +456,9 @@ class RobotControlNode(Node):
             msg.angular.z = angular_z
             
             self.cmd_publisher.publish(msg)
+            # 只在有实际运动时打印日志
+            if abs(linear_x) > 0.001 or abs(angular_z) > 0.001:
+                self.get_logger().info(f"🚗📤 [robot_control_node] 发布Twist命令: 线速度={linear_x:.3f}, 角速度={angular_z:.3f}")
 
     def send_stop_command(self):
         """发送停止命令"""

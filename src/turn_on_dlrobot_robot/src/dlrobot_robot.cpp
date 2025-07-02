@@ -111,7 +111,11 @@ void turn_on_robot::Akm_Cmd_Vel_Callback(const ackermann_msgs::msg::AckermannDri
 void turn_on_robot::Cmd_Vel_Callback(const geometry_msgs::msg::Twist::SharedPtr twist_aux)
 {
   short  transition;  //intermediate variable //中间变量
-  //if(akm_cmd_vel=="none") {RCLCPP_INFO(this->get_logger(),"not akm");} //Prompt message //提示信息
+  
+  // 添加调试信息
+  RCLCPP_INFO(this->get_logger(), "🔄 [dlrobot_robot_node] 收到Twist消息 (线速度=%.3f, 角速度=%.3f), akm_cmd_vel='%s'", 
+              twist_aux->linear.x, twist_aux->angular.z, akm_cmd_vel.c_str());
+  
   Send_Data.tx[0]=FRAME_HEADER; //frame head 0x7B //帧头0X7BAkm_Cmd_Vel_Sub
   Send_Data.tx[1] = 0; //set aside //预留位
   Send_Data.tx[2] = 0; //set aside //预留位
@@ -155,6 +159,10 @@ void turn_on_robot::Cmd_Vel_Callback(const geometry_msgs::msg::Twist::SharedPtr 
     {
       Stm32_Serial.write(Send_Data.tx,sizeof (Send_Data.tx)); //Sends data to the downloader via serial port //通过串口向下位机发送数据 
       RCLCPP_INFO(this->get_logger(), "✅ 串口数据发送成功");
+    }
+    else
+    {
+      RCLCPP_WARN(this->get_logger(), "⚠️ akm_cmd_vel='%s' != 'none', 跳过串口发送", akm_cmd_vel.c_str());
     }
   }
   catch (serial::IOException& e)   
@@ -501,8 +509,18 @@ turn_on_robot::turn_on_robot()
   Cmd_Vel_Sub = create_subscription<geometry_msgs::msg::Twist>(
       cmd_vel, 100, std::bind(&turn_on_robot::Cmd_Vel_Callback, this, _1));
 
-  Akm_Cmd_Vel_Sub = create_subscription<ackermann_msgs::msg::AckermannDriveStamped>(
-      akm_cmd_vel, 100, std::bind(&turn_on_robot::Akm_Cmd_Vel_Callback, this, _1));
+  // 只有当akm_cmd_vel不是"none"时才创建Ackermann订阅者
+  if (akm_cmd_vel != "none" && !akm_cmd_vel.empty()) {
+    Akm_Cmd_Vel_Sub = create_subscription<ackermann_msgs::msg::AckermannDriveStamped>(
+        akm_cmd_vel, 100, std::bind(&turn_on_robot::Akm_Cmd_Vel_Callback, this, _1));
+    RCLCPP_INFO(this->get_logger(), "📡 创建了Ackermann话题订阅者: '%s'", akm_cmd_vel.c_str());
+  }
+      
+  // 打印话题订阅信息
+  RCLCPP_INFO(this->get_logger(), "📡 话题订阅初始化完成:");
+  RCLCPP_INFO(this->get_logger(), "   - Twist话题: '%s'", cmd_vel.c_str());
+  RCLCPP_INFO(this->get_logger(), "   - Ackermann话题: '%s'", akm_cmd_vel.c_str());
+  RCLCPP_INFO(this->get_logger(), "   - 当前模式: %s", (akm_cmd_vel == "none") ? "普通模式" : "阿克曼模式");
   
   try
   { 
@@ -521,6 +539,9 @@ turn_on_robot::turn_on_robot()
   {
     RCLCPP_INFO(this->get_logger(),"dlrobot_robot serial port opened"); //Serial port opened successfully //串口开启成功提示
   }
+  
+  // 初始化完成提示
+  RCLCPP_INFO(this->get_logger(), "🚀 dlrobot_robot_node 初始化完成!");
 }
 
 /**************************************
@@ -551,9 +572,18 @@ turn_on_robot::~turn_on_robot()
   Send_Data.tx[9]=Check_Sum(9,SEND_DATA_CHECK); //Check the bits for the Check_Sum function //校验位，规则参见Check_Sum函数
   Send_Data.tx[10]=FRAME_TAIL; 
 
+  // 打印析构函数中发送的串口数据
+  RCLCPP_INFO(this->get_logger(), "🚗📤 [析构函数] 发送停止命令串口数据:");
+  printf("停止命令串口数据: ");
+  for(int i = 0; i < sizeof(Send_Data.tx); i++) {
+    printf("0x%02X ", Send_Data.tx[i]);
+  }
+  printf("\n");
+
   try
   {
     Stm32_Serial.write(Send_Data.tx,sizeof (Send_Data.tx)); //Send data to the serial port //向串口发数据  
+    RCLCPP_INFO(this->get_logger(), "✅ 停止命令串口数据发送成功");
   }
   catch (serial::IOException& e)   
   {
