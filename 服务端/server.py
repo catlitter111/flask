@@ -249,6 +249,7 @@ class CompanionServer:
             file_data = None
             file_name = None
             file_type = None
+            custom_filename = None
 
             async for part in reader:
                 if part.name == 'file':
@@ -263,7 +264,18 @@ class CompanionServer:
                             status=413
                         )
                     
-                    break
+                elif part.name == 'custom_filename':
+                    # 读取自定义文件名
+                    custom_filename_data = await part.read()
+                    custom_filename = custom_filename_data.decode('utf-8').strip()
+                    if custom_filename:
+                        logger.info(f"📝 收到自定义文件名: {custom_filename}")
+
+            # 如果有自定义文件名，使用自定义文件名
+            if custom_filename:
+                display_file_name = custom_filename
+            else:
+                display_file_name = file_name
 
             if not file_data:
                 return web.json_response(
@@ -271,8 +283,8 @@ class CompanionServer:
                     status=400
                 )
 
-            # 保存文件
-            file_id = f"{client_id}_{int(time.time() * 1000)}_{file_name}"
+            # 保存文件（使用自定义文件名）
+            file_id = f"{client_id}_{int(time.time() * 1000)}_{display_file_name}"
             file_path = self.upload_dir / file_id
             
             with open(file_path, 'wb') as f:
@@ -281,14 +293,14 @@ class CompanionServer:
             # 更新统计
             self.stats['files_uploaded'] += 1
 
-            logger.info(f"📁 文件上传成功 - 客户端: {client_id}, 文件: {file_name}, 大小: {len(file_data)}字节")
+            logger.info(f"📁 文件上传成功 - 客户端: {client_id}, 原文件名: {file_name}, 显示名称: {display_file_name}, 大小: {len(file_data)}字节")
 
             # 通知WebSocket客户端上传完成
             if client_id in self.connections:
                 await self.send_message(self.connections[client_id].websocket, {
                     'type': 'file_upload_success',
                     'file_id': file_id,
-                    'file_name': file_name,
+                    'file_name': display_file_name,
                     'file_size': len(file_data),
                     'file_type': file_type,
                     'upload_time': int(time.time() * 1000)
@@ -299,7 +311,7 @@ class CompanionServer:
             if client_connection and client_connection.robot_id:
                 await self.forward_file_to_robot(client_connection.robot_id, {
                     'file_id': file_id,
-                    'file_name': file_name,
+                    'file_name': display_file_name,
                     'file_data': file_data,
                     'file_type': file_type,
                     'file_size': len(file_data),
@@ -310,7 +322,7 @@ class CompanionServer:
             return web.json_response({
                 'success': True,
                 'file_id': file_id,
-                'file_name': file_name,
+                'file_name': display_file_name,
                 'file_size': len(file_data),
                 'file_type': file_type,
                 'upload_time': int(time.time() * 1000)

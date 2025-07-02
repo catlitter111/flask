@@ -351,7 +351,8 @@ Page({
         name: 'file',
         formData: {
           'client_id': app.globalData.clientId,
-          'timestamp': Date.now()
+          'timestamp': Date.now(),
+          'custom_filename': that.data.currentFile?.name || '未知文件'
         },
         success: function(res) {
           console.log('✅ 文件上传成功:', res);

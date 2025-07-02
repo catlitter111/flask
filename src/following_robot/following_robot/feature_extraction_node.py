@@ -444,6 +444,11 @@ class FeatureExtractionNode(Node):
         try:
             wb = openpyxl.Workbook()
             sheet = wb.active
+            if sheet is None:
+                # 如果 active 为 None，创建一个新的工作表
+                sheet = wb.create_sheet()
+                wb.remove(wb.worksheets[0])  # 删除默认空工作表
+            
             sheet.title = self.sanitize_sheet_name(f'特征_{name}')
 
             # 添加比例数据 - 直接将数据保存到A列
