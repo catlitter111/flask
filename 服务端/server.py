@@ -685,6 +685,14 @@ class CompanionServer:
             # 文件保存结果
             await self.handle_file_save_result(connection, data)
 
+        elif message_type == 'feature_extraction_result':
+            # 特征提取结果
+            await self.handle_feature_extraction_result(connection, data)
+
+        elif message_type == 'feature_extraction_error':
+            # 特征提取错误
+            await self.handle_feature_extraction_error(connection, data)
+
         elif message_type == 'heartbeat':
             # 机器人心跳
             connection.last_heartbeat = time.time()
@@ -901,6 +909,58 @@ class CompanionServer:
         })
 
         logger.info(f"📁 转发文件保存结果 - 机器人: {robot_id}, 客户端: {client_id}, 状态: {data.get('status')}")
+
+    async def handle_feature_extraction_result(self, connection: ClientConnection, data: Dict):
+        """处理特征提取结果"""
+        client_id = data.get('client_id')
+        robot_id = connection.robot_id
+        
+        if not client_id or client_id not in self.connections:
+            logger.warning(f"⚠️ 特征提取结果无法转发：客户端不存在 - {client_id}")
+            return
+
+        # 转发结果到对应的客户端
+        client_connection = self.connections[client_id]
+        
+        # 格式化特征提取结果消息
+        result_message = {
+            'type': 'feature_extraction_complete',
+            'file_id': data.get('file_id'),
+            'status': 'success',
+            'data': data.get('data', {}),
+            'robot_id': robot_id,
+            'timestamp': data.get('timestamp', int(time.time() * 1000))
+        }
+        
+        await self.send_message(client_connection.websocket, result_message)
+        
+        logger.info(f"📊 转发特征提取结果 - 机器人: {robot_id}, 客户端: {client_id}, 文件: {data.get('file_id')}")
+
+    async def handle_feature_extraction_error(self, connection: ClientConnection, data: Dict):
+        """处理特征提取错误"""
+        client_id = data.get('client_id')
+        robot_id = connection.robot_id
+        
+        if not client_id or client_id not in self.connections:
+            logger.warning(f"⚠️ 特征提取错误无法转发：客户端不存在 - {client_id}")
+            return
+
+        # 转发错误到对应的客户端
+        client_connection = self.connections[client_id]
+        
+        # 格式化特征提取错误消息
+        error_message = {
+            'type': 'feature_extraction_complete',
+            'file_id': data.get('file_id'),
+            'status': 'error',
+            'error': data.get('error', '未知错误'),
+            'robot_id': robot_id,
+            'timestamp': data.get('timestamp', int(time.time() * 1000))
+        }
+        
+        await self.send_message(client_connection.websocket, error_message)
+        
+        logger.error(f"❌ 转发特征提取错误 - 机器人: {robot_id}, 客户端: {client_id}, 错误: {data.get('error')}")
 
     async def send_message(self, websocket, message: Dict):
         """发送消息到WebSocket"""

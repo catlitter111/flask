@@ -28,6 +28,7 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import String, Float32, Bool, Int32
 from geometry_msgs.msg import Point, Twist
 from custom_msgs.msg import TrackingResult, RobotStatus
+from custom_msgs.srv import FeatureExtraction
 import cv2
 from cv_bridge import CvBridge
 import json
@@ -187,6 +188,9 @@ class WebSocketBridgeNode(Node):
         self.get_logger().info(f'🔧 配置完成 - 服务器: {self.ws_host}:{self.ws_port}')
         self.get_logger().info(f'📁 文件保存目录: {self.file_save_dir.absolute()}')
         
+        # 特征提取服务状态
+        self.feature_service_available = False
+        
     def setup_ros_components(self):
         """设置ROS2组件"""
         # 订阅者
@@ -231,7 +235,17 @@ class WebSocketBridgeNode(Node):
             10
         )
         
+        # 服务客户端
+        self.feature_extraction_client = self.create_client(
+            FeatureExtraction,
+            '/features/extract_features'
+        )
+        
         self.get_logger().info('📡 ROS2组件初始化完成')
+        self.get_logger().info('🔧 等待特征提取服务...')
+        
+        # 等待特征提取服务可用（非阻塞）
+        self.check_feature_service_timer = self.create_timer(2.0, self.check_feature_service)
         
     def setup_websocket(self):
         """设置WebSocket连接"""
@@ -618,6 +632,19 @@ class WebSocketBridgeNode(Node):
         """处理心跳确认"""
         pass  # 目前不需要特殊处理
         
+    def check_feature_service(self):
+        """检查特征提取服务是否可用"""
+        if self.feature_extraction_client.service_is_ready():
+            if not self.feature_service_available:
+                self.feature_service_available = True
+                self.get_logger().info('✅ 特征提取服务已就绪')
+                # 取消定时检查
+                self.check_feature_service_timer.cancel()
+        else:
+            if self.feature_service_available:
+                self.feature_service_available = False
+                self.get_logger().warn('⚠️ 特征提取服务不可用')
+
     def setup_timers(self):
         """设置定时器"""
         # 心跳定时器 - 调整为25秒，与WebSocket ping机制协调
@@ -934,15 +961,148 @@ class WebSocketBridgeNode(Node):
         try:
             self.get_logger().info(f'🔍 开始特征提取: {file_path}')
             
-            # 发布特征提取消息到ROS2话题（如果有特征提取节点）
-            # 这里可以根据实际的ROS2架构来实现
-            # 例如：调用特征提取服务或发布到特征提取话题
+            # 检查特征提取服务是否可用
+            if not self.feature_service_available:
+                self.get_logger().warn('⚠️ 特征提取服务不可用，跳过特征提取')
+                # 通知客户端服务不可用
+                self.send_feature_extraction_error(client_id, file_id, '特征提取服务不可用')
+                return
             
-            # 简单起见，这里只记录日志
-            self.get_logger().info(f'🎯 特征提取将在后台处理文件: {file_path}')
+            # 获取文件信息
+            file_path_obj = Path(file_path)
+            file_name = file_path_obj.name
+            file_ext = file_path_obj.suffix.lower()
+            
+            # 判断文件类型
+            if file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']:
+                # 图片文件 - 调用现有服务
+                self.extract_features_from_image(file_path, file_name, client_id, file_id)
+            elif file_ext in ['.mp4', '.avi', '.mov', '.mkv', '.flv']:
+                # 视频文件 - 预留接口
+                self.extract_features_from_video(file_path, file_name, client_id, file_id)
+            else:
+                self.get_logger().warn(f'⚠️ 不支持的文件类型: {file_ext}')
+                self.send_feature_extraction_error(client_id, file_id, f'不支持的文件类型: {file_ext}')
             
         except Exception as e:
             self.get_logger().error(f'❌ 特征提取触发失败: {e}')
+            self.send_feature_extraction_error(client_id, file_id, f'特征提取失败: {str(e)}')
+    
+    def extract_features_from_image(self, file_path, file_name, client_id, file_id):
+        """从图片提取特征"""
+        try:
+            # 读取图像文件
+            cv_image = cv2.imread(str(file_path))
+            if cv_image is None:
+                self.get_logger().error(f'❌ 无法读取图像文件: {file_path}')
+                self.send_feature_extraction_error(client_id, file_id, '无法读取图像文件')
+                return
+            
+            # 转换为ROS图像消息
+            try:
+                image_msg = self.bridge.cv2_to_imgmsg(cv_image, "bgr8")
+            except Exception as e:
+                self.get_logger().error(f'❌ 图像转换失败: {e}')
+                self.send_feature_extraction_error(client_id, file_id, '图像格式转换失败')
+                return
+            
+            # 创建服务请求
+            request = FeatureExtraction.Request()
+            request.image = image_msg
+            request.person_name = Path(file_name).stem  # 使用文件名（不含扩展名）作为人物名称
+            request.save_to_file = True
+            request.output_path = str(self.file_save_dir)
+            
+            self.get_logger().info(f'📤 发送特征提取服务请求 - 文件: {file_name}')
+            
+            # 异步调用服务
+            future = self.feature_extraction_client.call_async(request)
+            future.add_done_callback(
+                lambda fut: self.handle_feature_extraction_response(fut, client_id, file_id, file_name)
+            )
+            
+        except Exception as e:
+            self.get_logger().error(f'❌ 图片特征提取失败: {e}')
+            self.send_feature_extraction_error(client_id, file_id, f'图片处理失败: {str(e)}')
+    
+    def extract_features_from_video(self, file_path, file_name, client_id, file_id):
+        """从视频提取特征（预留接口）"""
+        self.get_logger().info(f'🎥 视频特征提取 - 文件: {file_name} (功能开发中)')
+        
+        # TODO: 实现视频特征提取
+        # 可能的实现方案：
+        # 1. 提取视频关键帧
+        # 2. 对关键帧进行特征提取
+        # 3. 聚合多帧结果
+        # 4. 返回综合特征数据
+        
+        # 暂时返回未实现错误
+        self.send_feature_extraction_error(
+            client_id, 
+            file_id, 
+            '视频特征提取功能暂未实现，请上传图片文件'
+        )
+    
+    def handle_feature_extraction_response(self, future, client_id, file_id, file_name):
+        """处理特征提取服务响应"""
+        try:
+            response = future.result()
+            
+            if response.success:
+                self.get_logger().info(f'✅ 特征提取成功 - 文件: {file_name}')
+                
+                # 发送成功结果给客户端
+                self.send_feature_extraction_result(client_id, file_id, {
+                    'status': 'success',
+                    'message': response.message,
+                    'person_count': response.person_count,
+                    'body_ratios': list(response.body_ratios),
+                    'shirt_color': list(response.shirt_color),
+                    'pants_color': list(response.pants_color),
+                    'result_image_path': response.result_image_path,
+                    'feature_data_path': response.feature_data_path,
+                    'file_name': file_name
+                })
+                
+            else:
+                self.get_logger().error(f'❌ 特征提取失败 - 文件: {file_name}, 错误: {response.message}')
+                self.send_feature_extraction_error(client_id, file_id, response.message)
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ 特征提取服务调用失败: {e}')
+            self.send_feature_extraction_error(client_id, file_id, f'服务调用失败: {str(e)}')
+    
+    def send_feature_extraction_result(self, client_id, file_id, result_data):
+        """发送特征提取结果给客户端"""
+        message = {
+            'type': 'feature_extraction_result',
+            'file_id': file_id,
+            'client_id': client_id,
+            'data': result_data,
+            'timestamp': int(time.time() * 1000)
+        }
+        
+        # 发送给WebSocket服务器，由服务器转发给客户端
+        if self.send_ws_message(message):
+            self.get_logger().info(f'📊 特征提取结果已发送 - 客户端: {client_id}, 文件: {file_id}')
+        else:
+            self.get_logger().warning(f'⚠️ 特征提取结果发送失败 - 客户端: {client_id}')
+    
+    def send_feature_extraction_error(self, client_id, file_id, error_message):
+        """发送特征提取错误给客户端"""
+        message = {
+            'type': 'feature_extraction_error',
+            'file_id': file_id,
+            'client_id': client_id,
+            'error': error_message,
+            'timestamp': int(time.time() * 1000)
+        }
+        
+        # 发送给WebSocket服务器，由服务器转发给客户端
+        if self.send_ws_message(message):
+            self.get_logger().error(f'❌ 特征提取错误已发送 - 客户端: {client_id}, 错误: {error_message}')
+        else:
+            self.get_logger().error(f'❌ 特征提取错误发送失败 - 客户端: {client_id}, 错误: {error_message}')
     
     def destroy_node(self):
         """节点销毁时的清理工作"""
@@ -959,6 +1119,10 @@ class WebSocketBridgeNode(Node):
         # 取消重连定时器
         if self.reconnect_timer:
             self.reconnect_timer.cancel()
+            
+        # 取消特征服务检查定时器
+        if hasattr(self, 'check_feature_service_timer'):
+            self.check_feature_service_timer.cancel()
             
         super().destroy_node()
         self.get_logger().info('✅ WebSocket桥接节点已关闭')

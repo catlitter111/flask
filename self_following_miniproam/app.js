@@ -310,11 +310,21 @@ App({
           break;
 
         case 'feature_extraction_result':
-          // 特征提取结果
+          // 特征提取结果（旧格式，保留兼容性）
           if (this.globalData.featurePage) {
             this.globalData.featurePage.handleFeatureResult(data);
           }
           this.saveFeatureData(data);
+          break;
+
+        case 'feature_extraction_complete':
+          // 特征提取完成（新格式）
+          if (this.globalData.featurePage) {
+            this.globalData.featurePage.handleFeatureResult(data);
+          }
+          if (data.status === 'success') {
+            this.saveFeatureData(data);
+          }
           break;
 
         case 'feature_extraction_error':
