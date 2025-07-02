@@ -56,6 +56,8 @@ class FeatureExtractionNode(Node):
         
         # 声明参数
         self.declare_parameter('output_dir', 'features-data')
+        self.declare_parameter('video_frame_interval', 10)  # 视频帧间隔
+        self.declare_parameter('video_detection_limit', 20)  # 视频最大检测帧数
         
         # 初始化CV Bridge
         self.bridge = CvBridge()
@@ -84,7 +86,14 @@ class FeatureExtractionNode(Node):
             self.get_logger().info('🦴 姿态检测功能已启用')
         else:
             self.get_logger().warn('⚠️ 姿态检测功能不可用')
+        
+        # 显示视频处理配置
+        frame_interval = self.get_parameter('video_frame_interval').get_parameter_value().integer_value
+        detection_limit = self.get_parameter('video_detection_limit').get_parameter_value().integer_value
+        self.get_logger().info(f'🎬 视频处理功能已启用: 每{frame_interval}帧检测, 最多{detection_limit}帧')
+        
         self.get_logger().info('🔧 服务地址: /features/extract_features')
+        self.get_logger().info('📝 使用方法: person_name前缀"VIDEO:"可处理视频文件')
 
     def setup_output_directory(self):
         """创建输出目录"""
@@ -97,23 +106,46 @@ class FeatureExtractionNode(Node):
             self.get_logger().info(f"📞 收到特征提取请求: 人物名称={request.person_name}")
             start_time = time.time()
             
-            # 转换ROS图像到OpenCV格式
-            try:
-                cv_image = self.bridge.imgmsg_to_cv2(request.image, "bgr8")
-                self.get_logger().info(f"📸 图像转换成功，尺寸: {cv_image.shape}")
-            except Exception as e:
-                response.success = False
-                response.message = f"图像转换失败: {str(e)}"
-                self.get_logger().error(response.message)
-                return response
-            
-            # 提取特征
-            result = self.obtain_features(
-                cv_image, 
-                request.person_name,
-                request.save_to_file,
-                request.output_path
-            )
+            # 检查是否为视频处理请求（通过特殊标识符）
+            if request.person_name.startswith("VIDEO:"):
+                # 视频文件路径从person_name中提取
+                video_path = request.person_name[6:]  # 移除"VIDEO:"前缀
+                self.get_logger().info(f"🎬 检测到视频处理请求: {video_path}")
+                
+                # 检查视频文件是否存在
+                if not Path(video_path).exists():
+                    response.success = False
+                    response.message = f"视频文件不存在: {video_path}"
+                    self.get_logger().error(response.message)
+                    return response
+                
+                # 使用视频处理功能
+                result = self.obtain_features_from_video(
+                    video_path,
+                    Path(video_path).stem,  # 使用文件名作为标识
+                    request.save_to_file,
+                    request.output_path
+                )
+                
+            else:
+                # 常规图像处理
+                # 转换ROS图像到OpenCV格式
+                try:
+                    cv_image = self.bridge.imgmsg_to_cv2(request.image, "bgr8")
+                    self.get_logger().info(f"📸 图像转换成功，尺寸: {cv_image.shape}")
+                except Exception as e:
+                    response.success = False
+                    response.message = f"图像转换失败: {str(e)}"
+                    self.get_logger().error(response.message)
+                    return response
+                
+                # 提取特征
+                result = self.obtain_features(
+                    cv_image, 
+                    request.person_name,
+                    request.save_to_file,
+                    request.output_path
+                )
             
             if result is None:
                 response.success = False
@@ -285,6 +317,241 @@ class FeatureExtractionNode(Node):
             self.get_logger().error(f"处理图像时出错: {e}")
             traceback.print_exc()
             return None
+
+    def obtain_features_from_video(self, video_path, name, save_to_file=True, output_path=''):
+        """
+        从视频文件中提取特征，每隔几帧检测几次，取平均值
+        """
+        start_time = time.time()
+        self.get_logger().info(f"开始处理视频: {video_path}")
+
+        try:
+            # 打开视频文件
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                raise ValueError(f"无法打开视频文件: {video_path}")
+
+            # 获取视频信息
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            duration = total_frames / fps if fps > 0 else 0
+            
+            frame_interval = self.get_parameter('video_frame_interval').get_parameter_value().integer_value
+            detection_limit = self.get_parameter('video_detection_limit').get_parameter_value().integer_value
+            
+            self.get_logger().info(f"视频信息: 总帧数={total_frames}, FPS={fps:.2f}, 时长={duration:.2f}秒")
+            self.get_logger().info(f"检测设置: 每{frame_interval}帧检测一次, 最多检测{detection_limit}帧")
+
+            # 收集所有检测结果
+            all_body_ratios = []
+            all_shirt_colors = []
+            all_pants_colors = []
+            processed_frames = []
+            frame_count = 0
+            detection_count = 0
+
+            while True:
+                ret, frame = cap.read()
+                if not ret or detection_count >= detection_limit:
+                    break
+
+                # 每隔指定帧数检测一次
+                if frame_count % frame_interval == 0:
+                    self.get_logger().info(f"处理第 {frame_count} 帧 (检测 {detection_count + 1}/{detection_limit})")
+                    
+                    # 对当前帧进行特征提取
+                    result = self.extract_features_from_frame(frame, f"{name}_frame_{frame_count}")
+                    
+                    if result:
+                        body_ratios, shirt_color, pants_color, annotated_frame = result
+                        
+                        # 检查结果有效性
+                        if self.is_valid_detection(body_ratios, shirt_color, pants_color):
+                            all_body_ratios.append(body_ratios)
+                            all_shirt_colors.append(shirt_color)
+                            all_pants_colors.append(pants_color)
+                            processed_frames.append(annotated_frame)
+                            
+                            self.get_logger().info(f"第 {frame_count} 帧检测有效")
+                        else:
+                            self.get_logger().info(f"第 {frame_count} 帧检测无效，跳过")
+                    
+                    detection_count += 1
+
+                frame_count += 1
+
+            cap.release()
+
+            if not all_body_ratios:
+                self.get_logger().error("视频中未检测到有效特征")
+                return None
+
+            # 计算平均特征
+            self.get_logger().info(f"共收集到 {len(all_body_ratios)} 个有效检测结果，开始计算平均值")
+            avg_body_ratios = self.calculate_average_body_ratios(all_body_ratios)
+            avg_shirt_color = self.calculate_average_color(all_shirt_colors)
+            avg_pants_color = self.calculate_average_color(all_pants_colors)
+
+            # 使用最后一个有效帧作为结果图像
+            canvas = processed_frames[-1] if processed_frames else None
+            
+            if canvas is not None:
+                # 在图像上添加统计信息
+                cv2.putText(canvas, f"Frames: {len(all_body_ratios)}/{detection_count}", 
+                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                cv2.putText(canvas, f"Avg Features", 
+                           (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+            # 组合平均特征
+            person_ratios = avg_body_ratios + [avg_shirt_color, avg_pants_color]
+
+            # 保存结果
+            result_paths = {}
+            
+            if save_to_file:
+                # 确定输出路径
+                if output_path:
+                    output_dir = Path(output_path)
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                else:
+                    output_dir = self.output_dir
+
+                # 保存结果图像
+                if canvas is not None:
+                    result_image_path = output_dir / f"{name}_video_result.jpg"
+                    cv2.imwrite(str(result_image_path), canvas)
+                    result_paths['image'] = str(result_image_path)
+                    self.get_logger().info(f"视频结果图像已保存到: {result_image_path}")
+
+                # 保存特征数据到Excel
+                excel_path = output_dir / f"{name}_video_features.xlsx"
+                self.save_video_features_to_excel(
+                    all_body_ratios, avg_body_ratios, 
+                    all_shirt_colors, avg_shirt_color,
+                    all_pants_colors, avg_pants_color,
+                    excel_path, name, len(all_body_ratios), detection_count
+                )
+                result_paths['excel'] = str(excel_path)
+                self.get_logger().info(f"视频特征数据已保存到: {excel_path}")
+
+            processing_time = time.time() - start_time
+            self.get_logger().info(f"视频处理完成，耗时: {processing_time:.2f}秒，有效检测: {len(all_body_ratios)}/{detection_count}")
+            
+            return canvas, person_ratios, result_paths
+
+        except Exception as e:
+            self.get_logger().error(f"处理视频时出错: {e}")
+            traceback.print_exc()
+            return None
+
+    def extract_features_from_frame(self, frame, frame_name):
+        """
+        从单帧图像中提取特征（不保存文件）
+        """
+        try:
+            # 获取目标颜色（服装检测）
+            shirt_color = (0, 0, 0)
+            pants_color = (0, 0, 0)
+            canvas = frame.copy()
+            
+            if CLOTHING_DETECTION_AVAILABLE:
+                try:
+                    pairs = Obtain_the_target_color(frame)
+                    for pair in pairs:
+                        if len(pair) > 2 and pair[2]:
+                            shirt_color = pair[2]
+                        if len(pair) > 3 and pair[3]:
+                            pants_color = pair[3]
+                        
+                        # 标记检测结果
+                        if len(pair[0]) > 1:
+                            x1, y1, x2, y2 = pair[0][:4]
+                            cv2.rectangle(canvas, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                        if len(pair[1]) > 1:
+                            x1, y1, x2, y2 = pair[1][:4]
+                            cv2.rectangle(canvas, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                except Exception as e:
+                    self.get_logger().debug(f"帧 {frame_name} 服装检测失败: {e}")
+
+            # 获取人体关键点和计算身体比例
+            body_ratios = [0] * 16
+            
+            if POSE_DETECTION_AVAILABLE:
+                try:
+                    pose_results = detect_human_pose(frame)
+                    if pose_results and len(pose_results) > 0:
+                        canvas = draw_human_pose(canvas, pose_results)
+                        keypoints = pose_results[0].keypoints
+                        body_ratios = self.calculate_body_ratios(keypoints)
+                        if body_ratios is None:
+                            body_ratios = [0] * 16
+                except Exception as e:
+                    self.get_logger().debug(f"帧 {frame_name} 姿态检测失败: {e}")
+
+            return body_ratios, shirt_color, pants_color, canvas
+
+        except Exception as e:
+            self.get_logger().debug(f"处理帧 {frame_name} 时出错: {e}")
+            return None
+
+    def is_valid_detection(self, body_ratios, shirt_color, pants_color):
+        """
+        检查检测结果是否有效
+        """
+        # 检查身体比例是否有效（至少有一半的比例值不为0）
+        valid_ratios = sum(1 for ratio in body_ratios if ratio > 0)
+        ratio_threshold = len(body_ratios) * 0.3  # 至少30%的比例有效
+        
+        # 检查颜色是否有效（不是纯黑色）
+        shirt_valid = shirt_color != (0, 0, 0) if isinstance(shirt_color, tuple) else any(c > 0 for c in shirt_color)
+        pants_valid = pants_color != (0, 0, 0) if isinstance(pants_color, tuple) else any(c > 0 for c in pants_color)
+        
+        # 至少需要身体比例有效或者颜色检测有效
+        return valid_ratios >= ratio_threshold or shirt_valid or pants_valid
+
+    def calculate_average_body_ratios(self, all_ratios):
+        """
+        计算身体比例的平均值，排除无效值
+        """
+        if not all_ratios:
+            return [0.0] * 16
+        
+        averaged_ratios = []
+        num_ratios = len(all_ratios[0])
+        
+        for i in range(num_ratios):
+            valid_values = [ratios[i] for ratios in all_ratios if ratios[i] > 0]
+            if valid_values:
+                avg_value = sum(valid_values) / len(valid_values)
+                averaged_ratios.append(avg_value)
+            else:
+                averaged_ratios.append(0.0)
+        
+        return averaged_ratios
+
+    def calculate_average_color(self, all_colors):
+        """
+        计算颜色的平均值，排除无效值
+        """
+        if not all_colors:
+            return (0, 0, 0)
+        
+        valid_colors = []
+        for color in all_colors:
+            if isinstance(color, tuple) and color != (0, 0, 0):
+                valid_colors.append(color)
+            elif isinstance(color, (list, tuple)) and len(color) >= 3 and any(c > 0 for c in color[:3]):
+                valid_colors.append(tuple(color[:3]))
+        
+        if not valid_colors:
+            return (0, 0, 0)
+        
+        # 计算RGB平均值
+        avg_r = sum(color[0] for color in valid_colors) / len(valid_colors)
+        avg_g = sum(color[1] for color in valid_colors) / len(valid_colors)
+        avg_b = sum(color[2] for color in valid_colors) / len(valid_colors)
+        
+        return (int(avg_r), int(avg_g), int(avg_b))
 
     def calculate_body_ratios(self, keypoints):
         """
@@ -468,6 +735,61 @@ class FeatureExtractionNode(Node):
 
         except Exception as e:
             self.get_logger().error(f"保存Excel文件失败: {e}")
+            traceback.print_exc()
+
+    def save_video_features_to_excel(self, all_body_ratios, avg_body_ratios, 
+                                   all_shirt_colors, avg_shirt_color,
+                                   all_pants_colors, avg_pants_color,
+                                   excel_path, name, valid_frames, total_frames):
+        """保存视频特征数据到Excel文件，包含每帧数据和平均值"""
+        try:
+            wb = openpyxl.Workbook()
+            
+            # 删除默认工作表
+            if 'Sheet' in wb.sheetnames:
+                wb.remove(wb['Sheet'])
+
+            # 创建平均值工作表
+            avg_sheet = wb.create_sheet(title=self.sanitize_sheet_name(f'平均特征_{name}'))
+            
+            # 添加平均比例数据 - 直接将数据保存到A列
+            for i, ratio in enumerate(avg_body_ratios):
+                avg_sheet.cell(row=i + 1, column=1).value = float(ratio)
+
+            # 添加平均颜色数据 - 直接添加到A17和A18单元格
+            avg_sheet.cell(row=17, column=1).value = str(avg_shirt_color)
+            avg_sheet.cell(row=18, column=1).value = str(avg_pants_color)
+
+            # 添加统计信息
+            avg_sheet.cell(row=19, column=1).value = f"有效帧数: {valid_frames}"
+            avg_sheet.cell(row=20, column=1).value = f"总检测帧数: {total_frames}"
+
+            # 创建详细数据工作表
+            if all_body_ratios:
+                detail_sheet = wb.create_sheet(title=self.sanitize_sheet_name(f'详细数据_{name}'))
+                
+                # 添加标题行
+                headers = [f"比例{i+1}" for i in range(16)] + ["上装颜色", "下装颜色"]
+                for col, header in enumerate(headers, 1):
+                    detail_sheet.cell(row=1, column=col).value = header
+
+                # 添加每帧的数据
+                for row_idx, (body_ratios, shirt_color, pants_color) in enumerate(
+                    zip(all_body_ratios, all_shirt_colors, all_pants_colors), 2):
+                    
+                    # 身体比例数据
+                    for col_idx, ratio in enumerate(body_ratios, 1):
+                        detail_sheet.cell(row=row_idx, column=col_idx).value = float(ratio)
+                    
+                    # 颜色数据
+                    detail_sheet.cell(row=row_idx, column=17).value = str(shirt_color)
+                    detail_sheet.cell(row=row_idx, column=18).value = str(pants_color)
+
+            wb.save(str(excel_path))
+            self.get_logger().info(f"视频特征数据已保存到: {excel_path}")
+
+        except Exception as e:
+            self.get_logger().error(f"保存视频Excel文件失败: {e}")
             traceback.print_exc()
 
     def sanitize_sheet_name(self, name, replacement='_'):

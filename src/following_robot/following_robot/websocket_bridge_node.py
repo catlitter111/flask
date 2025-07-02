@@ -1018,7 +1018,7 @@ class WebSocketBridgeNode(Node):
             # 异步调用服务
             future = self.feature_extraction_client.call_async(request)
             future.add_done_callback(
-                lambda fut: self.handle_feature_extraction_response(fut, client_id, file_id, file_name)
+                lambda fut: self.handle_feature_extraction_response(fut, client_id, file_id, file_name, is_video=False)
             )
             
         except Exception as e:
@@ -1026,30 +1026,45 @@ class WebSocketBridgeNode(Node):
             self.send_feature_extraction_error(client_id, file_id, f'图片处理失败: {str(e)}')
     
     def extract_features_from_video(self, file_path, file_name, client_id, file_id):
-        """从视频提取特征（预留接口）"""
-        self.get_logger().info(f'🎥 视频特征提取 - 文件: {file_name} (功能开发中)')
-        
-        # TODO: 实现视频特征提取
-        # 可能的实现方案：
-        # 1. 提取视频关键帧
-        # 2. 对关键帧进行特征提取
-        # 3. 聚合多帧结果
-        # 4. 返回综合特征数据
-        
-        # 暂时返回未实现错误
-        self.send_feature_extraction_error(
-            client_id, 
-            file_id, 
-            '视频特征提取功能暂未实现，请上传图片文件'
-        )
+        """从视频提取特征"""
+        try:
+            self.get_logger().info(f'🎥 开始视频特征提取 - 文件: {file_name}')
+            
+            # 检查视频文件是否存在
+            if not Path(file_path).exists():
+                self.get_logger().error(f'❌ 视频文件不存在: {file_path}')
+                self.send_feature_extraction_error(client_id, file_id, '视频文件不存在')
+                return
+            
+            # 创建服务请求 - 使用特殊前缀标识视频处理
+            request = FeatureExtraction.Request()
+            request.person_name = f"VIDEO:{file_path}"  # 使用VIDEO:前缀标识视频处理
+            request.save_to_file = True
+            request.output_path = str(self.file_save_dir)
+            
+            # 创建一个空的图像消息（视频处理时不使用）
+            request.image = Image()
+            
+            self.get_logger().info(f'📤 发送视频特征提取服务请求 - 文件: {file_name}，路径: {file_path}')
+            
+            # 异步调用服务
+            future = self.feature_extraction_client.call_async(request)
+            future.add_done_callback(
+                lambda fut: self.handle_feature_extraction_response(fut, client_id, file_id, file_name, is_video=True)
+            )
+            
+        except Exception as e:
+            self.get_logger().error(f'❌ 视频特征提取失败: {e}')
+            self.send_feature_extraction_error(client_id, file_id, f'视频处理失败: {str(e)}')
     
-    def handle_feature_extraction_response(self, future, client_id, file_id, file_name):
+    def handle_feature_extraction_response(self, future, client_id, file_id, file_name, is_video=False):
         """处理特征提取服务响应"""
         try:
             response = future.result()
             
             if response.success:
-                self.get_logger().info(f'✅ 特征提取成功 - 文件: {file_name}')
+                file_type = "视频" if is_video else "图片"
+                self.get_logger().info(f'✅ {file_type}特征提取成功 - 文件: {file_name}')
                 
                 # 发送成功结果给客户端
                 self.send_feature_extraction_result(client_id, file_id, {
@@ -1061,15 +1076,18 @@ class WebSocketBridgeNode(Node):
                     'pants_color': list(response.pants_color),
                     'result_image_path': response.result_image_path,
                     'feature_data_path': response.feature_data_path,
-                    'file_name': file_name
+                    'file_name': file_name,
+                    'file_type': 'video' if is_video else 'image'
                 })
                 
             else:
-                self.get_logger().error(f'❌ 特征提取失败 - 文件: {file_name}, 错误: {response.message}')
+                file_type = "视频" if is_video else "图片"
+                self.get_logger().error(f'❌ {file_type}特征提取失败 - 文件: {file_name}, 错误: {response.message}')
                 self.send_feature_extraction_error(client_id, file_id, response.message)
                 
         except Exception as e:
-            self.get_logger().error(f'❌ 特征提取服务调用失败: {e}')
+            file_type = "视频" if is_video else "图片"
+            self.get_logger().error(f'❌ {file_type}特征提取服务调用失败: {e}')
             self.send_feature_extraction_error(client_id, file_id, f'服务调用失败: {str(e)}')
     
     def send_feature_extraction_result(self, client_id, file_id, result_data):
