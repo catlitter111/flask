@@ -10,10 +10,12 @@
     - 实现消息路由，在客户端和机器人之间转发消息
     - 管理连接状态，处理心跳和重连
     - 转发视频流、控制命令、状态更新等
+    - 提供HTTP文件上传接口
 
 架构设计：
     - 客户端连接：/ws/companion/{client_id}
     - 机器人连接：/ws/ros2_bridge/{robot_id}
+    - 文件上传：/api/upload/{client_id}
     - 消息队列：处理并发消息
     - 连接池：管理多个客户端和机器人
 
@@ -26,10 +28,13 @@ import json
 import logging
 import time
 import uuid
+import os
+import base64
 from datetime import datetime
 from typing import Dict, Set, Optional, Any, Union
 from dataclasses import dataclass, field
 from collections import defaultdict
+from pathlib import Path
 
 # 兼容不同版本的 websockets 库
 try:
@@ -52,6 +57,16 @@ except ImportError:
 
 import websockets
 from websockets.exceptions import ConnectionClosed
+
+# HTTP服务器相关
+try:
+    from aiohttp import web, MultipartReader
+    from aiohttp.web_runner import GracefulExit
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    print("警告: aiohttp未安装，文件上传功能将不可用")
+    print("请安装: pip install aiohttp")
+    AIOHTTP_AVAILABLE = False
 
 # 配置日志
 logging.basicConfig(
@@ -93,9 +108,10 @@ class RobotInfo:
 class CompanionServer:
     """机器人伴侣WebSocket服务器"""
 
-    def __init__(self, host: str = '0.0.0.0', port: int = 1234):
+    def __init__(self, host: str = '0.0.0.0', port: int = 1234, http_port: int = 8080):
         self.host = host
         self.port = port
+        self.http_port = http_port
 
         # 连接管理
         self.connections: Dict[str, ClientConnection] = {}
@@ -104,6 +120,15 @@ class CompanionServer:
         # 消息队列
         self.message_queues: Dict[str, asyncio.Queue] = defaultdict(lambda: asyncio.Queue(maxsize=1000))
 
+        # 文件上传管理
+        self.upload_dir = Path("uploads")
+        self.upload_dir.mkdir(exist_ok=True)
+        self.max_file_size = 10 * 1024 * 1024  # 10MB
+        
+        # HTTP应用
+        self.http_app = None
+        self.http_runner = None
+
         # 统计信息
         self.stats = {
             'total_connections': 0,
@@ -111,6 +136,7 @@ class CompanionServer:
             'messages_received': 0,
             'video_frames_forwarded': 0,
             'commands_forwarded': 0,
+            'files_uploaded': 0,
             'errors': 0,
             'start_time': time.time()
         }
@@ -119,7 +145,7 @@ class CompanionServer:
         self.heartbeat_interval = 30  # 秒
         self.heartbeat_timeout = 60  # 秒
 
-        logger.info(f"🚀 服务器初始化 - {host}:{port}")
+        logger.info(f"🚀 服务器初始化 - WebSocket: {host}:{port}, HTTP: {host}:{http_port}")
 
     def get_websockets_version(self):
         """获取websockets库版本"""
@@ -133,6 +159,158 @@ class CompanionServer:
         except:
             return (0, 0)
 
+    async def start_http_server(self):
+        """启动HTTP服务器"""
+        if not AIOHTTP_AVAILABLE:
+            return
+
+        self.http_app = web.Application(client_max_size=self.max_file_size)
+        
+        # 添加路由
+        self.http_app.router.add_post('/api/upload/{client_id}', self.handle_file_upload)
+        self.http_app.router.add_get('/api/health', self.handle_health_check)
+        self.http_app.router.add_options('/api/upload/{client_id}', self.handle_cors_preflight)
+        
+        # 添加CORS中间件
+        self.http_app.middlewares.append(self.cors_middleware)
+        
+        # 启动HTTP服务器
+        self.http_runner = web.AppRunner(self.http_app)
+        await self.http_runner.setup()
+        
+        site = web.TCPSite(self.http_runner, self.host, self.http_port)
+        await site.start()
+        
+        logger.info(f"✅ HTTP服务器已启动 - http://{self.host}:{self.http_port}")
+
+    @web.middleware
+    async def cors_middleware(self, request, handler):
+        """CORS中间件"""
+        # 处理预检请求
+        if request.method == 'OPTIONS':
+            return web.Response(
+                headers={
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Max-Age': '86400'
+                }
+            )
+        
+        # 处理实际请求
+        response = await handler(request)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        
+        return response
+
+    async def handle_cors_preflight(self, request):
+        """处理CORS预检请求"""
+        return web.Response(
+            headers={
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Max-Age': '86400'
+            }
+        )
+
+    async def handle_health_check(self, request):
+        """健康检查接口"""
+        return web.json_response({
+            'status': 'ok',
+            'timestamp': int(time.time() * 1000),
+            'connections': len(self.connections),
+            'robots': len(self.robots)
+        })
+
+    async def handle_file_upload(self, request):
+        """处理文件上传"""
+        client_id = request.match_info['client_id']
+        
+        try:
+            # 检查客户端是否连接
+            if client_id not in self.connections:
+                return web.json_response(
+                    {'error': 'Client not connected', 'code': 'CLIENT_NOT_CONNECTED'},
+                    status=400
+                )
+
+            # 检查Content-Type
+            if not request.content_type.startswith('multipart/form-data'):
+                return web.json_response(
+                    {'error': 'Invalid content type', 'code': 'INVALID_CONTENT_TYPE'},
+                    status=400
+                )
+
+            # 读取multipart数据
+            reader = await request.multipart()
+            file_data = None
+            file_name = None
+            file_type = None
+
+            async for part in reader:
+                if part.name == 'file':
+                    file_name = part.filename or f"upload_{int(time.time())}"
+                    file_type = part.headers.get('Content-Type', 'application/octet-stream')
+                    file_data = await part.read()
+                    
+                    # 检查文件大小
+                    if len(file_data) > self.max_file_size:
+                        return web.json_response(
+                            {'error': 'File too large', 'code': 'FILE_TOO_LARGE'},
+                            status=413
+                        )
+                    
+                    break
+
+            if not file_data:
+                return web.json_response(
+                    {'error': 'No file uploaded', 'code': 'NO_FILE'},
+                    status=400
+                )
+
+            # 保存文件
+            file_id = f"{client_id}_{int(time.time() * 1000)}_{file_name}"
+            file_path = self.upload_dir / file_id
+            
+            with open(file_path, 'wb') as f:
+                f.write(file_data)
+
+            # 更新统计
+            self.stats['files_uploaded'] += 1
+
+            logger.info(f"📁 文件上传成功 - 客户端: {client_id}, 文件: {file_name}, 大小: {len(file_data)}字节")
+
+            # 通知WebSocket客户端上传完成
+            if client_id in self.connections:
+                await self.send_message(self.connections[client_id].websocket, {
+                    'type': 'file_upload_success',
+                    'file_id': file_id,
+                    'file_name': file_name,
+                    'file_size': len(file_data),
+                    'file_type': file_type,
+                    'upload_time': int(time.time() * 1000)
+                })
+
+            return web.json_response({
+                'success': True,
+                'file_id': file_id,
+                'file_name': file_name,
+                'file_size': len(file_data),
+                'file_type': file_type,
+                'upload_time': int(time.time() * 1000)
+            })
+
+        except Exception as e:
+            logger.error(f"❌ 文件上传失败: {e}", exc_info=True)
+            self.stats['errors'] += 1
+            return web.json_response(
+                {'error': 'Upload failed', 'code': 'UPLOAD_FAILED', 'message': str(e)},
+                status=500
+            )
+
     async def start(self):
         """启动服务器"""
         logger.info("🌟 正在启动机器人伴侣服务器...")
@@ -142,6 +320,12 @@ class CompanionServer:
 
         # 启动统计信息记录任务
         asyncio.create_task(self.stats_logger())
+
+        # 启动HTTP服务器
+        if AIOHTTP_AVAILABLE:
+            await self.start_http_server()
+        else:
+            logger.warning("⚠️ HTTP服务器未启动，文件上传功能不可用")
 
         # 检测 websockets 版本并使用相应的启动方式
         version = self.get_websockets_version()
@@ -368,6 +552,12 @@ class CompanionServer:
             if robot_id:
                 await self.request_robot_status(robot_id)
 
+        elif message_type == 'feature_extraction_request':
+            # 特征提取请求
+            robot_id = data.get('robot_id') or connection.robot_id
+            if robot_id:
+                await self.handle_feature_extraction_request(connection, data)
+
         elif message_type == 'ping':
             # 心跳消息
             connection.last_heartbeat = time.time()
@@ -462,6 +652,10 @@ class CompanionServer:
 
             await self.forward_to_companions(robot_id, quality_update)
 
+        elif message_type == 'feature_extraction_result':
+            # 特征提取结果
+            await self.handle_feature_extraction_result(connection, data)
+
         elif message_type == 'heartbeat':
             # 机器人心跳
             connection.last_heartbeat = time.time()
@@ -553,6 +747,65 @@ class CompanionServer:
             'timestamp': int(time.time() * 1000)
         })
 
+    async def handle_feature_extraction_request(self, connection: ClientConnection, data: Dict):
+        """处理特征提取请求"""
+        robot_id = data.get('robot_id')
+        file_id = data.get('file_id')
+        
+        if not robot_id or not file_id:
+            await self.send_message(connection.websocket, {
+                'type': 'feature_extraction_error',
+                'error': 'Missing robot_id or file_id',
+                'timestamp': int(time.time() * 1000)
+            })
+            return
+
+        # 检查文件是否存在
+        file_path = self.upload_dir / file_id
+        if not file_path.exists():
+            await self.send_message(connection.websocket, {
+                'type': 'feature_extraction_error',
+                'error': 'File not found',
+                'timestamp': int(time.time() * 1000)
+            })
+            return
+
+        # 转发到机器人进行特征提取
+        await self.forward_to_robot(robot_id, {
+            'type': 'feature_extraction_request',
+            'file_id': file_id,
+            'file_path': str(file_path),
+            'client_id': connection.client_id,
+            'extract_clothing_colors': data.get('extract_clothing_colors', True),
+            'extract_body_proportions': data.get('extract_body_proportions', True),
+            'timestamp': data.get('timestamp', int(time.time() * 1000))
+        })
+
+        logger.info(f"🔍 转发特征提取请求 - 客户端: {connection.client_id}, 机器人: {robot_id}, 文件: {file_id}")
+
+    async def handle_feature_extraction_result(self, connection: ClientConnection, data: Dict):
+        """处理特征提取结果"""
+        client_id = data.get('client_id')
+        robot_id = connection.robot_id
+        
+        if not client_id or client_id not in self.connections:
+            logger.warning(f"⚠️ 特征提取结果无法转发：客户端不存在 - {client_id}")
+            return
+
+        # 转发结果到对应的客户端
+        client_connection = self.connections[client_id]
+        await self.send_message(client_connection.websocket, {
+            'type': 'feature_extraction_result',
+            'status': data.get('status', 'success'),
+            'confidence': data.get('confidence', 0),
+            'features': data.get('features', {}),
+            'error': data.get('error'),
+            'file_id': data.get('file_id'),
+            'timestamp': data.get('timestamp', int(time.time() * 1000))
+        })
+
+        logger.info(f"📊 转发特征提取结果 - 机器人: {robot_id}, 客户端: {client_id}, 状态: {data.get('status')}")
+
     async def send_message(self, websocket, message: Dict):
         """发送消息到WebSocket"""
         try:
@@ -631,6 +884,7 @@ class CompanionServer:
 发送消息: {self.stats['messages_sent']}
 视频帧转发: {self.stats['video_frames_forwarded']}
 命令转发: {self.stats['commands_forwarded']}
+文件上传: {self.stats['files_uploaded']}
 错误数: {self.stats['errors']}
                 """)
 
@@ -648,7 +902,7 @@ class CompanionServer:
 
 async def main():
     """主函数"""
-    server = CompanionServer(host='172.20.39.181', port=1234)
+    server = CompanionServer(host='172.20.39.181', port=1234, http_port=1235)
     await server.start()
 
 

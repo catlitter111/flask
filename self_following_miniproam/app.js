@@ -295,12 +295,26 @@ App({
           this.saveTrackingData(data);
           break;
           
+        case 'file_upload_success':
+          // 文件上传成功
+          if (this.globalData.featurePage) {
+            this.globalData.featurePage.handleFileUploadSuccess(data);
+          }
+          break;
+
         case 'feature_extraction_result':
           // 特征提取结果
           if (this.globalData.featurePage) {
             this.globalData.featurePage.handleFeatureResult(data);
           }
           this.saveFeatureData(data);
+          break;
+
+        case 'feature_extraction_error':
+          // 特征提取错误
+          if (this.globalData.featurePage) {
+            this.globalData.featurePage.handleFeatureError(data);
+          }
           break;
           
         case 'ai_response':

@@ -181,14 +181,32 @@ Page({
             return;
           }
           
+          // 提取文件名，处理可能的路径分隔符问题
+          const fileName = file.tempFilePath.split('/').pop() || file.tempFilePath.split('\\').pop() || 'unknown_file';
+          
+          console.log('📁 设置文件信息:', {
+            fileName: fileName,
+            size: file.size,
+            type: file.fileType
+          });
+          
+          // 处理文件名显示 - 如果太长则截断
+          const displayName = fileName.length > 25 ? 
+            fileName.substring(0, 12) + '...' + fileName.substring(fileName.length - 8) : 
+            fileName;
+          
           that.setData({
             currentFile: {
-              name: `${file.tempFilePath.split('/').pop()}`,
+              name: fileName,
+              displayName: displayName,
               size: file.size,
-              type: file.fileType
+              type: file.fileType || 'unknown',
+              sizeText: (file.size / 1024 / 1024).toFixed(2) + 'MB'
             },
             previewImage: file.tempFilePath
           });
+          
+          console.log('📄 当前文件信息已设置:', that.data.currentFile);
           
           // 开始上传和分析
           that.uploadAndAnalyze(file.tempFilePath);
@@ -217,14 +235,20 @@ Page({
         success: function(res) {
           const file = res.tempFiles[0];
           
+          console.log('📷 拍照成功:', file);
+          
           that.setData({
             currentFile: {
               name: '拍摄照片.jpg',
+              displayName: '拍摄照片.jpg',
               size: file.size,
-              type: 'image'
+              type: 'image',
+              sizeText: (file.size / 1024 / 1024).toFixed(2) + 'MB'
             },
             previewImage: file.tempFilePath
           });
+          
+          console.log('📄 拍照文件信息已设置:', that.data.currentFile);
           
           that.uploadAndAnalyze(file.tempFilePath);
         }
@@ -246,14 +270,20 @@ Page({
         success: function(res) {
           const file = res.tempFiles[0];
           
+          console.log('🎥 录制视频成功:', file);
+          
           that.setData({
             currentFile: {
               name: '录制视频.mp4',
+              displayName: '录制视频.mp4',
               size: file.size,
-              type: 'video'
+              type: 'video',
+              sizeText: (file.size / 1024 / 1024).toFixed(2) + 'MB'
             },
             previewImage: file.thumbTempFilePath || file.tempFilePath
           });
+          
+          console.log('📄 录制视频文件信息已设置:', that.data.currentFile);
           
           that.uploadAndAnalyze(file.tempFilePath);
         }
@@ -282,73 +312,112 @@ Page({
         extracting: false
       });
   
-      // 模拟上传进度
-      const uploadTimer = setInterval(() => {
-        const progress = that.data.uploadProgress + 10;
-        that.setData({
-          uploadProgress: progress
+      // 实际上传文件
+      this.uploadFile(filePath);
+    },
+
+    // 上传文件到服务器
+    uploadFile: function(filePath) {
+      const that = this;
+      const app = getApp();
+      
+      if (!app.globalData.connected) {
+        wx.showToast({
+          title: '服务器未连接',
+          icon: 'none'
         });
-        
-        if (progress >= 100) {
-          clearInterval(uploadTimer);
-          that.setData({
-            uploading: false,
-            extracting: true
-          });
+        this.setData({
+          uploading: false
+        });
+        return;
+      }
+
+      // 构建上传URL
+      const uploadUrl = `http://101.201.150.96:1235/api/upload/${app.globalData.clientId}`;
+      
+      console.log('🚀 开始上传文件:', filePath);
+      console.log('📡 上传地址:', uploadUrl);
+
+      // 上传文件
+      const uploadTask = wx.uploadFile({
+        url: uploadUrl,
+        filePath: filePath,
+        name: 'file',
+        formData: {
+          'client_id': app.globalData.clientId,
+          'timestamp': Date.now()
+        },
+        success: function(res) {
+          console.log('✅ 文件上传成功:', res);
           
-          // 开始特征提取
-          that.startFeatureExtraction(filePath);
+          try {
+            const response = JSON.parse(res.data);
+            if (response.success) {
+              that.setData({
+                uploading: false,
+                uploadProgress: 100,
+                extracting: true
+              });
+              
+              // 开始特征提取
+              that.startFeatureExtraction(response.file_id);
+            } else {
+              throw new Error(response.error || '上传失败');
+            }
+          } catch (error) {
+            console.error('❌ 上传响应解析失败:', error);
+            that.handleUploadError('上传响应解析失败');
+          }
+        },
+        fail: function(error) {
+          console.error('❌ 文件上传失败:', error);
+          that.handleUploadError(error.errMsg || '上传失败');
         }
-      }, 200);
-  
-      // 实际上传逻辑
-      // this.uploadFile(filePath);
+      });
+
+      // 监听上传进度
+      uploadTask.onProgressUpdate(function(res) {
+        that.setData({
+          uploadProgress: res.progress
+        });
+        console.log('📊 上传进度:', res.progress + '%');
+      });
+    },
+
+    // 处理上传错误
+    handleUploadError: function(errorMsg) {
+      console.error('❌ 上传错误:', errorMsg);
+      console.log('📄 保留文件信息:', this.data.currentFile);
+      
+      this.setData({
+        uploading: false,
+        uploadProgress: 0,
+        extracting: false
+        // 不清除 currentFile 和 previewImage，让用户知道是哪个文件上传失败
+      });
+      
+      wx.showToast({
+        title: errorMsg,
+        icon: 'none',
+        duration: 3000
+      });
     },
   
     // 开始特征提取
-    startFeatureExtraction: function(filePath) {
+    startFeatureExtraction: function(fileId) {
       const that = this;
       
-      console.log('🔍 开始特征提取:', filePath);
+      console.log('🔍 开始特征提取:', fileId);
       
       // 发送特征提取请求到服务器
-      this.sendFeatureExtractionRequest(filePath);
+      this.sendFeatureExtractionRequest(fileId);
       
-      // 模拟分析进度（实际应从服务器接收）
-      setTimeout(() => {
-        that.setData({
-          extracting: false,
-          extracted: true,
-          overallConfidence: 89,
-          // 模拟返回的数据 - 实际应从服务器获取
-          clothingColors: {
-            top: {
-              name: '绿色',
-              color: '#4CAF50', 
-              confidence: 85
-            },
-            bottom: {
-              name: '蓝色',
-              color: '#2196F3',
-              confidence: 92
-            },
-            shoes: {
-              name: '棕色',
-              color: '#795548',
-              confidence: 78
-            }
-          }
-        });
-        
-        wx.showToast({
-          title: '特征提取完成',
-          icon: 'success'
-        });
-      }, 3000);
+      // 等待服务器返回结果（不再使用模拟数据）
+      // 实际结果会通过handleFeatureResult方法接收
     },
   
     // 发送特征提取请求
-    sendFeatureExtractionRequest: function(filePath) {
+    sendFeatureExtractionRequest: function(fileId) {
       const app = getApp();
       
       if (!app.globalData.connected) {
@@ -361,23 +430,26 @@ Page({
         });
         return;
       }
-  
-      // 这里实现文件上传和特征提取请求
-      // 实际实现时需要：
-      // 1. 将文件上传到服务器
-      // 2. 发送特征提取命令
-      // 3. 等待服务器返回结果
-      
+
+      // 发送特征提取请求（文件已经上传到服务器）
       app.sendSocketMessage({
         type: 'feature_extraction_request',
         robot_id: app.globalData.robotId,
-        file_path: filePath,
+        file_id: fileId,
         extract_clothing_colors: true,
         extract_body_proportions: true,
         timestamp: Date.now()
       });
+
+      console.log('📤 已发送特征提取请求 - 文件ID:', fileId);
     },
   
+    // 处理文件上传成功（由app.js调用）
+    handleFileUploadSuccess: function(data) {
+      console.log('📁 收到文件上传成功消息:', data);
+      // 这个消息通常已经在上传过程中处理了，这里只是备用
+    },
+
     // 处理特征提取结果（由app.js调用）
     handleFeatureResult: function(data) {
       console.log('📊 收到特征提取结果:', data);
@@ -386,7 +458,7 @@ Page({
         this.setData({
           extracting: false,
           extracted: true,
-          overallConfidence: data.confidence || 89,
+          overallConfidence: Math.round((data.confidence || 0.89) * 100),
           clothingColors: this.formatClothingColors(data.features.clothing_colors),
           bodyProportions: this.formatBodyProportions(data.features.body_proportions),
           detailedProportions: this.formatDetailedProportions(data.features.detailed_proportions)
@@ -406,6 +478,22 @@ Page({
           icon: 'none'
         });
       }
+    },
+
+    // 处理特征提取错误（由app.js调用）
+    handleFeatureError: function(data) {
+      console.error('❌ 特征提取错误:', data);
+      
+      this.setData({
+        extracting: false,
+        extracted: false
+      });
+      
+      wx.showToast({
+        title: data.error || '特征提取失败',
+        icon: 'none',
+        duration: 3000
+      });
     },
   
     // 格式化服装颜色数据

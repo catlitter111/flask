@@ -10,9 +10,9 @@
   /* 上传预览区域 */
   .upload-section {
     display: flex;
-    height: 240rpx;
-    margin-bottom: 30rpx;
-    gap: 20rpx;
+    min-height: 280rpx;
+    margin-bottom: 40rpx;
+    gap: 25rpx;
     padding: 30rpx;
   }
   
@@ -130,7 +130,8 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 20rpx;
+    gap: 25rpx;
+    min-height: 200rpx;
   }
   
   .status-header {
@@ -176,23 +177,38 @@
   
   .file-info {
     flex: 1;
+    padding: 10rpx 0;
   }
   
   .info-item {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 8rpx;
+    align-items: flex-start;
+    margin-bottom: 12rpx;
+    padding: 2rpx 0;
   }
   
   .info-label {
     font-size: 24rpx;
     color: var(--text-secondary);
+    white-space: nowrap;
+    margin-right: 15rpx;
   }
   
   .info-value {
     font-size: 24rpx;
     color: var(--text-primary);
     font-weight: 500;
+    word-break: break-all;
+    line-height: 1.4;
+  }
+  
+  .file-name {
+    max-width: 250rpx;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
   }
   
   .quick-actions {
@@ -237,6 +253,7 @@
   .results-section .quick-actions {
     display: flex;
     gap: 20rpx;
+    margin-top: 30rpx;
     margin-bottom: 30rpx;
   }
   
