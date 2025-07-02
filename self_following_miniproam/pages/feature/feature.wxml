@@ -56,6 +56,12 @@
           <text class="info-label">文件大小:</text>
           <text class="info-value">{{currentFile.sizeText}}</text>
         </view>
+        <view class="info-item" wx:if="{{currentFile && currentFile.robotSaved !== undefined}}">
+          <text class="info-label">机器人状态:</text>
+          <text class="info-value {{currentFile.robotSaved ? 'success' : 'error'}}">
+            {{currentFile.robotSaved ? '✅ 已转发' : '❌ 转发失败'}}
+          </text>
+        </view>
       </view>
       
     </view>

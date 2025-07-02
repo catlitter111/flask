@@ -203,6 +203,14 @@
     line-height: 1.4;
   }
   
+  .info-value.success {
+    color: var(--success-color);
+  }
+  
+  .info-value.error {
+    color: var(--warning-color);
+  }
+  
   .file-name {
     max-width: 250rpx;
     overflow: hidden;

@@ -302,6 +302,13 @@ App({
           }
           break;
 
+        case 'file_save_result':
+          // 文件保存结果
+          if (this.globalData.featurePage) {
+            this.globalData.featurePage.handleFileSaveResult(data);
+          }
+          break;
+
         case 'feature_extraction_result':
           // 特征提取结果
           if (this.globalData.featurePage) {

@@ -789,6 +789,44 @@ Page({
       console.log('🔗 特征识别页面 - 连接状态更新:', isConnected);
     },
   
+    // 处理文件保存结果（由app.js调用）
+    handleFileSaveResult: function(data) {
+      console.log('📁 收到文件保存结果:', data);
+      
+      const status = data.status;
+      
+      if (status === 'success') {
+        console.log('✅ 文件已保存到ROS2节点:', data.saved_path);
+        wx.showToast({
+          title: '文件已转发到机器人',
+          icon: 'success',
+          duration: 2000
+        });
+        
+        // 可以在这里触发特征提取或其他后续操作
+        if (this.data.currentFile) {
+          this.setData({
+            'currentFile.robotSaved': true,
+            'currentFile.savedPath': data.saved_path
+          });
+        }
+      } else {
+        console.error('❌ 文件保存失败:', data.error);
+        wx.showToast({
+          title: '文件转发失败',
+          icon: 'none',
+          duration: 2000
+        });
+        
+        if (this.data.currentFile) {
+          this.setData({
+            'currentFile.robotSaved': false,
+            'currentFile.error': data.error
+          });
+        }
+      }
+    },
+  
     // 处理机器人断开连接（由app.js调用）
     handleCompanionDisconnected: function(data) {
       console.log('💔 特征识别页面 - 机器人断开连接');
