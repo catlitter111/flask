@@ -2,18 +2,21 @@
 # -*- coding: utf-8 -*-
 
 """
-完整系统启动文件 - ByteTracker + WebSocket桥接
-==============================================
+完整系统启动文件 - ByteTracker + WebSocket桥接 + 特征提取
+=========================================================
 
 功能说明：
     同时启动以下组件：
-    1. ByteTracker目标跟踪节点
-    2. WebSocket桥接节点
-    3. 相关的辅助节点
+    1. 特征提取服务节点 (提供人体特征提取服务)
+    2. ByteTracker目标跟踪节点
+    3. WebSocket桥接节点
+    4. 机器人控制节点
+    5. 底层硬件驱动节点
     
 使用方法：
     ros2 launch following_robot full_system.launch.py
     ros2 launch following_robot full_system.launch.py websocket_host:=192.168.1.100
+    ros2 launch following_robot full_system.launch.py feature_output_dir:=my_features
 """
 
 import os
@@ -100,6 +103,12 @@ def generate_launch_description():
         description='串口波特率'
     )
     
+    declare_feature_output_dir = DeclareLaunchArgument(
+        'feature_output_dir',
+        default_value='features-data',
+        description='特征提取输出目录'
+    )
+    
     # ByteTracker节点
     bytetracker_node = Node(
         package='following_robot',
@@ -123,6 +132,24 @@ def generate_launch_description():
         remappings=[
             # 重映射话题名称以确保一致性
             ('/bytetracker/image_raw', '/camera/image_raw'),
+        ],
+        respawn=True,
+        respawn_delay=3.0,
+        emulate_tty=True,
+    )
+    
+    # 特征提取服务节点
+    feature_extraction_node = Node(
+        package='following_robot',
+        executable='feature_extraction_node',
+        name='feature_extraction_node',
+        output='screen',
+        parameters=[{
+            'output_dir': LaunchConfiguration('feature_output_dir'),
+        }],
+        remappings=[
+            # 确保服务名称一致
+            ('/features/extract_features', '/features/extract_features'),
         ],
         respawn=True,
         respawn_delay=3.0,
@@ -278,8 +305,10 @@ def generate_launch_description():
         declare_use_ackermann,
         declare_serial_port,
         declare_serial_baud,
+        declare_feature_output_dir,
         
-        # 启动节点
+        # 启动节点 (特征提取节点先启动，确保服务就绪)
+        feature_extraction_node,
         bytetracker_node,
         websocket_bridge_node,
         robot_control_node,

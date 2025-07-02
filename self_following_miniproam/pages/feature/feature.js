@@ -19,49 +19,44 @@ Page({
       // 服装颜色识别结果
       clothingColors: {
         top: {
-          name: '绿色',
-          color: '#4CAF50',
-          confidence: 85
+          name: '未检测',
+          color: '#9E9E9E',
+          confidence: 0
         },
         bottom: {
-          name: '蓝色', 
-          color: '#2196F3',
-          confidence: 92
-        },
-        shoes: {
-          name: '棕色',
-          color: '#795548',
-          confidence: 78
+          name: '未检测', 
+          color: '#9E9E9E',
+          confidence: 0
         }
       },
       
-      // 身体比例数据
+      // 身体比例数据（基于16个实际比例值）
       bodyProportions: {
-        height: '175.2',
-        shoulderWidth: '42.3',
-        chest: '95.8',
-        waist: '78.4',
-        hip: '88.7'
+        height: '0.00',
+        shoulderWidth: '0.00',
+        chest: '0.00',
+        waist: '0.00',
+        hip: '0.00'
       },
       
-      // 详细比例数据（16项）
+      // 详细比例数据（直接对应16个身体比例值）
       detailedProportions: [
-        { key: 'height', label: '身高', value: '175.2', unit: 'cm' },
-        { key: 'head_height', label: '头部高度', value: '22.4', unit: 'cm' },
-        { key: 'neck_height', label: '颈部高度', value: '12.8', unit: 'cm' },
-        { key: 'shoulder_width', label: '肩膀宽度', value: '42.3', unit: 'cm' },
-        { key: 'chest_width', label: '胸部宽度', value: '35.6', unit: 'cm' },
-        { key: 'chest_circumference', label: '胸围', value: '95.8', unit: 'cm' },
-        { key: 'waist_width', label: '腰部宽度', value: '28.9', unit: 'cm' },
-        { key: 'waist_circumference', label: '腰围', value: '78.4', unit: 'cm' },
-        { key: 'hip_width', label: '臀部宽度', value: '32.1', unit: 'cm' },
-        { key: 'hip_circumference', label: '臀围', value: '88.7', unit: 'cm' },
-        { key: 'arm_length', label: '手臂长度', value: '58.3', unit: 'cm' },
-        { key: 'forearm_length', label: '前臂长度', value: '25.7', unit: 'cm' },
-        { key: 'leg_length', label: '腿部长度', value: '87.5', unit: 'cm' },
-        { key: 'thigh_length', label: '大腿长度', value: '45.2', unit: 'cm' },
-        { key: 'calf_length', label: '小腿长度', value: '38.9', unit: 'cm' },
-        { key: 'foot_length', label: '脚部长度', value: '26.4', unit: 'cm' }
+        { index: 0, label: '上肢下肢比例', value: '0.000', unit: '' },
+        { index: 1, label: '躯干身高比例', value: '0.000', unit: '' },
+        { index: 2, label: '肩宽身高比例', value: '0.000', unit: '' },
+        { index: 3, label: '臀宽肩宽比例', value: '0.000', unit: '' },
+        { index: 4, label: '头部躯干比例', value: '0.000', unit: '' },
+        { index: 5, label: '手臂身高比例', value: '0.000', unit: '' },
+        { index: 6, label: '腿长身高比例', value: '0.000', unit: '' },
+        { index: 7, label: '上臂下臂比例', value: '0.000', unit: '' },
+        { index: 8, label: '大腿小腿比例', value: '0.000', unit: '' },
+        { index: 9, label: '躯干腿长比例', value: '0.000', unit: '' },
+        { index: 10, label: '手臂腿长比例', value: '0.000', unit: '' },
+        { index: 11, label: '肩宽髋宽比例', value: '0.000', unit: '' },
+        { index: 12, label: '头围身高比例', value: '0.000', unit: '' },
+        { index: 13, label: '脚长身高比例', value: '0.000', unit: '' },
+        { index: 14, label: '脚踝宽度比例', value: '0.000', unit: '' },
+        { index: 15, label: '腰围身高比例', value: '0.000', unit: '' }
       ],
       
       // 识别历史
@@ -523,7 +518,7 @@ Page({
       });
     },
   
-    // 格式化服装颜色数据
+    // 格式化服装颜色数据（移除鞋子颜色）
     formatClothingColors: function(colors) {
       return {
         top: {
@@ -535,12 +530,7 @@ Page({
           name: colors.bottom.name || '未知',
           color: colors.bottom.hex_color || '#2196F3',
           confidence: Math.round(colors.bottom.confidence * 100)
-        },
-        shoes: colors.shoes ? {
-          name: colors.shoes.name || '未知',
-          color: colors.shoes.hex_color || '#795548',
-          confidence: Math.round(colors.shoes.confidence * 100)
-        } : null
+        }
       };
     },
   
@@ -810,54 +800,51 @@ Page({
       return `${year}-${month}-${day} ${hour}:${minute}`;
     },
 
-    // 格式化身体比例数据（从16个比例值转换为显示格式）
+    // 格式化身体比例数据（直接显示16个比例值）
     formatBodyRatiosToProportions: function(bodyRatios) {
       // 如果没有数据，返回默认值
       if (!bodyRatios || bodyRatios.length < 16) {
         return {
           summary: {
-            height: '0.0',
-            shoulderWidth: '0.0',
-            chest: '0.0',
-            waist: '0.0',
-            hip: '0.0'
+            height: '0.000',
+            shoulderWidth: '0.000',
+            chest: '0.000',
+            waist: '0.000',
+            hip: '0.000'
           },
           detailed: this.data.detailedProportions.map(item => ({
             ...item,
-            value: '0.0'
+            value: '0.000'
           }))
         };
       }
 
-      // 根据比例计算具体数值（假设基准身高175cm）
-      const baseHeight = 175.0;
-      
-      // 从比例数据提取关键信息
+      // 直接使用16个比例值，不进行复杂计算
       const proportions = {
         summary: {
-          height: baseHeight.toFixed(1),
-          shoulderWidth: (baseHeight * (bodyRatios[2] || 0)).toFixed(1),
-          chest: (baseHeight * (bodyRatios[5] || 0) * 2.5).toFixed(1), // 估算胸围
-          waist: (baseHeight * (bodyRatios[15] || 0) * 2.2).toFixed(1), // 估算腰围  
-          hip: (baseHeight * (bodyRatios[3] || 0) * (bodyRatios[2] || 0) * 2.3).toFixed(1) // 估算臀围
+          height: (bodyRatios[1] || 0).toFixed(3),      // 躯干身高比例
+          shoulderWidth: (bodyRatios[2] || 0).toFixed(3), // 肩宽身高比例
+          chest: (bodyRatios[5] || 0).toFixed(3),       // 手臂身高比例
+          waist: (bodyRatios[15] || 0).toFixed(3),      // 腰围身高比例
+          hip: (bodyRatios[3] || 0).toFixed(3)          // 臀宽肩宽比例
         },
         detailed: [
-          { key: 'height', label: '身高', value: baseHeight.toFixed(1), unit: 'cm' },
-          { key: 'head_height', label: '头部高度', value: (baseHeight * (bodyRatios[4] || 0)).toFixed(1), unit: 'cm' },
-          { key: 'neck_height', label: '颈部高度', value: (baseHeight * 0.07).toFixed(1), unit: 'cm' },
-          { key: 'shoulder_width', label: '肩膀宽度', value: (baseHeight * (bodyRatios[2] || 0)).toFixed(1), unit: 'cm' },
-          { key: 'chest_width', label: '胸部宽度', value: (baseHeight * (bodyRatios[2] || 0) * 0.85).toFixed(1), unit: 'cm' },
-          { key: 'chest_circumference', label: '胸围', value: (baseHeight * (bodyRatios[5] || 0) * 2.5).toFixed(1), unit: 'cm' },
-          { key: 'waist_width', label: '腰部宽度', value: (baseHeight * (bodyRatios[2] || 0) * 0.7).toFixed(1), unit: 'cm' },
-          { key: 'waist_circumference', label: '腰围', value: (baseHeight * (bodyRatios[15] || 0) * 2.2).toFixed(1), unit: 'cm' },
-          { key: 'hip_width', label: '臀部宽度', value: (baseHeight * (bodyRatios[3] || 0) * (bodyRatios[2] || 0)).toFixed(1), unit: 'cm' },
-          { key: 'hip_circumference', label: '臀围', value: (baseHeight * (bodyRatios[3] || 0) * (bodyRatios[2] || 0) * 2.3).toFixed(1), unit: 'cm' },
-          { key: 'arm_length', label: '手臂长度', value: (baseHeight * (bodyRatios[5] || 0)).toFixed(1), unit: 'cm' },
-          { key: 'forearm_length', label: '前臂长度', value: (baseHeight * (bodyRatios[5] || 0) * 0.6).toFixed(1), unit: 'cm' },
-          { key: 'leg_length', label: '腿部长度', value: (baseHeight * (bodyRatios[6] || 0)).toFixed(1), unit: 'cm' },
-          { key: 'thigh_length', label: '大腿长度', value: (baseHeight * (bodyRatios[6] || 0) * 0.6).toFixed(1), unit: 'cm' },
-          { key: 'calf_length', label: '小腿长度', value: (baseHeight * (bodyRatios[6] || 0) * 0.4).toFixed(1), unit: 'cm' },
-          { key: 'foot_length', label: '脚部长度', value: (baseHeight * (bodyRatios[13] || 0)).toFixed(1), unit: 'cm' }
+          { index: 0, label: '上肢下肢比例', value: (bodyRatios[0] || 0).toFixed(3), unit: '' },
+          { index: 1, label: '躯干身高比例', value: (bodyRatios[1] || 0).toFixed(3), unit: '' },
+          { index: 2, label: '肩宽身高比例', value: (bodyRatios[2] || 0).toFixed(3), unit: '' },
+          { index: 3, label: '臀宽肩宽比例', value: (bodyRatios[3] || 0).toFixed(3), unit: '' },
+          { index: 4, label: '头部躯干比例', value: (bodyRatios[4] || 0).toFixed(3), unit: '' },
+          { index: 5, label: '手臂身高比例', value: (bodyRatios[5] || 0).toFixed(3), unit: '' },
+          { index: 6, label: '腿长身高比例', value: (bodyRatios[6] || 0).toFixed(3), unit: '' },
+          { index: 7, label: '上臂下臂比例', value: (bodyRatios[7] || 0).toFixed(3), unit: '' },
+          { index: 8, label: '大腿小腿比例', value: (bodyRatios[8] || 0).toFixed(3), unit: '' },
+          { index: 9, label: '躯干腿长比例', value: (bodyRatios[9] || 0).toFixed(3), unit: '' },
+          { index: 10, label: '手臂腿长比例', value: (bodyRatios[10] || 0).toFixed(3), unit: '' },
+          { index: 11, label: '肩宽髋宽比例', value: (bodyRatios[11] || 0).toFixed(3), unit: '' },
+          { index: 12, label: '头围身高比例', value: (bodyRatios[12] || 0).toFixed(3), unit: '' },
+          { index: 13, label: '脚长身高比例', value: (bodyRatios[13] || 0).toFixed(3), unit: '' },
+          { index: 14, label: '脚踝宽度比例', value: (bodyRatios[14] || 0).toFixed(3), unit: '' },
+          { index: 15, label: '腰围身高比例', value: (bodyRatios[15] || 0).toFixed(3), unit: '' }
         ]
       };
 
@@ -870,17 +857,12 @@ Page({
         top: {
           name: this.getColorNameFromRGB(shirtRGB),
           color: this.rgbToHex(shirtRGB),
-          confidence: 85
+          confidence: shirtRGB && shirtRGB[0] !== 0 ? 85 : 0
         },
         bottom: {
           name: this.getColorNameFromRGB(pantsRGB),
           color: this.rgbToHex(pantsRGB),
-          confidence: 92
-        },
-        shoes: {
-          name: '棕色',
-          color: '#795548',
-          confidence: 78
+          confidence: pantsRGB && pantsRGB[0] !== 0 ? 92 : 0
         }
       };
     },

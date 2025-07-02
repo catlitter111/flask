@@ -54,11 +54,15 @@ class FeatureExtractionNode(Node):
     def __init__(self):
         super().__init__('feature_extraction_node')
         
+        # 声明参数
+        self.declare_parameter('output_dir', 'features-data')
+        
         # 初始化CV Bridge
         self.bridge = CvBridge()
         
         # 配置输出目录
-        self.output_dir = Path('features-data')
+        output_dir_param = self.get_parameter('output_dir').get_parameter_value().string_value
+        self.output_dir = Path(output_dir_param)
         self.setup_output_directory()
         
         # 创建服务

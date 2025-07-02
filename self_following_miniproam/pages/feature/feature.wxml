@@ -131,19 +131,7 @@
           </view>
         </view>
         
-        <!-- 鞋子颜色 -->
-        <view class="color-item" wx:if="{{clothingColors.shoes}}">
-          <view class="color-preview" style="background-color: {{clothingColors.shoes.color}};">
-            <text class="color-label">鞋子</text>
-          </view>
-          <view class="color-info">
-            <text class="color-name">{{clothingColors.shoes.name}}</text>
-            <text class="color-confidence">{{clothingColors.shoes.confidence}}%</text>
-            <view class="confidence-bar">
-              <view class="confidence-fill" style="width: {{clothingColors.shoes.confidence}}; background-color: {{clothingColors.shoes.color}};"></view>
-            </view>
-          </view>
-        </view>
+
       </view>
       
       <!-- 等待分析状态 -->
@@ -163,27 +151,27 @@
       </view>
       
       <view class="proportion-content">
-        <!-- 左侧：关键数据 -->
+        <!-- 左侧：关键比例数据 -->
         <view class="proportion-data">
           <view class="data-item" wx:if="{{extracted}}">
-            <text class="data-label">身高</text>
-            <text class="data-value">{{bodyProportions.height}}cm</text>
+            <text class="data-label">躯干身高比例</text>
+            <text class="data-value">{{bodyProportions.height}}</text>
           </view>
           <view class="data-item" wx:if="{{extracted}}">
-            <text class="data-label">肩宽</text>
-            <text class="data-value">{{bodyProportions.shoulderWidth}}cm</text>
+            <text class="data-label">肩宽身高比例</text>
+            <text class="data-value">{{bodyProportions.shoulderWidth}}</text>
           </view>
           <view class="data-item" wx:if="{{extracted}}">
-            <text class="data-label">胸围</text>
-            <text class="data-value">{{bodyProportions.chest}}cm</text>
+            <text class="data-label">手臂身高比例</text>
+            <text class="data-value">{{bodyProportions.chest}}</text>
           </view>
           <view class="data-item" wx:if="{{extracted}}">
-            <text class="data-label">腰围</text>
-            <text class="data-value">{{bodyProportions.waist}}cm</text>
+            <text class="data-label">腰围身高比例</text>
+            <text class="data-value">{{bodyProportions.waist}}</text>
           </view>
           <view class="data-item" wx:if="{{extracted}}">
-            <text class="data-label">臀围</text>
-            <text class="data-value">{{bodyProportions.hip}}cm</text>
+            <text class="data-label">臀宽肩宽比例</text>
+            <text class="data-value">{{bodyProportions.hip}}</text>
           </view>
           
           <!-- 等待状态 -->
@@ -277,7 +265,7 @@
     
     <scroll-view class="modal-body" scroll-y="true">
       <view class="detail-grid">
-        <view class="detail-item" wx:for="{{detailedProportions}}" wx:key="key">
+        <view class="detail-item" wx:for="{{detailedProportions}}" wx:key="index">
           <text class="detail-label">{{item.label}}</text>
           <text class="detail-value">{{item.value}}</text>
           <text class="detail-unit">{{item.unit}}</text>
