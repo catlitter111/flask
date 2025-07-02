@@ -38,6 +38,7 @@ import websocket
 import numpy as np
 from typing import Optional, Dict, Any
 import logging
+from pathlib import Path
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -178,7 +179,13 @@ class WebSocketBridgeNode(Node):
         self.frame_skip_counter = 0
         self.current_skip_rate = 1  # 1=不跳帧, 2=每2帧发送1帧
         
+        # 文件保存配置
+        self.file_save_dir = Path('received_files')
+        self.file_save_dir.mkdir(exist_ok=True)
+        self.max_file_size = 50 * 1024 * 1024  # 50MB
+        
         self.get_logger().info(f'🔧 配置完成 - 服务器: {self.ws_host}:{self.ws_port}')
+        self.get_logger().info(f'📁 文件保存目录: {self.file_save_dir.absolute()}')
         
     def setup_ros_components(self):
         """设置ROS2组件"""
@@ -293,6 +300,8 @@ class WebSocketBridgeNode(Node):
                 self.handle_quality_adjustment(data)
             elif message_type == 'heartbeat_ack':
                 self.handle_heartbeat_ack(data)
+            elif message_type == 'file_upload_forward':
+                self.handle_file_upload(data)
             else:
                 self.get_logger().debug(f'🔍 未知消息类型: {message_type}')
                 
@@ -818,6 +827,111 @@ class WebSocketBridgeNode(Node):
                 
         except Exception as e:
             self.get_logger().error(f'质量调整失败: {e}')
+    
+    def handle_file_upload(self, data):
+        """处理文件上传命令"""
+        try:
+            file_id = data.get('file_id', '')
+            file_name = data.get('file_name', '')
+            file_data_b64 = data.get('file_data_base64', '')
+            file_type = data.get('file_type', '')
+            file_size = data.get('file_size', 0)
+            client_id = data.get('client_id', '')
+            
+            self.get_logger().info(f'📂 收到文件上传 - 文件: {file_name}, 大小: {file_size}字节, 来源: {client_id}')
+            
+            if not file_id or not file_name or not file_data_b64:
+                self.get_logger().error('❌ 文件数据不完整')
+                return
+                
+            # 检查文件大小
+            if file_size > self.max_file_size:
+                self.get_logger().error(f'❌ 文件过大: {file_size} > {self.max_file_size}')
+                return
+                
+            # 解码base64数据
+            try:
+                file_data = base64.b64decode(file_data_b64)
+                if len(file_data) != file_size:
+                    self.get_logger().warning(f'⚠️ 文件大小不匹配: 期望{file_size}, 实际{len(file_data)}')
+            except Exception as e:
+                self.get_logger().error(f'❌ base64解码失败: {e}')
+                return
+                
+            # 生成保存路径
+            timestamp = int(time.time() * 1000)
+            safe_filename = self.sanitize_filename(file_name)
+            save_filename = f"{timestamp}_{client_id}_{safe_filename}"
+            save_path = self.file_save_dir / save_filename
+            
+            # 保存文件
+            try:
+                with open(save_path, 'wb') as f:
+                    f.write(file_data)
+                    
+                self.get_logger().info(f'✅ 文件保存成功: {save_path}')
+                
+                # 发送保存成功通知
+                response = {
+                    'type': 'file_save_result',
+                    'status': 'success',
+                    'file_id': file_id,
+                    'original_name': file_name,
+                    'saved_path': str(save_path),
+                    'saved_size': len(file_data),
+                    'client_id': client_id,
+                    'robot_id': self.robot_id,
+                    'timestamp': int(time.time() * 1000)
+                }
+                self.send_ws_message(response)
+                
+                # 如果是图片或视频，触发特征提取
+                if file_type.startswith('image/') or file_type.startswith('video/'):
+                    self.trigger_feature_extraction(save_path, file_id, client_id)
+                    
+            except Exception as e:
+                self.get_logger().error(f'❌ 文件保存失败: {e}')
+                
+                # 发送保存失败通知
+                response = {
+                    'type': 'file_save_result',
+                    'status': 'error',
+                    'file_id': file_id,
+                    'error': str(e),
+                    'client_id': client_id,
+                    'robot_id': self.robot_id,
+                    'timestamp': int(time.time() * 1000)
+                }
+                self.send_ws_message(response)
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ 文件处理失败: {e}')
+            
+    def sanitize_filename(self, filename):
+        """清理文件名，移除不安全字符"""
+        import re
+        # 保留字母、数字、点、下划线和连字符
+        safe_name = re.sub(r'[^\w\.-]', '_', filename)
+        # 限制长度
+        if len(safe_name) > 100:
+            name_part, ext_part = safe_name.rsplit('.', 1) if '.' in safe_name else (safe_name, '')
+            safe_name = name_part[:90] + ('.' + ext_part if ext_part else '')
+        return safe_name
+        
+    def trigger_feature_extraction(self, file_path, file_id, client_id):
+        """触发特征提取"""
+        try:
+            self.get_logger().info(f'🔍 开始特征提取: {file_path}')
+            
+            # 发布特征提取消息到ROS2话题（如果有特征提取节点）
+            # 这里可以根据实际的ROS2架构来实现
+            # 例如：调用特征提取服务或发布到特征提取话题
+            
+            # 简单起见，这里只记录日志
+            self.get_logger().info(f'🎯 特征提取将在后台处理文件: {file_path}')
+            
+        except Exception as e:
+            self.get_logger().error(f'❌ 特征提取触发失败: {e}')
     
     def destroy_node(self):
         """节点销毁时的清理工作"""

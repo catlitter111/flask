@@ -294,6 +294,19 @@ class CompanionServer:
                     'upload_time': int(time.time() * 1000)
                 })
 
+            # 转发文件给关联的ROS2机器人节点
+            client_connection = self.connections.get(client_id)
+            if client_connection and client_connection.robot_id:
+                await self.forward_file_to_robot(client_connection.robot_id, {
+                    'file_id': file_id,
+                    'file_name': file_name,
+                    'file_data': file_data,
+                    'file_type': file_type,
+                    'file_size': len(file_data),
+                    'upload_time': int(time.time() * 1000),
+                    'client_id': client_id
+                })
+
             return web.json_response({
                 'success': True,
                 'file_id': file_id,
@@ -656,6 +669,10 @@ class CompanionServer:
             # 特征提取结果
             await self.handle_feature_extraction_result(connection, data)
 
+        elif message_type == 'file_save_result':
+            # 文件保存结果
+            await self.handle_file_save_result(connection, data)
+
         elif message_type == 'heartbeat':
             # 机器人心跳
             connection.last_heartbeat = time.time()
@@ -715,6 +732,52 @@ class CompanionServer:
 
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def forward_file_to_robot(self, robot_id: str, file_info: Dict):
+        """转发文件到机器人节点"""
+        if robot_id not in self.robots:
+            logger.warning(f"⚠️ 机器人未连接，无法转发文件: {robot_id}")
+            return
+
+        robot = self.robots[robot_id]
+        if not robot.bridge_connection or robot.bridge_connection.client_id not in self.connections:
+            logger.warning(f"⚠️ 机器人桥接未连接，无法转发文件: {robot_id}")
+            return
+
+        try:
+            # 将文件数据编码为base64以便通过WebSocket传输
+            file_data_b64 = base64.b64encode(file_info['file_data']).decode('utf-8')
+            
+            # 准备转发消息
+            forward_message = {
+                'type': 'file_upload_forward',
+                'robot_id': robot_id,
+                'file_id': file_info['file_id'],
+                'file_name': file_info['file_name'],
+                'file_data_base64': file_data_b64,
+                'file_type': file_info['file_type'],
+                'file_size': file_info['file_size'],
+                'upload_time': file_info['upload_time'],
+                'client_id': file_info['client_id'],
+                'timestamp': int(time.time() * 1000)
+            }
+            
+            # 发送给机器人节点
+            bridge = robot.bridge_connection
+            await self.send_message(bridge.websocket, forward_message)
+            
+            logger.info(f"📤 文件转发成功 - 机器人: {robot_id}, 文件: {file_info['file_name']}, 大小: {file_info['file_size']}字节")
+            
+        except Exception as e:
+            logger.error(f"❌ 文件转发失败: {e}")
+            # 通知客户端转发失败
+            if file_info['client_id'] in self.connections:
+                await self.send_message(self.connections[file_info['client_id']].websocket, {
+                    'type': 'file_forward_error',
+                    'file_id': file_info['file_id'],
+                    'error': f'转发到机器人失败: {str(e)}',
+                    'timestamp': int(time.time() * 1000)
+                })
 
     async def notify_robot_connection_change(self, robot_id: str, connected: bool):
         """通知客户端机器人连接状态变化"""
@@ -805,6 +868,27 @@ class CompanionServer:
         })
 
         logger.info(f"📊 转发特征提取结果 - 机器人: {robot_id}, 客户端: {client_id}, 状态: {data.get('status')}")
+
+    async def handle_file_save_result(self, connection: ClientConnection, data: Dict):
+        """处理文件保存结果"""
+        client_id = data.get('client_id')
+        robot_id = connection.robot_id
+        
+        if not client_id or client_id not in self.connections:
+            logger.warning(f"⚠️ 文件保存结果无法转发：客户端不存在 - {client_id}")
+            return
+
+        # 转发结果到对应的客户端
+        client_connection = self.connections[client_id]
+        await self.send_message(client_connection.websocket, {
+            'type': 'file_save_result',
+            'status': data.get('status', 'success'),
+            'error': data.get('error'),
+            'file_id': data.get('file_id'),
+            'timestamp': data.get('timestamp', int(time.time() * 1000))
+        })
+
+        logger.info(f"📁 转发文件保存结果 - 机器人: {robot_id}, 客户端: {client_id}, 状态: {data.get('status')}")
 
     async def send_message(self, websocket, message: Dict):
         """发送消息到WebSocket"""
