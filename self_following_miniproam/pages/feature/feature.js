@@ -7,6 +7,10 @@ Page({
       previewImage: '',
       currentFile: null,
       
+      // 文件名输入
+      customFileName: '',
+      showFileNameInput: false,
+      
       // 分析状态
       extracting: false,
       extracted: false,
@@ -208,8 +212,8 @@ Page({
           
           console.log('📄 当前文件信息已设置:', that.data.currentFile);
           
-          // 开始上传和分析
-          that.uploadAndAnalyze(file.tempFilePath);
+          // 显示文件名输入框，而不是直接上传
+          that.showFileNameInputDialog(file.tempFilePath);
         },
         fail: function(error) {
           console.error('文件选择失败:', error);
@@ -250,7 +254,8 @@ Page({
           
           console.log('📄 拍照文件信息已设置:', that.data.currentFile);
           
-          that.uploadAndAnalyze(file.tempFilePath);
+          // 显示文件名输入框，而不是直接上传
+          that.showFileNameInputDialog(file.tempFilePath);
         }
       });
     },
@@ -285,7 +290,8 @@ Page({
           
           console.log('📄 录制视频文件信息已设置:', that.data.currentFile);
           
-          that.uploadAndAnalyze(file.tempFilePath);
+          // 显示文件名输入框，而不是直接上传
+          that.showFileNameInputDialog(file.tempFilePath);
         }
       });
     },
@@ -796,7 +802,12 @@ Page({
       const status = data.status;
       
       if (status === 'success') {
+        const originalName = data.original_name || '未知文件';
+        const finalName = data.final_name || data.original_name || '未知文件';
+        
         console.log('✅ 文件已保存到ROS2节点:', data.saved_path);
+        console.log(`📝 文件名: ${originalName} → ${finalName}`);
+        
         wx.showToast({
           title: '文件已转发到机器人',
           icon: 'success',
@@ -807,7 +818,8 @@ Page({
         if (this.data.currentFile) {
           this.setData({
             'currentFile.robotSaved': true,
-            'currentFile.savedPath': data.saved_path
+            'currentFile.savedPath': data.saved_path,
+            'currentFile.finalName': finalName
           });
         }
       } else {
@@ -842,5 +854,80 @@ Page({
           icon: 'none'
         });
       }
+    },
+  
+    // 显示文件名输入框，而不是直接上传
+    showFileNameInputDialog: function(filePath) {
+      // 根据文件类型设置默认文件名
+      let defaultName = '';
+      if (this.data.currentFile) {
+        const fileType = this.data.currentFile.type;
+        if (fileType === 'image' || fileType.startsWith('image')) {
+          defaultName = `特征识别_${new Date().getTime()}.jpg`;
+        } else if (fileType === 'video' || fileType.startsWith('video')) {
+          defaultName = `特征识别_${new Date().getTime()}.mp4`;
+        } else {
+          defaultName = this.data.currentFile.name;
+        }
+      }
+      
+      this.setData({
+        showFileNameInput: true,
+        customFileName: defaultName,
+        currentFilePath: filePath
+      });
+    },
+
+    // 处理文件名输入
+    onFileNameInput: function(e) {
+      this.setData({
+        customFileName: e.detail.value
+      });
+    },
+
+    // 确认上传文件
+    confirmUpload: function() {
+      const fileName = this.data.customFileName.trim();
+      
+      if (!fileName) {
+        wx.showToast({
+          title: '请输入文件名',
+          icon: 'none'
+        });
+        return;
+      }
+      
+      // 更新文件信息中的名称
+      const updatedFile = {
+        ...this.data.currentFile,
+        name: fileName,
+        displayName: fileName.length > 25 ? 
+          fileName.substring(0, 12) + '...' + fileName.substring(fileName.length - 8) : 
+          fileName
+      };
+      
+      this.setData({
+        currentFile: updatedFile,
+        showFileNameInput: false
+      });
+      
+      // 开始上传和分析
+      this.uploadAndAnalyze(this.data.currentFilePath);
+    },
+
+    // 取消上传
+    cancelUpload: function() {
+      this.setData({
+        showFileNameInput: false,
+        customFileName: '',
+        currentFilePath: '',
+        currentFile: null,
+        previewImage: ''
+      });
+    },
+
+    // 阻止冒泡
+    stopPropagation: function() {
+      // 防止点击模态框内容时关闭对话框
     }
   });

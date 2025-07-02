@@ -823,3 +823,50 @@
       grid-template-columns: 1fr;
     }
   }
+
+  /* 文件名输入对话框 */
+  .input-section {
+    display: flex;
+    flex-direction: column;
+    gap: 20rpx;
+  }
+  
+  .input-label {
+    font-size: 28rpx;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  
+  .filename-input {
+    padding: 24rpx;
+    border: 2rpx solid var(--border-color);
+    border-radius: 12rpx;
+    font-size: 28rpx;
+    color: var(--text-primary);
+    background: white;
+    transition: border-color 0.3s ease;
+  }
+  
+  .filename-input:focus {
+    border-color: var(--primary-color);
+  }
+  
+  .input-tip {
+    font-size: 24rpx;
+    color: var(--text-secondary);
+    line-height: 1.4;
+  }
+  
+  .modal-footer button + button {
+    margin-left: 20rpx;
+  }
+  
+  .modal-footer {
+    display: flex;
+    gap: 20rpx;
+  }
+  
+  .modal-footer .robot-btn {
+    flex: 1;
+    width: auto;
+  }

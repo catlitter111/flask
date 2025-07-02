@@ -859,17 +859,27 @@ class WebSocketBridgeNode(Node):
                 return
                 
             # 生成保存路径
-            timestamp = int(time.time() * 1000)
+            # 直接使用用户输入的文件名，保持原始性
             safe_filename = self.sanitize_filename(file_name)
-            save_filename = f"{timestamp}_{client_id}_{safe_filename}"
-            save_path = self.file_save_dir / save_filename
+            
+            # 如果文件名已存在，则添加数字后缀避免冲突
+            save_path = self.file_save_dir / safe_filename
+            counter = 1
+            while save_path.exists():
+                name_part, ext_part = safe_filename.rsplit('.', 1) if '.' in safe_filename else (safe_filename, '')
+                new_filename = f"{name_part}_{counter}.{ext_part}" if ext_part else f"{safe_filename}_{counter}"
+                save_path = self.file_save_dir / new_filename
+                counter += 1
+                
+            # 最终使用的文件名
+            final_filename = save_path.name
             
             # 保存文件
             try:
                 with open(save_path, 'wb') as f:
                     f.write(file_data)
                     
-                self.get_logger().info(f'✅ 文件保存成功: {save_path}')
+                self.get_logger().info(f'✅ 文件保存成功 - 用户名称: {file_name} → 保存为: {final_filename} (路径: {save_path})')
                 
                 # 发送保存成功通知
                 response = {
@@ -877,6 +887,7 @@ class WebSocketBridgeNode(Node):
                     'status': 'success',
                     'file_id': file_id,
                     'original_name': file_name,
+                    'final_name': final_filename,
                     'saved_path': str(save_path),
                     'saved_size': len(file_data),
                     'client_id': client_id,
