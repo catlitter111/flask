@@ -5,7 +5,7 @@
     <!-- 左侧：上传区域 -->
     <view class="upload-area">
       <view class="upload-zone {{uploading ? 'uploading' : ''}}" bindtap="selectFile">
-        <view class="upload-content">
+        <view class="upload-content" wx:if="{{!previewImage}}">
           <view class="upload-icon robot-icon">
             <text class="icon">📷</text>
           </view>
