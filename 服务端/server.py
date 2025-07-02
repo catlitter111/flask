@@ -173,27 +173,27 @@ class CompanionServer:
             path = getattr(websocket, '_custom_path', getattr(websocket, 'path', '/'))
             await self.handle_connection(websocket, path)
 
-        # 使用新版本的服务器
+        # 使用新版本的服务器，优化心跳参数与客户端协调
         async with websockets.serve(
                 handler,
                 self.host,
                 self.port,
                 process_request=process_request,
-                ping_interval=20,
-                ping_timeout=10
+                ping_interval=22,  # 稍大于客户端的18秒，避免冲突
+                ping_timeout=12    # 给予更多时间处理
         ):
             logger.info(f"✅ 服务器已启动 - ws://{self.host}:{self.port}")
             await asyncio.Future()  # 永久运行
 
     async def _start_legacy_version(self):
         """旧版本 websockets 的启动方式"""
-        # 旧版本的启动方式
+        # 旧版本的启动方式，优化心跳参数与客户端协调
         async with websockets.serve(
                 self.handle_connection,
                 self.host,
                 self.port,
-                ping_interval=20,
-                ping_timeout=10
+                ping_interval=22,  # 稍大于客户端的18秒，避免冲突
+                ping_timeout=12    # 给予更多时间处理
         ):
             logger.info(f"✅ 服务器已启动 - ws://{self.host}:{self.port}")
             await asyncio.Future()  # 永久运行

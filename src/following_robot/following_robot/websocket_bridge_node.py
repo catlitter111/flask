@@ -244,8 +244,15 @@ class WebSocketBridgeNode(Node):
                 on_close=self.on_ws_close
             )
             
-            # 在新线程中运行WebSocket
-            self.ws_thread = threading.Thread(target=self.ws.run_forever)
+            # 在新线程中运行WebSocket，配置心跳参数与服务端匹配
+            self.ws_thread = threading.Thread(
+                target=self.ws.run_forever,
+                kwargs={
+                    'ping_interval': 18,  # 比服务端的20秒稍小，确保客户端主动发送ping
+                    'ping_timeout': 8,    # 比服务端的10秒稍小
+                    'ping_payload': b'keepalive'  # 添加心跳负载
+                }
+            )
             self.ws_thread.daemon = True
             self.ws_thread.start()
             
@@ -561,45 +568,7 @@ class WebSocketBridgeNode(Node):
             }
             self.send_ws_message(response)
             
-    def handle_quality_adjustment(self, data):
-        """处理视频质量调整"""
-        preset = data.get('preset', 'medium')
-        
-        # 质量预设映射 - 优化压缩和延迟
-        quality_mapping = {
-            'ultra_high': {'width': 800, 'height': 600, 'quality': 85, 'fps': 20},
-            'high': {'width': 640, 'height': 480, 'quality': 75, 'fps': 15},
-            'medium': {'width': 480, 'height': 360, 'quality': 65, 'fps': 12},
-            'low': {'width': 320, 'height': 240, 'quality': 55, 'fps': 10},
-            'very_low': {'width': 240, 'height': 180, 'quality': 45, 'fps': 8},
-            'minimum': {'width': 160, 'height': 120, 'quality': 35, 'fps': 5},
-            'ultra_low': {'width': 120, 'height': 90, 'quality': 25, 'fps': 3}
-        }
-        
-        if preset in quality_mapping:
-            config = quality_mapping[preset]
-            
-            # 更新参数
-            self.image_width = config['width']
-            self.image_height = config['height']
-            self.image_quality = config['quality']
-            self.frame_rate = config['fps']
-            self.frame_interval = 1.0 / self.frame_rate
-            
-            self.get_logger().info(f'📹 视频质量已调整为: {preset}')
-            
-            # 发送调整结果
-            response = {
-                'type': 'quality_adjustment_result',
-                'success': True,
-                'preset': preset,
-                'actual_resolution': f"{self.image_width}x{self.image_height}",
-                'actual_fps': self.frame_rate,
-                'actual_quality': self.image_quality,
-                'timestamp': int(time.time() * 1000)
-            }
-            self.send_ws_message(response)
-            
+
     def handle_manual_control(self, command, params):
         """处理手动控制命令"""
         try:
@@ -642,14 +611,14 @@ class WebSocketBridgeNode(Node):
         
     def setup_timers(self):
         """设置定时器"""
-        # 心跳定时器
-        self.heartbeat_timer = self.create_timer(15.0, self.send_heartbeat)
+        # 心跳定时器 - 调整为25秒，与WebSocket ping机制协调
+        self.heartbeat_timer = self.create_timer(25.0, self.send_heartbeat)
         
         # 状态上报定时器
         if self.enable_status_report:
             self.status_timer = self.create_timer(5.0, self.send_status_update)
             
-        self.get_logger().info('⏰ 定时器设置完成')
+        self.get_logger().info('⏰ 定时器设置完成 (心跳: 25s, 状态: 5s)')
         
     def send_heartbeat(self):
         """发送心跳"""

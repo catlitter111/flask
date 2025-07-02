@@ -87,9 +87,19 @@ void turn_on_robot::Akm_Cmd_Vel_Callback(const ackermann_msgs::msg::AckermannDri
   Send_Data.tx[9]=Check_Sum(9,SEND_DATA_CHECK); //For the BBC check bits, see the Check_Sum function //BBC校验位，规则参见Check_Sum函数
   Send_Data.tx[10]=FRAME_TAIL; //frame tail 0x7D //帧尾0X7D
 
+  // 打印要发送的串口数据
+  RCLCPP_INFO(this->get_logger(), "🚗📤 [阿克曼模式] 发送串口数据 (速度=%.3f, 转向角=%.3f):", 
+              akm_ctl->drive.speed, akm_ctl->drive.steering_angle);
+  printf("串口数据: ");
+  for(int i = 0; i < sizeof(Send_Data.tx); i++) {
+    printf("0x%02X ", Send_Data.tx[i]);
+  }
+  printf("\n");
+
   try
   { 
  Stm32_Serial.write(Send_Data.tx,sizeof (Send_Data.tx)); //Sends data to the downloader via serial port //通过串口向下位机发送数据 
+    RCLCPP_INFO(this->get_logger(), "✅ 串口数据发送成功");
   }
   catch (serial::IOException& e)   
   {
@@ -130,10 +140,22 @@ void turn_on_robot::Cmd_Vel_Callback(const geometry_msgs::msg::Twist::SharedPtr 
   Send_Data.tx[9]=Check_Sum(9,SEND_DATA_CHECK); //For the BBC check bits, see the Check_Sum function //BBC校验位，规则参见Check_Sum函数
   Send_Data.tx[10]=FRAME_TAIL; //frame tail 0x7D //帧尾0X7D
 
+  // 打印要发送的串口数据
+  RCLCPP_INFO(this->get_logger(), "🚗📤 [普通模式] 发送串口数据 (线速度=%.3f, 角速度=%.3f):", 
+              twist_aux->linear.x, twist_aux->angular.z);
+  printf("串口数据: ");
+  for(int i = 0; i < sizeof(Send_Data.tx); i++) {
+    printf("0x%02X ", Send_Data.tx[i]);
+  }
+  printf("\n");
+
   try
   {
     if(akm_cmd_vel=="none")  
- {Stm32_Serial.write(Send_Data.tx,sizeof (Send_Data.tx));} //Sends data to the downloader via serial port //通过串口向下位机发送数据 
+    {
+      Stm32_Serial.write(Send_Data.tx,sizeof (Send_Data.tx)); //Sends data to the downloader via serial port //通过串口向下位机发送数据 
+      RCLCPP_INFO(this->get_logger(), "✅ 串口数据发送成功");
+    }
   }
   catch (serial::IOException& e)   
   {
