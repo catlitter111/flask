@@ -1,2 +1,278 @@
-<!--pages/feature/feature.wxml-->
-<text>pages/feature/feature.wxml</text>
+<!-- pages/feature/feature.wxml - 特征识别页面 -->
+<view class="container">
+  <!-- 上传预览区域 -->
+  <view class="upload-section card">
+    <!-- 左侧：上传区域 -->
+    <view class="upload-area">
+      <view class="upload-zone {{uploading ? 'uploading' : ''}}" bindtap="selectFile">
+        <view class="upload-content">
+          <view class="upload-icon robot-icon">
+            <text class="icon">📷</text>
+          </view>
+          <text class="upload-title">点击上传</text>
+          <text class="upload-subtitle">照片/视频</text>
+        </view>
+        
+        <!-- 上传进度 -->
+        <view class="upload-progress" wx:if="{{uploading}}">
+          <progress percent="{{uploadProgress}}" stroke-width="4" activeColor="#2196F3" />
+          <text class="progress-text">上传中 {{uploadProgress}}%</text>
+        </view>
+      </view>
+      
+      <!-- 预览图片 -->
+      <view class="preview-image" wx:if="{{previewImage}}">
+        <image src="{{previewImage}}" mode="aspectFit" />
+        <view class="preview-overlay">
+          <button class="btn-remove" bindtap="removeImage">×</button>
+        </view>
+      </view>
+    </view>
+    
+    <!-- 右侧：状态信息 -->
+    <view class="status-area">
+      <view class="status-header">
+        <text class="section-title">识别状态</text>
+        <view class="status-indicator {{extracting ? 'processing' : (extracted ? 'completed' : 'ready')}}">
+          <view class="status-dot"></view>
+          <text class="status-text">{{extracting ? '分析中' : (extracted ? '已完成' : '就绪')}}</text>
+        </view>
+      </view>
+      
+      <view class="file-info">
+        <view class="info-item">
+          <text class="info-label">支持格式:</text>
+          <text class="info-value">JPG, PNG, MP4</text>
+        </view>
+        <view class="info-item">
+          <text class="info-label">文件大小:</text>
+          <text class="info-value">≤ 10MB</text>
+        </view>
+        <view class="info-item" wx:if="{{currentFile}}">
+          <text class="info-label">当前文件:</text>
+          <text class="info-value">{{currentFile.name}}</text>
+        </view>
+      </view>
+      
+    </view>
+  </view>
+
+  <!-- 分析结果区域 -->
+  <view class="results-section">
+    <view class="section-header">
+      <text class="title">识别结果</text>
+      <view class="result-stats" wx:if="{{extracted}}">
+        <text class="stats-text">置信度: {{overallConfidence}}%</text>
+      </view>
+    </view>
+
+    <!-- 快速操作按钮 -->
+    <view class="quick-actions">
+      <button class="robot-btn" bindtap="selectFile" disabled="{{uploading || extracting}}">
+        选择文件
+      </button>
+      <button class="robot-btn secondary" bindtap="takePhoto" disabled="{{uploading || extracting}}">
+        拍照
+      </button>
+      <button class="robot-btn accent" bindtap="recordVideo" disabled="{{uploading || extracting}}">
+        录制
+      </button>
+    </view>
+
+    <!-- 服装颜色识别 -->
+    <view class="color-analysis card">
+      <view class="card-header">
+        <text class="section-title">服装颜色</text>
+        <view class="analysis-badge {{extracted ? 'completed' : 'waiting'}}">
+          {{extracted ? '已识别' : '待分析'}}
+        </view>
+      </view>
+      
+      <view class="color-results" wx:if="{{extracted}}">
+        <!-- 上衣颜色 -->
+        <view class="color-item">
+          <view class="color-preview" style="background-color: {{clothingColors.top.color}};">
+            <text class="color-label">上衣</text>
+          </view>
+          <view class="color-info">
+            <text class="color-name">{{clothingColors.top.name}}</text>
+            <text class="color-confidence">{{clothingColors.top.confidence}}%</text>
+            <view class="confidence-bar">
+              <view class="confidence-fill" style="width: {{clothingColors.top.confidence}}; background-color: {{clothingColors.top.color}};"></view>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 裤子颜色 -->
+        <view class="color-item">
+          <view class="color-preview" style="background-color: {{clothingColors.bottom.color}};">
+            <text class="color-label">裤子</text>
+          </view>
+          <view class="color-info">
+            <text class="color-name">{{clothingColors.bottom.name}}</text>
+            <text class="color-confidence">{{clothingColors.bottom.confidence}}%</text>
+            <view class="confidence-bar">
+              <view class="confidence-fill" style="width: {{clothingColors.bottom.confidence}}; background-color: {{clothingColors.bottom.color}};"></view>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 鞋子颜色 -->
+        <view class="color-item" wx:if="{{clothingColors.shoes}}">
+          <view class="color-preview" style="background-color: {{clothingColors.shoes.color}};">
+            <text class="color-label">鞋子</text>
+          </view>
+          <view class="color-info">
+            <text class="color-name">{{clothingColors.shoes.name}}</text>
+            <text class="color-confidence">{{clothingColors.shoes.confidence}}%</text>
+            <view class="confidence-bar">
+              <view class="confidence-fill" style="width: {{clothingColors.shoes.confidence}}; background-color: {{clothingColors.shoes.color}};"></view>
+            </view>
+          </view>
+        </view>
+      </view>
+      
+      <!-- 等待分析状态 -->
+      <view class="waiting-state" wx:else>
+        <view class="waiting-icon">🎨</view>
+        <text class="waiting-text">上传文件后开始颜色识别</text>
+      </view>
+    </view>
+
+    <!-- 身体比例分析 -->
+    <view class="proportion-analysis card">
+      <view class="card-header">
+        <text class="section-title">身体比例</text>
+        <view class="analysis-badge {{extracted ? 'completed' : 'waiting'}}">
+          {{extracted ? '16项已提取' : '待分析'}}
+        </view>
+      </view>
+      
+      <view class="proportion-content">
+        <!-- 左侧：关键数据 -->
+        <view class="proportion-data">
+          <view class="data-item" wx:if="{{extracted}}">
+            <text class="data-label">身高</text>
+            <text class="data-value">{{bodyProportions.height}}cm</text>
+          </view>
+          <view class="data-item" wx:if="{{extracted}}">
+            <text class="data-label">肩宽</text>
+            <text class="data-value">{{bodyProportions.shoulderWidth}}cm</text>
+          </view>
+          <view class="data-item" wx:if="{{extracted}}">
+            <text class="data-label">胸围</text>
+            <text class="data-value">{{bodyProportions.chest}}cm</text>
+          </view>
+          <view class="data-item" wx:if="{{extracted}}">
+            <text class="data-label">腰围</text>
+            <text class="data-value">{{bodyProportions.waist}}cm</text>
+          </view>
+          <view class="data-item" wx:if="{{extracted}}">
+            <text class="data-label">臀围</text>
+            <text class="data-value">{{bodyProportions.hip}}cm</text>
+          </view>
+          
+          <!-- 等待状态 -->
+          <view class="waiting-state" wx:if="{{!extracted}}">
+            <view class="waiting-icon">📏</view>
+            <text class="waiting-text">上传文件后开始比例分析</text>
+          </view>
+        </view>
+        
+        <!-- 右侧：人体轮廓图 -->
+        <view class="body-outline">
+          <view class="outline-container">
+            <!-- 人体轮廓SVG -->
+            <view class="body-svg {{extracted ? 'active' : ''}}">
+              <view class="body-part head"></view>
+              <view class="body-part torso"></view>
+              <view class="body-part left-arm"></view>
+              <view class="body-part right-arm"></view>
+              <view class="body-part left-leg"></view>
+              <view class="body-part right-leg"></view>
+              
+              <!-- 测量点 -->
+              <view class="measure-point point-shoulder" wx:if="{{extracted}}"></view>
+              <view class="measure-point point-chest" wx:if="{{extracted}}"></view>
+              <view class="measure-point point-waist" wx:if="{{extracted}}"></view>
+              <view class="measure-point point-hip" wx:if="{{extracted}}"></view>
+            </view>
+          </view>
+        </view>
+      </view>
+      
+      <!-- 详细数据按钮 -->
+      <button class="detail-btn" bindtap="showDetailedData" wx:if="{{extracted}}">
+        查看16项详细数据
+      </button>
+    </view>
+  </view>
+
+  <!-- 识别历史 -->
+  <view class="history-section card" wx:if="{{extractedFeatures.length > 0}}">
+    <view class="card-header">
+      <text class="section-title">识别历史</text>
+      <text class="history-count">{{extractedFeatures.length}}条记录</text>
+    </view>
+    
+    <scroll-view class="history-list" scroll-y="true">
+      <view class="history-item {{currentTargetId === item.id ? 'selected' : ''}}" 
+            wx:for="{{extractedFeatures}}" wx:key="id" 
+            bindtap="selectHistoryTarget" data-target="{{item}}">
+        <view class="history-avatar">
+          <view class="avatar-colors">
+            <view class="color-dot" style="background-color: {{item.topColor}};"></view>
+            <view class="color-dot" style="background-color: {{item.bottomColor}};"></view>
+          </view>
+        </view>
+        <view class="history-info">
+          <text class="history-title">{{item.name || '目标' + (index + 1)}}</text>
+          <text class="history-desc">{{item.topColorName}}衣{{item.bottomColorName}}裤</text>
+          <text class="history-time">{{item.timestamp}}</text>
+        </view>
+        <view class="history-status">
+          <text class="status-text {{item.isFollowing ? 'following' : ''}}">
+            {{item.isFollowing ? '跟随中' : '已保存'}}
+          </text>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- 底部操作区域 -->
+  <view class="action-section">
+    <button class="robot-btn secondary" bindtap="saveFeatures" disabled="{{!extracted}}">
+      保存特征
+    </button>
+    <button class="robot-btn accent" bindtap="setAsTarget" disabled="{{!extracted}}">
+      设为目标
+    </button>
+    <button class="robot-btn" bindtap="startFollowing" disabled="{{!extracted}}">
+      开始跟随
+    </button>
+  </view>
+</view>
+
+<!-- 详细数据弹窗 -->
+<view class="modal-overlay {{showDetailModal ? 'show' : ''}}" bindtap="hideDetailModal">
+  <view class="modal-content" catchtap="stopPropagation">
+    <view class="modal-header">
+      <text class="modal-title">16项身体比例详细数据</text>
+      <button class="modal-close" bindtap="hideDetailModal">×</button>
+    </view>
+    
+    <scroll-view class="modal-body" scroll-y="true">
+      <view class="detail-grid">
+        <view class="detail-item" wx:for="{{detailedProportions}}" wx:key="key">
+          <text class="detail-label">{{item.label}}</text>
+          <text class="detail-value">{{item.value}}</text>
+          <text class="detail-unit">{{item.unit}}</text>
+        </view>
+      </view>
+    </scroll-view>
+    
+    <view class="modal-footer">
+      <button class="robot-btn" bindtap="hideDetailModal">确定</button>
+    </view>
+  </view>
+</view>

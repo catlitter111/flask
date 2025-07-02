@@ -1,0 +1,9 @@
+{
+    "navigationBarTitleText": "特征识别",
+    "navigationBarBackgroundColor": "#007ACC",
+    "navigationBarTextStyle": "white",
+    "enablePullDownRefresh": true,
+    "backgroundColor": "#f6f8fc",
+    "backgroundTextStyle": "light",
+    "usingComponents": {}
+  }

@@ -1,0 +1,800 @@
+/* pages/feature/feature.wxss - 特征识别页面样式 */
+
+.container {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #ECEFF1 0%, #CFD8DC 100%);
+    padding: 20rpx;
+    color: var(--text-primary);
+  }
+  
+  /* 上传预览区域 */
+  .upload-section {
+    display: flex;
+    height: 240rpx;
+    margin-bottom: 30rpx;
+    gap: 20rpx;
+    padding: 30rpx;
+  }
+  
+  .upload-area {
+    flex: 1;
+    position: relative;
+  }
+  
+  .upload-zone {
+    width: 100%;
+    height: 100%;
+    border: 4rpx dashed var(--border-color);
+    border-radius: 20rpx;
+    background: #F5F5F5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .upload-zone.uploading {
+    border-color: var(--primary-color);
+    background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
+  }
+  
+  .upload-zone:active {
+    transform: scale(0.98);
+  }
+  
+  .upload-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 2;
+  }
+  
+  .upload-icon {
+    width: 80rpx;
+    height: 80rpx;
+    margin-bottom: 10rpx;
+    font-size: 40rpx;
+  }
+  
+  .upload-title {
+    font-size: 28rpx;
+    color: var(--primary-color);
+    font-weight: 600;
+    margin-bottom: 5rpx;
+  }
+  
+  .upload-subtitle {
+    font-size: 24rpx;
+    color: var(--text-secondary);
+  }
+  
+  .upload-progress {
+    position: absolute;
+    bottom: 20rpx;
+    left: 20rpx;
+    right: 20rpx;
+    z-index: 3;
+  }
+  
+  .progress-text {
+    font-size: 22rpx;
+    color: var(--primary-color);
+    text-align: center;
+    margin-top: 10rpx;
+  }
+  
+  /* 预览图片 */
+  .preview-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 20rpx;
+    overflow: hidden;
+    background: white;
+    border: 2rpx solid var(--primary-color);
+  }
+  
+  .preview-image image {
+    width: 100%;
+    height: 100%;
+  }
+  
+  .preview-overlay {
+    position: absolute;
+    top: 0;
+    right: 0;
+    padding: 10rpx;
+  }
+  
+  .btn-remove {
+    width: 50rpx;
+    height: 50rpx;
+    border-radius: 50%;
+    background: var(--warning-color);
+    color: white;
+    font-size: 30rpx;
+    line-height: 50rpx;
+    text-align: center;
+    padding: 0;
+    margin: 0;
+    border: none;
+  }
+  
+  /* 状态区域 */
+  .status-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20rpx;
+  }
+  
+  .status-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8rpx;
+    padding: 8rpx 16rpx;
+    border-radius: 20rpx;
+    font-size: 24rpx;
+  }
+  
+  .status-indicator.ready {
+    background: rgba(76, 175, 80, 0.1);
+    color: var(--success-color);
+  }
+  
+  .status-indicator.processing {
+    background: rgba(255, 152, 0, 0.1);
+    color: var(--accent-color);
+  }
+  
+  .status-indicator.completed {
+    background: rgba(33, 150, 243, 0.1);
+    color: var(--primary-color);
+  }
+  
+  .status-dot {
+    width: 8rpx;
+    height: 8rpx;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  
+  .status-indicator.processing .status-dot {
+    animation: pulse 2s infinite;
+  }
+  
+  .file-info {
+    flex: 1;
+  }
+  
+  .info-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8rpx;
+  }
+  
+  .info-label {
+    font-size: 24rpx;
+    color: var(--text-secondary);
+  }
+  
+  .info-value {
+    font-size: 24rpx;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  
+  .quick-actions {
+    display: flex;
+    gap: 12rpx;
+    flex-wrap: wrap;
+  }
+  
+  .quick-actions .robot-btn {
+    flex: 1;
+    min-width: 0;
+    padding: 16rpx 20rpx;
+    font-size: 24rpx;
+  }
+  
+  /* 分析结果区域 */
+  .results-section {
+    margin-bottom: 30rpx;
+  }
+  
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20rpx;
+    padding: 0 10rpx;
+  }
+  
+  .result-stats {
+    padding: 8rpx 16rpx;
+    background: rgba(76, 175, 80, 0.1);
+    border-radius: 20rpx;
+  }
+  
+  .stats-text {
+    font-size: 24rpx;
+    color: var(--success-color);
+    font-weight: 600;
+  }
+  
+  /* 快速操作按钮 - 移到识别结果区域 */
+  .results-section .quick-actions {
+    display: flex;
+    gap: 20rpx;
+    margin-bottom: 30rpx;
+  }
+  
+  .results-section .quick-actions .robot-btn {
+    flex: 1;
+    padding: 20rpx;
+    font-size: 26rpx;
+    font-weight: 600;
+  }
+  
+  /* 卡片头部 */
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 25rpx;
+    padding-bottom: 15rpx;
+    border-bottom: 2rpx solid rgba(33, 150, 243, 0.1);
+  }
+  
+  .analysis-badge {
+    padding: 6rpx 16rpx;
+    border-radius: 15rpx;
+    font-size: 22rpx;
+    font-weight: 500;
+  }
+  
+  .analysis-badge.waiting {
+    background: rgba(117, 117, 117, 0.1);
+    color: var(--text-secondary);
+  }
+  
+  .analysis-badge.completed {
+    background: rgba(76, 175, 80, 0.1);
+    color: var(--success-color);
+  }
+  
+  /* 服装颜色分析 */
+  .color-analysis {
+    margin-bottom: 30rpx;
+    min-height: 200rpx;
+  }
+  
+  .color-results {
+    display: flex;
+    flex-direction: column;
+    gap: 20rpx;
+  }
+  
+  .color-item {
+    display: flex;
+    align-items: center;
+    gap: 20rpx;
+  }
+  
+  .color-preview {
+    width: 100rpx;
+    height: 60rpx;
+    border-radius: 12rpx;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+    border: 2rpx solid rgba(255, 255, 255, 0.3);
+  }
+  
+  .color-label {
+    color: white;
+    font-size: 20rpx;
+    font-weight: 600;
+    text-shadow: 0 1rpx 2rpx rgba(0, 0, 0, 0.5);
+  }
+  
+  .color-info {
+    flex: 1;
+  }
+  
+  .color-name {
+    font-size: 28rpx;
+    color: var(--text-primary);
+    font-weight: 600;
+    display: block;
+    margin-bottom: 5rpx;
+  }
+  
+  .color-confidence {
+    font-size: 24rpx;
+    color: var(--text-secondary);
+    display: block;
+    margin-bottom: 10rpx;
+  }
+  
+  .confidence-bar {
+    width: 100%;
+    height: 8rpx;
+    background: var(--border-color);
+    border-radius: 4rpx;
+    overflow: hidden;
+  }
+  
+  .confidence-fill {
+    height: 100%;
+    border-radius: 4rpx;
+    transition: width 0.8s ease;
+  }
+  
+  /* 身体比例分析 */
+  .proportion-analysis {
+    margin-bottom: 30rpx;
+    min-height: 240rpx;
+  }
+  
+  .proportion-content {
+    display: flex;
+    gap: 30rpx;
+  }
+  
+  .proportion-data {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 15rpx;
+  }
+  
+  .data-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12rpx 0;
+    border-bottom: 1rpx solid rgba(224, 224, 224, 0.5);
+  }
+  
+  .data-item:last-child {
+    border-bottom: none;
+  }
+  
+  .data-label {
+    font-size: 26rpx;
+    color: var(--text-secondary);
+  }
+  
+  .data-value {
+    font-size: 28rpx;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  
+  /* 人体轮廓 */
+  .body-outline {
+    width: 120rpx;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  
+  .outline-container {
+    position: relative;
+    width: 80rpx;
+    height: 160rpx;
+  }
+  
+  .body-svg {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    opacity: 0.3;
+    transition: opacity 0.5s ease;
+  }
+  
+  .body-svg.active {
+    opacity: 1;
+  }
+  
+  .body-part {
+    position: absolute;
+    background: var(--primary-color);
+    border-radius: 2rpx;
+  }
+  
+  .head {
+    width: 16rpx;
+    height: 20rpx;
+    border-radius: 50%;
+    top: 0;
+    left: 32rpx;
+  }
+  
+  .torso {
+    width: 20rpx;
+    height: 60rpx;
+    border-radius: 4rpx;
+    top: 25rpx;
+    left: 30rpx;
+  }
+  
+  .left-arm {
+    width: 8rpx;
+    height: 40rpx;
+    border-radius: 4rpx;
+    top: 30rpx;
+    left: 20rpx;
+  }
+  
+  .right-arm {
+    width: 8rpx;
+    height: 40rpx;
+    border-radius: 4rpx;
+    top: 30rpx;
+    right: 20rpx;
+  }
+  
+  .left-leg {
+    width: 8rpx;
+    height: 70rpx;
+    border-radius: 4rpx;
+    top: 90rpx;
+    left: 32rpx;
+  }
+  
+  .right-leg {
+    width: 8rpx;
+    height: 70rpx;
+    border-radius: 4rpx;
+    top: 90rpx;
+    right: 32rpx;
+  }
+  
+  .measure-point {
+    position: absolute;
+    width: 6rpx;
+    height: 6rpx;
+    border-radius: 50%;
+    background: var(--accent-color);
+    animation: pointPulse 2s infinite;
+  }
+  
+  .point-shoulder {
+    top: 30rpx;
+    left: 15rpx;
+  }
+  
+  .point-chest {
+    top: 45rpx;
+    left: 25rpx;
+  }
+  
+  .point-waist {
+    top: 65rpx;
+    left: 25rpx;
+  }
+  
+  .point-hip {
+    top: 85rpx;
+    left: 25rpx;
+  }
+  
+  @keyframes pointPulse {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.3);
+      opacity: 0.7;
+    }
+  }
+  
+  .detail-btn {
+    width: 100%;
+    margin-top: 20rpx;
+    padding: 20rpx;
+    background: none;
+    border: 2rpx solid var(--primary-color);
+    border-radius: 12rpx;
+    color: var(--primary-color);
+    font-size: 26rpx;
+  }
+  
+  /* 等待状态 */
+  .waiting-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 140rpx;
+    opacity: 0.6;
+  }
+  
+  .waiting-icon {
+    font-size: 60rpx;
+    margin-bottom: 15rpx;
+  }
+  
+  .waiting-text {
+    font-size: 24rpx;
+    color: var(--text-secondary);
+    text-align: center;
+  }
+  
+  /* 识别历史 */
+  .history-section {
+    margin-bottom: 30rpx;
+    max-height: 300rpx;
+  }
+  
+  .history-count {
+    font-size: 24rpx;
+    color: var(--text-secondary);
+    padding: 6rpx 12rpx;
+    background: rgba(33, 150, 243, 0.1);
+    border-radius: 12rpx;
+  }
+  
+  .history-list {
+    max-height: 200rpx;
+  }
+  
+  .history-item {
+    display: flex;
+    align-items: center;
+    gap: 20rpx;
+    padding: 20rpx 0;
+    border-bottom: 1rpx solid rgba(224, 224, 224, 0.3);
+    transition: background-color 0.3s ease;
+  }
+  
+  .history-item:last-child {
+    border-bottom: none;
+  }
+  
+  .history-item.selected {
+    background: rgba(33, 150, 243, 0.05);
+    border-radius: 12rpx;
+    margin: 0 -15rpx;
+    padding: 20rpx 15rpx;
+  }
+  
+  .history-avatar {
+    width: 60rpx;
+    height: 60rpx;
+    border-radius: 50%;
+    background: var(--light-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  
+  .avatar-colors {
+    display: flex;
+    gap: 4rpx;
+  }
+  
+  .color-dot {
+    width: 12rpx;
+    height: 12rpx;
+    border-radius: 50%;
+    border: 1rpx solid rgba(255, 255, 255, 0.8);
+  }
+  
+  .history-info {
+    flex: 1;
+  }
+  
+  .history-title {
+    font-size: 28rpx;
+    color: var(--text-primary);
+    font-weight: 600;
+    display: block;
+    margin-bottom: 5rpx;
+  }
+  
+  .history-desc {
+    font-size: 24rpx;
+    color: var(--text-secondary);
+    display: block;
+    margin-bottom: 5rpx;
+  }
+  
+  .history-time {
+    font-size: 22rpx;
+    color: var(--text-light);
+  }
+  
+  .history-status {
+    text-align: right;
+  }
+  
+  .status-text {
+    font-size: 22rpx;
+    color: var(--text-secondary);
+    padding: 4rpx 12rpx;
+    border-radius: 12rpx;
+    background: rgba(117, 117, 117, 0.1);
+  }
+  
+  .status-text.following {
+    color: var(--success-color);
+    background: rgba(76, 175, 80, 0.1);
+  }
+  
+  /* 底部操作区域 */
+  .action-section {
+    display: flex;
+    gap: 20rpx;
+    padding: 20rpx 0;
+  }
+  
+  .action-section .robot-btn {
+    flex: 1;
+    padding: 24rpx;
+    font-size: 28rpx;
+    font-weight: 600;
+  }
+  
+  /* 详细数据弹窗 */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+  }
+  
+  .modal-overlay.show {
+    opacity: 1;
+    visibility: visible;
+  }
+  
+  .modal-content {
+    width: 90%;
+    max-width: 600rpx;
+    max-height: 80vh;
+    background: white;
+    border-radius: 20rpx;
+    box-shadow: var(--robot-shadow);
+    display: flex;
+    flex-direction: column;
+    transform: scale(0.9);
+    transition: transform 0.3s ease;
+  }
+  
+  .modal-overlay.show .modal-content {
+    transform: scale(1);
+  }
+  
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 30rpx;
+    border-bottom: 2rpx solid var(--border-color);
+  }
+  
+  .modal-title {
+    font-size: 32rpx;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  
+  .modal-close {
+    width: 60rpx;
+    height: 60rpx;
+    border-radius: 50%;
+    background: var(--light-bg);
+    color: var(--text-secondary);
+    font-size: 30rpx;
+    line-height: 60rpx;
+    text-align: center;
+    padding: 0;
+    margin: 0;
+    border: none;
+  }
+  
+  .modal-body {
+    flex: 1;
+    padding: 30rpx;
+    max-height: 60vh;
+  }
+  
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20rpx;
+  }
+  
+  .detail-item {
+    display: flex;
+    flex-direction: column;
+    padding: 20rpx;
+    background: var(--light-bg);
+    border-radius: 12rpx;
+    text-align: center;
+  }
+  
+  .detail-label {
+    font-size: 24rpx;
+    color: var(--text-secondary);
+    margin-bottom: 8rpx;
+  }
+  
+  .detail-value {
+    font-size: 32rpx;
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-bottom: 5rpx;
+  }
+  
+  .detail-unit {
+    font-size: 22rpx;
+    color: var(--text-light);
+  }
+  
+  .modal-footer {
+    padding: 30rpx;
+    border-top: 2rpx solid var(--border-color);
+  }
+  
+  .modal-footer .robot-btn {
+    width: 100%;
+    padding: 24rpx;
+  }
+  
+  /* 响应式适配 */
+  @media (max-width: 750rpx) {
+    .upload-section {
+      flex-direction: column;
+      height: auto;
+      gap: 20rpx;
+    }
+    
+    .upload-area {
+      height: 180rpx;
+    }
+    
+    .status-area {
+      height: auto;
+    }
+    
+    .proportion-content {
+      flex-direction: column;
+      gap: 20rpx;
+    }
+    
+    .body-outline {
+      width: 100%;
+      height: 120rpx;
+    }
+    
+    .detail-grid {
+      grid-template-columns: 1fr;
+    }
+  }
