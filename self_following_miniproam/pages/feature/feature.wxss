@@ -1,5 +1,18 @@
 /* pages/feature/feature.wxss - 特征识别页面样式 */
 
+page {
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --text-light: #999999;
+  --primary-color: #1976d2;
+  --accent-color: #ff9800;
+  --success-color: #4caf50;
+  --warning-color: #f44336;
+  --border-color: #e0e0e0;
+  --light-bg: #f5f5f5;
+  --robot-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+}
+
 .container {
     min-height: 100vh;
     background: linear-gradient(135deg, #ECEFF1 0%, #CFD8DC 100%);
@@ -684,7 +697,7 @@
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.6);
     z-index: 1000;
     display: flex;
     align-items: center;
@@ -692,6 +705,8 @@
     opacity: 0;
     visibility: hidden;
     transition: all 0.3s ease;
+    padding: 40rpx 20rpx;
+    box-sizing: border-box;
   }
   
   .modal-overlay.show {
@@ -700,16 +715,17 @@
   }
   
   .modal-content {
-    width: 90%;
-    max-width: 600rpx;
-    max-height: 80vh;
+    width: 100%;
+    max-width: 680rpx;
+    max-height: 85vh;
     background: white;
-    border-radius: 20rpx;
-    box-shadow: var(--robot-shadow);
+    border-radius: 24rpx;
+    box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.15);
     display: flex;
     flex-direction: column;
     transform: scale(0.9);
     transition: transform 0.3s ease;
+    overflow: hidden;
   }
   
   .modal-overlay.show .modal-content {
@@ -720,77 +736,150 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 30rpx;
-    border-bottom: 2rpx solid var(--border-color);
+    padding: 32rpx 32rpx 24rpx 32rpx;
+    border-bottom: 1rpx solid #f0f0f0;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    flex-shrink: 0;
   }
   
   .modal-title {
-    font-size: 32rpx;
-    font-weight: 600;
+    font-size: 34rpx;
+    font-weight: 700;
     color: var(--text-primary);
+    background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
   }
   
   .modal-close {
-    width: 60rpx;
-    height: 60rpx;
+    width: 56rpx;
+    height: 56rpx;
     border-radius: 50%;
-    background: var(--light-bg);
+    background: rgba(0, 0, 0, 0.05);
     color: var(--text-secondary);
-    font-size: 30rpx;
-    line-height: 60rpx;
+    font-size: 28rpx;
+    line-height: 56rpx;
     text-align: center;
     padding: 0;
     margin: 0;
     border: none;
+    transition: all 0.2s ease;
+  }
+  
+  .modal-close:active {
+    background: rgba(0, 0, 0, 0.1);
+    transform: scale(0.95);
   }
   
   .modal-body {
     flex: 1;
-    padding: 30rpx;
-    max-height: 60vh;
+    padding: 24rpx 32rpx;
+    overflow-y: auto;
+    min-height: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .modal-body::-webkit-scrollbar {
+    width: 4rpx;
+  }
+  
+  .modal-body::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 2rpx;
+  }
+  
+  .modal-body::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 2rpx;
+  }
+  
+  .modal-body::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
   }
   
   .detail-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 20rpx;
+    gap: 16rpx;
+    align-items: stretch;
   }
   
   .detail-item {
     display: flex;
     flex-direction: column;
-    padding: 20rpx;
-    background: var(--light-bg);
-    border-radius: 12rpx;
+    padding: 24rpx 20rpx;
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+    border-radius: 16rpx;
     text-align: center;
+    border: 1rpx solid #e9ecef;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .detail-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4rpx;
+    background: linear-gradient(90deg, #1976d2 0%, #42a5f5 100%);
+  }
+  
+  .detail-item:active {
+    transform: scale(0.98);
+    box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
   }
   
   .detail-label {
-    font-size: 24rpx;
-    color: var(--text-secondary);
-    margin-bottom: 8rpx;
+    font-size: 22rpx;
+    color: #666;
+    margin-bottom: 12rpx;
+    line-height: 1.3;
+    font-weight: 500;
   }
   
   .detail-value {
-    font-size: 32rpx;
+    font-size: 36rpx;
     color: var(--text-primary);
-    font-weight: 600;
-    margin-bottom: 5rpx;
+    font-weight: 700;
+    margin-bottom: 8rpx;
+    background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    line-height: 1.2;
   }
   
   .detail-unit {
-    font-size: 22rpx;
-    color: var(--text-light);
+    font-size: 20rpx;
+    color: #999;
+    font-weight: 400;
   }
   
   .modal-footer {
-    padding: 30rpx;
-    border-top: 2rpx solid var(--border-color);
+    padding: 24rpx 32rpx 32rpx 32rpx;
+    border-top: 1rpx solid #f0f0f0;
+    background: #fafafa;
+    flex-shrink: 0;
   }
   
   .modal-footer .robot-btn {
     width: 100%;
-    padding: 24rpx;
+    padding: 28rpx;
+    font-size: 30rpx;
+    font-weight: 600;
+    border-radius: 16rpx;
+    background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+    box-shadow: 0 8rpx 20rpx rgba(25, 118, 210, 0.3);
+    transition: all 0.2s ease;
+  }
+  
+  .modal-footer .robot-btn:active {
+    transform: translateY(2rpx);
+    box-shadow: 0 4rpx 12rpx rgba(25, 118, 210, 0.2);
   }
   
   /* 响应式适配 */
@@ -819,8 +908,102 @@
       height: 120rpx;
     }
     
+    /* 小屏幕下的弹窗优化 */
+    .modal-overlay {
+      padding: 20rpx 15rpx;
+    }
+    
+    .modal-content {
+      max-width: 100%;
+      max-height: 90vh;
+      border-radius: 20rpx;
+    }
+    
+    .modal-header {
+      padding: 28rpx 24rpx 20rpx 24rpx;
+    }
+    
+    .modal-title {
+      font-size: 30rpx;
+    }
+    
+    .modal-body {
+      padding: 20rpx 24rpx;
+    }
+    
     .detail-grid {
       grid-template-columns: 1fr;
+      gap: 12rpx;
+    }
+    
+    .detail-item {
+      padding: 20rpx 16rpx;
+    }
+    
+    .detail-label {
+      font-size: 20rpx;
+      margin-bottom: 10rpx;
+    }
+    
+    .detail-value {
+      font-size: 32rpx;
+      margin-bottom: 6rpx;
+    }
+    
+    .detail-unit {
+      font-size: 18rpx;
+    }
+    
+    .modal-footer {
+      padding: 20rpx 24rpx 28rpx 24rpx;
+    }
+    
+    .modal-footer .robot-btn {
+      padding: 24rpx;
+      font-size: 28rpx;
+    }
+  }
+  
+  /* 超小屏幕适配 */
+  @media (max-width: 600rpx) {
+    .modal-overlay {
+      padding: 15rpx 10rpx;
+    }
+    
+    .modal-content {
+      max-height: 92vh;
+      border-radius: 16rpx;
+    }
+    
+    .modal-header {
+      padding: 24rpx 20rpx 16rpx 20rpx;
+    }
+    
+    .modal-title {
+      font-size: 28rpx;
+    }
+    
+    .modal-close {
+      width: 50rpx;
+      height: 50rpx;
+      font-size: 24rpx;
+      line-height: 50rpx;
+    }
+    
+    .modal-body {
+      padding: 16rpx 20rpx;
+    }
+    
+    .detail-grid {
+      gap: 10rpx;
+    }
+    
+    .detail-item {
+      padding: 18rpx 14rpx;
+    }
+    
+    .detail-value {
+      font-size: 30rpx;
     }
   }
 
