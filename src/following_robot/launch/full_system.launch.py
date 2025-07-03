@@ -11,12 +11,28 @@
     2. ByteTracker目标跟踪节点
     3. WebSocket桥接节点
     4. 机器人控制节点
-    5. 底层硬件驱动节点
+    5. 底层硬件驱动节点 (Python版本 - dlrobot_robot_python)
     
 使用方法：
+    # 基础启动
     ros2 launch following_robot full_system.launch.py
+    
+    # 自定义WebSocket服务器
     ros2 launch following_robot full_system.launch.py websocket_host:=192.168.1.100
-    ros2 launch following_robot full_system.launch.py feature_output_dir:=my_features
+    
+    # 启用阿克曼转向模式
+    ros2 launch following_robot full_system.launch.py use_ackermann:=true
+    
+    # 配置不同机器人型号
+    ros2 launch following_robot full_system.launch.py wheelbase:=0.320  # senior_akm
+    ros2 launch following_robot full_system.launch.py wheelbase:=0.503  # top_akm_bs
+    
+    # 组合配置示例
+    ros2 launch following_robot full_system.launch.py \
+        use_ackermann:=true \
+        wheelbase:=0.143 \
+        serial_port:=/dev/dlrobot_controller \
+        websocket_host:=192.168.1.100
 """
 
 import os
@@ -107,6 +123,12 @@ def generate_launch_description():
         'feature_output_dir',
         default_value='features-data',
         description='特征提取输出目录'
+    )
+    
+    declare_wheelbase = DeclareLaunchArgument(
+        'wheelbase',
+        default_value='0.143',
+        description='机器人轮距 (m): mini_akm=0.143, senior_akm=0.320, top_akm_bs=0.503, top_akm_dl=0.549'
     )
     
     # ByteTracker节点
@@ -206,9 +228,9 @@ def generate_launch_description():
         emulate_tty=True,
     )
     
-    # 底层硬件驱动节点 - 普通模式 (差分驱动)
+    # 底层硬件驱动节点 - 普通模式 (差分驱动) - Python版本
     dlrobot_driver_node = Node(
-        package='turn_on_dlrobot_robot',
+        package='dlrobot_robot_python',
         executable='dlrobot_robot_node',
         name='dlrobot_robot_node',
         output='screen',
@@ -217,14 +239,14 @@ def generate_launch_description():
             'serial_baud_rate': LaunchConfiguration('serial_baud'),
             'robot_frame_id': 'base_footprint',
             'odom_frame_id': 'odom_combined',
+            'gyro_frame_id': 'gyro_link',
             'cmd_vel': 'cmd_vel',
             'akm_cmd_vel': 'none',
-            'product_number': 0,
         }],
         remappings=[
             # 重映射话题到全局命名空间
             ('cmd_vel', '/cmd_vel'),
-            ('odom', '/odom'),
+            ('odom_combined', '/odom'),
         ],
         condition=UnlessCondition(LaunchConfiguration('use_ackermann')),
         respawn=True,
@@ -232,9 +254,9 @@ def generate_launch_description():
         emulate_tty=True,
     )
     
-    # 底层硬件驱动节点 - 阿克曼模式
+    # 底层硬件驱动节点 - 阿克曼模式 - Python版本
     dlrobot_driver_node_akm = Node(
-        package='turn_on_dlrobot_robot',
+        package='dlrobot_robot_python',
         executable='dlrobot_robot_node',
         name='dlrobot_robot_node',
         output='screen',
@@ -243,15 +265,15 @@ def generate_launch_description():
             'serial_baud_rate': LaunchConfiguration('serial_baud'),
             'robot_frame_id': 'base_footprint',
             'odom_frame_id': 'odom_combined',
+            'gyro_frame_id': 'gyro_link',
             'cmd_vel': 'cmd_vel',
             'akm_cmd_vel': 'ackermann_cmd',
-            'product_number': 0,
         }],
         remappings=[
             # 重映射话题到全局命名空间
             ('cmd_vel', '/cmd_vel'),
             ('ackermann_cmd', '/ackermann_cmd'),
-            ('odom', '/odom'),
+            ('odom_combined', '/odom'),
         ],
         condition=IfCondition(LaunchConfiguration('use_ackermann')),
         respawn=True,
@@ -259,12 +281,18 @@ def generate_launch_description():
         emulate_tty=True,
     )
     
-    # Twist到Ackermann消息转换节点 (仅在阿克曼模式下使用)
+    # Twist到Ackermann消息转换节点 (仅在阿克曼模式下使用) - Python版本
     cmd_vel_to_ackermann_node = Node(
-        package='turn_on_dlrobot_robot',
-        executable='cmd_vel_to_ackermann_drive.py',
+        package='dlrobot_robot_python',
+        executable='cmd_vel_to_ackermann',
         name='cmd_vel_to_ackermann_drive',
         output='screen',
+        parameters=[{
+            'wheelbase': LaunchConfiguration('wheelbase'),
+            'frame_id': 'odom_combined',
+            'input_topic': 'cmd_vel',
+            'output_topic': '/ackermann_cmd',
+        }],
         remappings=[
             # 重映射话题到全局命名空间
             ('cmd_vel', '/cmd_vel'),
@@ -306,6 +334,7 @@ def generate_launch_description():
         declare_serial_port,
         declare_serial_baud,
         declare_feature_output_dir,
+        declare_wheelbase,
         
         # 启动节点 (特征提取节点先启动，确保服务就绪)
         feature_extraction_node,
