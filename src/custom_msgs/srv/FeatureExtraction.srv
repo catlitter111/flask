@@ -14,3 +14,4 @@ int32[] shirt_color           # 上装颜色 [R, G, B]
 int32[] pants_color           # 下装颜色 [R, G, B]
 string result_image_path      # 结果图像保存路径
 string feature_data_path      # 特征数据保存路径 
+string result_video_path      # 结果视频保存路径（视频处理时使用） 

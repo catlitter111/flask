@@ -180,6 +180,7 @@ class FeatureExtractionNode(Node):
             # 文件路径
             response.result_image_path = result_paths.get('image', '')
             response.feature_data_path = result_paths.get('excel', '')
+            response.result_video_path = result_paths.get('video', '')
             
             self.extraction_count += 1
             self.get_logger().info(f"✅ 特征提取完成，总处理次数: {self.extraction_count}")
@@ -320,7 +321,7 @@ class FeatureExtractionNode(Node):
 
     def obtain_features_from_video(self, video_path, name, save_to_file=True, output_path=''):
         """
-        从视频文件中提取特征，每隔几帧检测几次，取平均值
+        从视频文件中提取特征，每隔几帧检测几次，取平均值，并保存完整的标注视频
         """
         start_time = time.time()
         self.get_logger().info(f"开始处理视频: {video_path}")
@@ -334,13 +335,40 @@ class FeatureExtractionNode(Node):
             # 获取视频信息
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             duration = total_frames / fps if fps > 0 else 0
             
             frame_interval = self.get_parameter('video_frame_interval').get_parameter_value().integer_value
             detection_limit = self.get_parameter('video_detection_limit').get_parameter_value().integer_value
             
-            self.get_logger().info(f"视频信息: 总帧数={total_frames}, FPS={fps:.2f}, 时长={duration:.2f}秒")
+            self.get_logger().info(f"视频信息: 总帧数={total_frames}, FPS={fps:.2f}, 分辨率={width}x{height}, 时长={duration:.2f}秒")
             self.get_logger().info(f"检测设置: 每{frame_interval}帧检测一次, 最多检测{detection_limit}帧")
+
+            # 准备视频写入器（如果需要保存）
+            video_writer = None
+            result_video_path = None
+            
+            if save_to_file:
+                # 确定输出路径
+                if output_path:
+                    output_dir = Path(output_path)
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                else:
+                    output_dir = self.output_dir
+                
+                # 设置输出视频路径
+                result_video_path = output_dir / f"{name}_video_result.mp4"
+                
+                # 创建视频写入器
+                fourcc = cv2.VideoWriter.fourcc(*'mp4v')
+                video_writer = cv2.VideoWriter(str(result_video_path), fourcc, fps, (width, height))
+                
+                if video_writer.isOpened():
+                    self.get_logger().info(f"📹 视频写入器已创建: {result_video_path}")
+                else:
+                    self.get_logger().error("❌ 视频写入器创建失败")
+                    video_writer = None
 
             # 收集所有检测结果
             all_body_ratios = []
@@ -349,21 +377,42 @@ class FeatureExtractionNode(Node):
             processed_frames = []
             frame_count = 0
             detection_count = 0
+            
+            # 重置视频到开头
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
             while True:
                 ret, frame = cap.read()
-                if not ret or detection_count >= detection_limit:
+                if not ret:
                     break
 
-                # 每隔指定帧数检测一次
-                if frame_count % frame_interval == 0:
+                # 创建当前帧的副本用于标注
+                annotated_frame = frame.copy()
+                
+                # 在帧上添加基本信息
+                progress = (frame_count + 1) / total_frames * 100
+                info_text = f"Frame: {frame_count + 1}/{total_frames} ({progress:.1f}%)"
+                cv2.putText(annotated_frame, info_text, (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                # 是否需要进行特征提取检测
+                should_detect = (frame_count % frame_interval == 0) and (detection_count < detection_limit)
+                
+                if should_detect:
                     self.get_logger().info(f"处理第 {frame_count} 帧 (检测 {detection_count + 1}/{detection_limit})")
                     
                     # 对当前帧进行特征提取
                     result = self.extract_features_from_frame(frame, f"{name}_frame_{frame_count}")
                     
                     if result:
-                        body_ratios, shirt_color, pants_color, annotated_frame = result
+                        body_ratios, shirt_color, pants_color, detection_frame = result
+                        
+                        # 使用检测结果的标注帧替换基本标注帧
+                        annotated_frame = detection_frame.copy()
+                        
+                        # 在检测帧上添加进度信息
+                        cv2.putText(annotated_frame, info_text, (10, 30), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                         
                         # 检查结果有效性
                         if self.is_valid_detection(body_ratios, shirt_color, pants_color):
@@ -372,15 +421,52 @@ class FeatureExtractionNode(Node):
                             all_pants_colors.append(pants_color)
                             processed_frames.append(annotated_frame)
                             
+                            # 在帧上标记这是一个有效检测
+                            cv2.putText(annotated_frame, "VALID DETECTION", (10, 60), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            
                             self.get_logger().info(f"第 {frame_count} 帧检测有效")
                         else:
+                            # 在帧上标记这是一个无效检测
+                            cv2.putText(annotated_frame, "INVALID DETECTION", (10, 60), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                             self.get_logger().info(f"第 {frame_count} 帧检测无效，跳过")
+                    else:
+                        # 检测失败
+                        cv2.putText(annotated_frame, "DETECTION FAILED", (10, 60), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                     
                     detection_count += 1
+                else:
+                    # 非检测帧，只显示基本信息
+                    cv2.putText(annotated_frame, "SKIPPED FRAME", (10, 60), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (128, 128, 128), 2)
+
+                # 添加统计信息到帧上
+                if all_body_ratios:
+                    stats_text = f"Valid detections: {len(all_body_ratios)}"
+                    cv2.putText(annotated_frame, stats_text, (10, height - 30), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+
+                # 写入视频帧（无论是否检测）
+                if video_writer is not None:
+                    video_writer.write(annotated_frame)
 
                 frame_count += 1
 
+                # 每处理100帧输出一次进度
+                if frame_count % 100 == 0:
+                    elapsed_time = time.time() - start_time
+                    estimated_total = elapsed_time * total_frames / frame_count
+                    remaining_time = estimated_total - elapsed_time
+                    self.get_logger().info(f"进度: {frame_count}/{total_frames} ({progress:.1f}%), "
+                                         f"预计剩余: {remaining_time:.1f}秒")
+
+            # 释放资源
             cap.release()
+            if video_writer is not None:
+                video_writer.release()
+                self.get_logger().info(f"✅ 视频写入完成: {result_video_path}")
 
             if not all_body_ratios:
                 self.get_logger().error("视频中未检测到有效特征")
@@ -397,10 +483,12 @@ class FeatureExtractionNode(Node):
             
             if canvas is not None:
                 # 在图像上添加统计信息
-                cv2.putText(canvas, f"Frames: {len(all_body_ratios)}/{detection_count}", 
+                cv2.putText(canvas, f"Total Frames: {frame_count}", 
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-                cv2.putText(canvas, f"Avg Features", 
+                cv2.putText(canvas, f"Valid Detections: {len(all_body_ratios)}/{detection_count}", 
                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                cv2.putText(canvas, f"Avg Features Extracted", 
+                           (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
             # 组合平均特征
             person_ratios = avg_body_ratios + [avg_shirt_color, avg_pants_color]
@@ -416,12 +504,18 @@ class FeatureExtractionNode(Node):
                 else:
                     output_dir = self.output_dir
 
-                # 保存结果图像
+                # 保存结果图像（最后一帧）
                 if canvas is not None:
                     result_image_path = output_dir / f"{name}_video_result.jpg"
                     cv2.imwrite(str(result_image_path), canvas)
                     result_paths['image'] = str(result_image_path)
                     self.get_logger().info(f"视频结果图像已保存到: {result_image_path}")
+
+                # 保存完整视频路径
+                if result_video_path and result_video_path.exists():
+                    result_paths['video'] = str(result_video_path)
+                    video_size = result_video_path.stat().st_size / (1024 * 1024)  # MB
+                    self.get_logger().info(f"完整标注视频已保存到: {result_video_path} (大小: {video_size:.2f}MB)")
 
                 # 保存特征数据到Excel
                 excel_path = output_dir / f"{name}_video_features.xlsx"
@@ -436,6 +530,7 @@ class FeatureExtractionNode(Node):
 
             processing_time = time.time() - start_time
             self.get_logger().info(f"视频处理完成，耗时: {processing_time:.2f}秒，有效检测: {len(all_body_ratios)}/{detection_count}")
+            self.get_logger().info(f"处理速度: {frame_count / processing_time:.1f} FPS")
             
             return canvas, person_ratios, result_paths
 

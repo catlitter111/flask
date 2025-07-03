@@ -1066,8 +1066,8 @@ class WebSocketBridgeNode(Node):
                 file_type = "视频" if is_video else "图片"
                 self.get_logger().info(f'✅ {file_type}特征提取成功 - 文件: {file_name}')
                 
-                # 发送成功结果给客户端
-                self.send_feature_extraction_result(client_id, file_id, {
+                # 构建返回数据
+                result_data = {
                     'status': 'success',
                     'message': response.message,
                     'person_count': response.person_count,
@@ -1078,7 +1078,39 @@ class WebSocketBridgeNode(Node):
                     'feature_data_path': response.feature_data_path,
                     'file_name': file_name,
                     'file_type': 'video' if is_video else 'image'
-                })
+                }
+                
+                # 对于视频处理，尝试添加视频文件路径
+                if is_video:
+                    # 尝试从响应中获取视频路径，如果没有，则尝试根据命名模式推断
+                    if hasattr(response, 'result_video_path') and response.result_video_path:
+                        result_data['result_video_path'] = response.result_video_path
+                        self.get_logger().info(f'📹 包含视频路径: {response.result_video_path}')
+                    else:
+                        # 尝试根据图像路径推断视频路径
+                        if response.result_image_path:
+                            image_path = Path(response.result_image_path)
+                            # 将 _video_result.jpg 替换为 _video_result.mp4
+                            video_name = image_path.stem.replace('_video_result', '_video_result') + '.mp4'
+                            potential_video_path = image_path.parent / video_name
+                            
+                            if potential_video_path.exists():
+                                result_data['result_video_path'] = str(potential_video_path)
+                                video_size = potential_video_path.stat().st_size / (1024 * 1024)  # MB
+                                self.get_logger().info(f'📹 推断视频路径: {potential_video_path} (大小: {video_size:.2f}MB)')
+                            else:
+                                self.get_logger().warn(f'⚠️ 未找到期望的视频文件: {potential_video_path}')
+                                
+                        # 添加视频处理的额外信息
+                        result_data['processing_info'] = {
+                            'type': 'video_processing',
+                            'has_annotated_video': 'result_video_path' in result_data,
+                            'has_result_image': bool(response.result_image_path),
+                            'has_feature_data': bool(response.feature_data_path)
+                        }
+                
+                # 发送成功结果给客户端
+                self.send_feature_extraction_result(client_id, file_id, result_data)
                 
             else:
                 file_type = "视频" if is_video else "图片"
