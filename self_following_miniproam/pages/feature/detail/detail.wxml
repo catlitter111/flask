@@ -1,0 +1,214 @@
+<!-- pages/feature/detail/detail.wxml - 特征识别详情页面 -->
+<view class="container" wx:if="{{target}}">
+  <!-- 头部信息卡片 -->
+  <view class="target-header card">
+    <view class="header-info">
+      <view class="target-avatar">
+        <view class="avatar-colors">
+          <view class="color-dot large" style="background-color: {{target.topColor}};"></view>
+          <view class="color-dot large" style="background-color: {{target.bottomColor}};"></view>
+        </view>
+      </view>
+      <view class="target-details">
+        <text class="target-name">{{target.name || '未命名目标'}}</text>
+        <text class="target-desc">{{target.topColorName}}衣{{target.bottomColorName}}裤</text>
+        <text class="target-time">识别时间：{{target.timestamp}}</text>
+        <view class="target-status">
+          <text class="status-badge {{target.isFollowing ? 'following' : 'saved'}}">
+            {{target.isFollowing ? '🎯 跟随中' : '💾 已保存'}}
+          </text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 图片查看区域 -->
+  <view class="image-section card">
+    <view class="section-header">
+      <text class="section-title">📷 识别图片</text>
+      <text class="section-subtitle">查看原图和处理结果</text>
+    </view>
+    
+    <view class="image-actions">
+      <button class="image-btn" bindtap="viewOriginalImage" wx:if="{{target.image_data}}">
+        <view class="btn-icon">🖼️</view>
+        <text class="btn-text">查看原图</text>
+      </button>
+      <button class="image-btn" bindtap="viewProcessedImage" wx:if="{{target.processed_image}}">
+        <view class="btn-icon">🔍</view>
+        <text class="btn-text">处理结果</text>
+      </button>
+      <view class="no-image" wx:if="{{!target.image_data && !target.processed_image}}">
+        <text class="no-image-text">暂无图片数据</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 服装颜色详情 -->
+  <view class="color-detail-section card">
+    <view class="section-header" bindtap="toggleColorDetails">
+      <view class="header-left">
+        <text class="section-title">🎨 服装颜色分析</text>
+        <text class="section-subtitle">详细的颜色识别结果</text>
+      </view>
+      <view class="expand-icon {{showColorDetails ? 'expanded' : ''}}">
+        <text>▼</text>
+      </view>
+    </view>
+    
+    <!-- 颜色预览 -->
+    <view class="color-preview-section">
+      <view class="color-item-large">
+        <view class="color-swatch" style="background-color: {{target.topColor}};">
+          <text class="color-label">上衣</text>
+        </view>
+        <view class="color-info">
+          <text class="color-name">{{target.topColorName}}</text>
+          <text class="color-hex">{{target.topColor}}</text>
+        </view>
+      </view>
+      
+      <view class="color-item-large">
+        <view class="color-swatch" style="background-color: {{target.bottomColor}};">
+          <text class="color-label">下装</text>
+        </view>
+        <view class="color-info">
+          <text class="color-name">{{target.bottomColorName}}</text>
+          <text class="color-hex">{{target.bottomColor}}</text>
+        </view>
+      </view>
+    </view>
+    
+    <!-- 详细颜色信息 -->
+    <view class="color-details" wx:if="{{showColorDetails && target.features}}">
+      <view class="detail-title">🔬 详细分析</view>
+      <view class="detail-grid">
+        <view class="detail-item">
+          <text class="detail-label">上衣置信度</text>
+          <text class="detail-value">{{target.features.clothing_colors.top.confidence || 0}}%</text>
+        </view>
+        <view class="detail-item">
+          <text class="detail-label">下装置信度</text>
+          <text class="detail-value">{{target.features.clothing_colors.bottom.confidence || 0}}%</text>
+        </view>
+        <view class="detail-item">
+          <text class="detail-label">颜色空间</text>
+          <text class="detail-value">RGB</text>
+        </view>
+        <view class="detail-item">
+          <text class="detail-label">检测精度</text>
+          <text class="detail-value">高</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 身体比例详情 -->
+  <view class="proportion-detail-section card">
+    <view class="section-header" bindtap="toggleProportionDetails">
+      <view class="header-left">
+        <text class="section-title">📏 身体比例分析</text>
+        <text class="section-subtitle">16项详细的身体比例数据</text>
+      </view>
+      <view class="expand-icon {{showProportionDetails ? 'expanded' : ''}}">
+        <text>▼</text>
+      </view>
+    </view>
+    
+    <!-- 主要比例 -->
+    <view class="main-proportions" wx:if="{{target.body_proportions}}">
+      <view class="proportion-item">
+        <text class="proportion-label">身高比例</text>
+        <text class="proportion-value">{{target.body_proportions.height || '0.0'}}</text>
+      </view>
+      <view class="proportion-item">
+        <text class="proportion-label">肩宽比例</text>
+        <text class="proportion-value">{{target.body_proportions.shoulderWidth || '0.0'}}</text>
+      </view>
+      <view class="proportion-item">
+        <text class="proportion-label">腰围比例</text>
+        <text class="proportion-value">{{target.body_proportions.waist || '0.0'}}</text>
+      </view>
+    </view>
+    
+    <!-- 详细比例数据 -->
+    <view class="detailed-proportions" wx:if="{{showProportionDetails}}">
+      <view class="detail-title">📊 完整比例数据</view>
+      <scroll-view class="proportion-scroll" scroll-y="true">
+        <view class="proportion-grid">
+          <view class="proportion-detail-item" 
+                wx:for="{{target.detailed_proportions}}" 
+                wx:key="index"
+                wx:if="{{target.detailed_proportions && target.detailed_proportions.length > 0}}">
+            <view class="detail-index">{{index + 1}}</view>
+            <view class="detail-content">
+              <text class="detail-label">{{item.label || proportionLabels[index].label}}</text>
+              <text class="detail-value">{{item.value || '0.000'}}</text>
+            </view>
+          </view>
+          <!-- 如果没有详细比例数据，显示提示 -->
+          <view class="no-data-tip" wx:if="{{!target.detailed_proportions || target.detailed_proportions.length === 0}}">
+            <text class="tip-text">暂无详细比例数据</text>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- 操作按钮区域 -->
+  <view class="action-section">
+    <view class="action-row">
+      <button class="action-btn secondary" bindtap="setAsCurrentTarget">
+        <view class="btn-icon">🎯</view>
+        <text>设为目标</text>
+      </button>
+      <button class="action-btn primary" bindtap="startFollowing">
+        <view class="btn-icon">🚀</view>
+        <text>开始跟随</text>
+      </button>
+    </view>
+    
+    <view class="action-row">
+      <button class="action-btn outline" bindtap="shareTarget">
+        <view class="btn-icon">📤</view>
+        <text>分享</text>
+      </button>
+      <button class="action-btn danger" bindtap="deleteHistory">
+        <view class="btn-icon">🗑️</view>
+        <text>删除</text>
+      </button>
+    </view>
+  </view>
+</view>
+
+<!-- 无数据状态 -->
+<view class="empty-state" wx:else>
+  <view class="empty-icon">❌</view>
+  <text class="empty-text">目标数据不存在</text>
+  <button class="back-btn" bindtap="navigateBack">返回</button>
+</view>
+
+<!-- 图片查看模态框 -->
+<view class="image-modal {{showImageModal ? 'show' : ''}}" bindtap="closeImageModal">
+  <view class="modal-content" catchtap="stopPropagation">
+    <view class="modal-header">
+      <text class="modal-title">图片预览</text>
+      <button class="modal-close" bindtap="closeImageModal">×</button>
+    </view>
+    
+    <view class="modal-body">
+      <image 
+        src="{{currentImage}}" 
+        mode="aspectFit" 
+        class="modal-image"
+        bindtap="previewImage" />
+    </view>
+    
+    <view class="modal-footer">
+      <button class="preview-btn" bindtap="previewImage">
+        <view class="btn-icon">🔍</view>
+        <text>全屏查看</text>
+      </button>
+    </view>
+  </view>
+</view> 

@@ -123,9 +123,9 @@ Page({
       });
     },
   
-    // 加载演示数据（实际使用时删除）
+        // 加载演示数据（实际使用时删除）
     loadDemoData: function() {
-      // 模拟一些历史数据
+      // 模拟一些历史数据，使用完整的数据结构
       const demoHistory = [
         {
           id: 'demo_1',
@@ -135,7 +135,71 @@ Page({
           topColor: '#4CAF50',
           bottomColor: '#2196F3',
           timestamp: '2024-01-15 14:30',
-          isFollowing: true
+          isFollowing: true,
+          features: {
+            clothing_colors: {
+              top: {
+                name: '绿色',
+                color: '#4CAF50',
+                confidence: 0.85  // 保存时已除以100
+              },
+              bottom: {
+                name: '蓝色',
+                color: '#2196F3',
+                confidence: 0.92
+              }
+            },
+            body_proportions: {
+              height: '1.750',
+              shoulderWidth: '0.245',
+              chest: '0.189',
+              waist: '0.167',
+              hip: '0.203'
+            },
+            detailed_proportions: [
+              { label: '上肢下肢比例', value: '0.892', unit: '' },
+              { label: '躯干身高比例', value: '0.543', unit: '' },
+              { label: '肩宽身高比例', value: '0.245', unit: '' },
+              { label: '臀宽肩宽比例', value: '0.823', unit: '' },
+              { label: '头部躯干比例', value: '0.187', unit: '' },
+              { label: '手臂身高比例', value: '0.432', unit: '' },
+              { label: '腿长身高比例', value: '0.457', unit: '' },
+              { label: '上臂下臂比例', value: '1.024', unit: '' },
+              { label: '大腿小腿比例', value: '1.134', unit: '' },
+              { label: '躯干腿长比例', value: '1.189', unit: '' },
+              { label: '手臂腿长比例', value: '0.945', unit: '' },
+              { label: '肩宽髋宽比例', value: '1.207', unit: '' },
+              { label: '头围身高比例', value: '0.143', unit: '' },
+              { label: '脚长身高比例', value: '0.152', unit: '' },
+              { label: '脚踝宽度比例', value: '0.089', unit: '' },
+              { label: '腰围身高比例', value: '0.167', unit: '' }
+            ]
+          },
+          confidence: 88,
+          image_data: '/images/demo_person.jpg',  // 演示图片路径
+          body_proportions: {
+            height: '1.750',
+            shoulderWidth: '0.245',
+            waist: '0.167'
+          },
+          detailed_proportions: [
+            { label: '上肢下肢比例', value: '0.892', unit: '' },
+            { label: '躯干身高比例', value: '0.543', unit: '' },
+            { label: '肩宽身高比例', value: '0.245', unit: '' },
+            { label: '臀宽肩宽比例', value: '0.823', unit: '' },
+            { label: '头部躯干比例', value: '0.187', unit: '' },
+            { label: '手臂身高比例', value: '0.432', unit: '' },
+            { label: '腿长身高比例', value: '0.457', unit: '' },
+            { label: '上臂下臂比例', value: '1.024', unit: '' },
+            { label: '大腿小腿比例', value: '1.134', unit: '' },
+            { label: '躯干腿长比例', value: '1.189', unit: '' },
+            { label: '手臂腿长比例', value: '0.945', unit: '' },
+            { label: '肩宽髋宽比例', value: '1.207', unit: '' },
+            { label: '头围身高比例', value: '0.143', unit: '' },
+            { label: '脚长身高比例', value: '0.152', unit: '' },
+            { label: '脚踝宽度比例', value: '0.089', unit: '' },
+            { label: '腰围身高比例', value: '0.167', unit: '' }
+          ]
         },
         {
           id: 'demo_2',
@@ -145,10 +209,74 @@ Page({
           topColor: '#2196F3',
           bottomColor: '#424242',
           timestamp: '2024-01-15 13:15',
-          isFollowing: false
+          isFollowing: false,
+          features: {
+            clothing_colors: {
+              top: {
+                name: '蓝色',
+                color: '#2196F3',
+                confidence: 0.78
+              },
+              bottom: {
+                name: '黑色',
+                color: '#424242',
+                confidence: 0.95
+              }
+            },
+            body_proportions: {
+              height: '1.680',
+              shoulderWidth: '0.238',
+              chest: '0.175',
+              waist: '0.156',
+              hip: '0.198'
+            },
+            detailed_proportions: [
+              { label: '上肢下肢比例', value: '0.876', unit: '' },
+              { label: '躯干身高比例', value: '0.521', unit: '' },
+              { label: '肩宽身高比例', value: '0.238', unit: '' },
+              { label: '臀宽肩宽比例', value: '0.832', unit: '' },
+              { label: '头部躯干比例', value: '0.192', unit: '' },
+              { label: '手臂身高比例', value: '0.425', unit: '' },
+              { label: '腿长身高比例', value: '0.479', unit: '' },
+              { label: '上臂下臂比例', value: '1.018', unit: '' },
+              { label: '大腿小腿比例', value: '1.128', unit: '' },
+              { label: '躯干腿长比例', value: '1.088', unit: '' },
+              { label: '手臂腿长比例', value: '0.887', unit: '' },
+              { label: '肩宽髋宽比例', value: '1.202', unit: '' },
+              { label: '头围身高比例', value: '0.149', unit: '' },
+              { label: '脚长身高比例', value: '0.148', unit: '' },
+              { label: '脚踝宽度比例', value: '0.087', unit: '' },
+              { label: '腰围身高比例', value: '0.156', unit: '' }
+            ]
+          },
+          confidence: 86,
+          image_data: '/images/demo_person2.jpg',
+          body_proportions: {
+            height: '1.680',
+            shoulderWidth: '0.238',
+            waist: '0.156'
+          },
+          detailed_proportions: [
+            { label: '上肢下肢比例', value: '0.876', unit: '' },
+            { label: '躯干身高比例', value: '0.521', unit: '' },
+            { label: '肩宽身高比例', value: '0.238', unit: '' },
+            { label: '臀宽肩宽比例', value: '0.832', unit: '' },
+            { label: '头部躯干比例', value: '0.192', unit: '' },
+            { label: '手臂身高比例', value: '0.425', unit: '' },
+            { label: '腿长身高比例', value: '0.479', unit: '' },
+            { label: '上臂下臂比例', value: '1.018', unit: '' },
+            { label: '大腿小腿比例', value: '1.128', unit: '' },
+            { label: '躯干腿长比例', value: '1.088', unit: '' },
+            { label: '手臂腿长比例', value: '0.887', unit: '' },
+            { label: '肩宽髋宽比例', value: '1.202', unit: '' },
+            { label: '头围身高比例', value: '0.149', unit: '' },
+            { label: '脚长身高比例', value: '0.148', unit: '' },
+            { label: '脚踝宽度比例', value: '0.087', unit: '' },
+            { label: '腰围身高比例', value: '0.156', unit: '' }
+          ]
         }
       ];
-  
+
       this.setData({
         extractedFeatures: demoHistory,
         currentTargetId: 'demo_1'
@@ -486,6 +614,11 @@ Page({
           featureDataPath: resultData.feature_data_path
         });
         
+        // 自动保存特征数据到历史记录
+        setTimeout(() => {
+          this.saveFeatures();
+        }, 1000);
+        
         wx.showToast({
           title: '特征提取完成',
           icon: 'success'
@@ -617,6 +750,20 @@ Page({
         icon: 'success'
       });
     },
+
+    // 查看历史详情
+    viewHistoryDetail: function(e) {
+      const target = e.currentTarget.dataset.target;
+      
+      // 将目标数据存储到全局，供详情页面使用
+      const app = getApp();
+      app.globalData.currentHistoryTarget = target;
+      
+      // 跳转到详情页面
+      wx.navigateTo({
+        url: '/pages/feature/detail/detail'
+      });
+    },
   
     // 加载历史目标数据
     loadHistoryTarget: function(target) {
@@ -644,10 +791,25 @@ Page({
   
       const app = getApp();
       
+      // 确保数据完整性
+      const bodyProportions = this.data.bodyProportions || {};
+      const detailedProportions = this.data.detailedProportions || [];
+      
+      console.log('💾 准备保存特征数据:', {
+        bodyProportions: bodyProportions,
+        detailedProportions: detailedProportions,
+        clothingColors: this.data.clothingColors
+      });
+      
       // 创建特征数据
       const featureData = {
-        id: `feature_${Date.now()}`,
+        id: Date.now(), // 使用时间戳作为简单ID
         timestamp: Date.now(),
+        name: `目标${app.globalData.extractedFeatures.length + 1}`,
+        topColor: this.data.clothingColors.top.color,
+        bottomColor: this.data.clothingColors.bottom.color,
+        topColorName: this.data.clothingColors.top.name,
+        bottomColorName: this.data.clothingColors.bottom.name,
         features: {
           clothing_colors: {
             top: {
@@ -661,11 +823,15 @@ Page({
               confidence: this.data.clothingColors.bottom.confidence / 100
             }
           },
-          body_proportions: this.data.bodyProportions,
-          detailed_proportions: this.data.detailedProportions
+          body_proportions: bodyProportions,
+          detailed_proportions: detailedProportions
         },
         confidence: this.data.overallConfidence,
-        image_data: this.data.previewImage
+        image_data: this.data.previewImage,
+        isFollowing: false,
+        // 添加兼容性字段，直接在顶层提供数据
+        body_proportions: bodyProportions,
+        detailed_proportions: detailedProportions
       };
   
       // 保存到全局数据
@@ -788,9 +954,33 @@ Page({
       return colorMap[hexColor] || '未知';
     },
   
-    // 工具函数：格式化时间戳
+    // 工具函数：格式化时间戳（iOS兼容）
     formatTimestamp: function(timestamp) {
-      const date = new Date(timestamp);
+      if (!timestamp) return '未知时间';
+      
+      let date;
+      
+      // 如果timestamp是字符串格式，需要转换为iOS兼容格式
+      if (typeof timestamp === 'string') {
+        // 将 "yyyy-MM-dd HH:mm" 转换为 "yyyy/MM/dd HH:mm:ss" (iOS兼容)
+        const isoString = timestamp.replace(/(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/, '$1/$2/$3 $4:$5:00');
+        date = new Date(isoString);
+        
+        // 如果转换失败，尝试直接解析
+        if (isNaN(date.getTime())) {
+          date = new Date(timestamp);
+        }
+      } else {
+        // 数字时间戳
+        date = new Date(timestamp);
+      }
+      
+      // 验证日期是否有效
+      if (isNaN(date.getTime())) {
+        console.warn('⚠️ 无效的时间戳:', timestamp);
+        return '时间格式错误';
+      }
+      
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const day = String(date.getDate()).padStart(2, '0');
@@ -853,18 +1043,33 @@ Page({
 
     // 格式化RGB颜色数据为显示格式
     formatColorsFromRGB: function(shirtRGB, pantsRGB) {
-      return {
+      console.log('🎨 格式化颜色数据:', { shirtRGB, pantsRGB });
+      
+      const topColorName = this.getColorNameFromRGB(shirtRGB);
+      const bottomColorName = this.getColorNameFromRGB(pantsRGB);
+      const topColorHex = this.rgbToHex(shirtRGB);
+      const bottomColorHex = this.rgbToHex(pantsRGB);
+      
+      console.log('🎨 格式化结果:', {
+        top: { name: topColorName, color: topColorHex },
+        bottom: { name: bottomColorName, color: bottomColorHex }
+      });
+      
+      const result = {
         top: {
-          name: this.getColorNameFromRGB(shirtRGB),
-          color: this.rgbToHex(shirtRGB),
-          confidence: shirtRGB && shirtRGB[0] !== 0 ? 85 : 0
+          name: topColorName,
+          color: topColorHex,
+          confidence: shirtRGB && Array.isArray(shirtRGB) && shirtRGB.length >= 3 ? 85 : 0
         },
         bottom: {
-          name: this.getColorNameFromRGB(pantsRGB),
-          color: this.rgbToHex(pantsRGB),
-          confidence: pantsRGB && pantsRGB[0] !== 0 ? 92 : 0
+          name: bottomColorName,
+          color: bottomColorHex,
+          confidence: pantsRGB && Array.isArray(pantsRGB) && pantsRGB.length >= 3 ? 92 : 0
         }
       };
+      
+      console.log('🎨 最终颜色结果:', result);
+      return result;
     },
 
     // RGB转HEX
@@ -886,18 +1091,38 @@ Page({
       const g = rgb[1];
       const b = rgb[2];
       
-      // 简单的颜色识别逻辑
-      if (r > 200 && g > 200 && b > 200) return '白色';
-      if (r < 50 && g < 50 && b < 50) return '黑色';
-      if (r > g && r > b) return '红色';
-      if (g > r && g > b) return '绿色';
-      if (b > r && b > g) return '蓝色';
-      if (r > 150 && g > 150 && b < 100) return '黄色';
-      if (r > 150 && g < 100 && b > 150) return '紫色';
-      if (r > 150 && g > 100 && b < 100) return '橙色';
-      if (r < 150 && g > 100 && b > 100) return '青色';
+      console.log('🎨 识别颜色 RGB:', [r, g, b]);
       
-      return '灰色';
+      // 改进的颜色识别逻辑
+      if (r > 240 && g > 240 && b > 240) return '白色';
+      if (r < 30 && g < 30 && b < 30) return '黑色';
+      
+      // 计算颜色的主导分量
+      const maxVal = Math.max(r, g, b);
+      const minVal = Math.min(r, g, b);
+      const delta = maxVal - minVal;
+      
+      // 如果差值很小，是灰色系
+      if (delta < 30) {
+        if (maxVal > 200) return '浅灰';
+        if (maxVal > 100) return '灰色';
+        return '深灰';
+      }
+      
+      // 主要颜色识别
+      if (r >= g && r >= b) {
+        if (g > b + 50) return '橙色';
+        if (g > 100) return '红橙';
+        return '红色';
+      } else if (g >= r && g >= b) {
+        if (r > b + 30) return '黄绿';
+        if (b > r + 30) return '青绿';
+        return '绿色';
+      } else {
+        if (r > g + 30) return '紫色';
+        if (g > 100) return '青色';
+        return '蓝色';
+      }
     },
   
     // 处理连接状态更新（由app.js调用）
@@ -906,49 +1131,56 @@ Page({
       console.log('🔗 特征识别页面 - 连接状态更新:', isConnected);
     },
   
-    // 处理文件保存结果（由app.js调用）
-    handleFileSaveResult: function(data) {
-      console.log('📁 收到文件保存结果:', data);
+      // 处理文件保存结果（由app.js调用）
+  handleFileSaveResult: function(data) {
+    console.log('📁 收到文件保存结果:', data);
+    
+    const status = data.status;
+    
+    if (status === 'success') {
+      const originalName = data.original_name || '未知文件';
+      const finalName = data.final_name || data.original_name || '未知文件';
+      const savedPath = data.saved_path || '未知路径';
       
-      const status = data.status;
+      console.log('✅ 文件已保存到ROS2节点:', savedPath);
+      console.log(`📝 文件名: ${originalName} → ${finalName}`);
       
-      if (status === 'success') {
-        const originalName = data.original_name || '未知文件';
-        const finalName = data.final_name || data.original_name || '未知文件';
+      wx.showToast({
+        title: '文件已转发到机器人',
+        icon: 'success',
+        duration: 2000
+      });
+      
+      // 可以在这里触发特征提取或其他后续操作
+      if (this.data.currentFile) {
+        // 只有在savedPath不为undefined时才设置
+        const updateData = {
+          'currentFile.robotSaved': true,
+          'currentFile.finalName': finalName
+        };
         
-        console.log('✅ 文件已保存到ROS2节点:', data.saved_path);
-        console.log(`📝 文件名: ${originalName} → ${finalName}`);
-        
-        wx.showToast({
-          title: '文件已转发到机器人',
-          icon: 'success',
-          duration: 2000
-        });
-        
-        // 可以在这里触发特征提取或其他后续操作
-        if (this.data.currentFile) {
-          this.setData({
-            'currentFile.robotSaved': true,
-            'currentFile.savedPath': data.saved_path,
-            'currentFile.finalName': finalName
-          });
+        if (savedPath && savedPath !== '未知路径') {
+          updateData['currentFile.savedPath'] = savedPath;
         }
-      } else {
-        console.error('❌ 文件保存失败:', data.error);
-        wx.showToast({
-          title: '文件转发失败',
-          icon: 'none',
-          duration: 2000
-        });
         
-        if (this.data.currentFile) {
-          this.setData({
-            'currentFile.robotSaved': false,
-            'currentFile.error': data.error
-          });
-        }
+        this.setData(updateData);
       }
-    },
+    } else {
+      console.error('❌ 文件保存失败:', data.error);
+      wx.showToast({
+        title: '文件转发失败',
+        icon: 'none',
+        duration: 2000
+      });
+      
+      if (this.data.currentFile) {
+        this.setData({
+          'currentFile.robotSaved': false,
+          'currentFile.error': data.error || '未知错误'
+        });
+      }
+    }
+  },
   
     // 处理机器人断开连接（由app.js调用）
     handleCompanionDisconnected: function(data) {

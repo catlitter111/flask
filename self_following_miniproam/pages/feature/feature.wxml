@@ -219,23 +219,27 @@
     
     <scroll-view class="history-list" scroll-y="true">
       <view class="history-item {{currentTargetId === item.id ? 'selected' : ''}}" 
-            wx:for="{{extractedFeatures}}" wx:key="id" 
-            bindtap="selectHistoryTarget" data-target="{{item}}">
+            wx:for="{{extractedFeatures}}" wx:key="id">
         <view class="history-avatar">
           <view class="avatar-colors">
             <view class="color-dot" style="background-color: {{item.topColor}};"></view>
             <view class="color-dot" style="background-color: {{item.bottomColor}};"></view>
           </view>
         </view>
-        <view class="history-info">
+        <view class="history-info" bindtap="selectHistoryTarget" data-target="{{item}}">
           <text class="history-title">{{item.name || '目标' + (index + 1)}}</text>
           <text class="history-desc">{{item.topColorName}}衣{{item.bottomColorName}}裤</text>
           <text class="history-time">{{item.timestamp}}</text>
         </view>
-        <view class="history-status">
-          <text class="status-text {{item.isFollowing ? 'following' : ''}}">
-            {{item.isFollowing ? '跟随中' : '已保存'}}
-          </text>
+        <view class="history-actions">
+          <view class="history-status">
+            <text class="status-text {{item.isFollowing ? 'following' : ''}}">
+              {{item.isFollowing ? '跟随中' : '已保存'}}
+            </text>
+          </view>
+          <button class="detail-btn-small" bindtap="viewHistoryDetail" data-target="{{item}}">
+            详情
+          </button>
         </view>
       </view>
     </scroll-view>

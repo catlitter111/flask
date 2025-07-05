@@ -659,6 +659,13 @@ page {
     color: var(--text-light);
   }
   
+  .history-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8rpx;
+  }
+  
   .history-status {
     text-align: right;
   }
@@ -674,6 +681,24 @@ page {
   .status-text.following {
     color: var(--success-color);
     background: rgba(76, 175, 80, 0.1);
+  }
+  
+  .detail-btn-small {
+    font-size: 22rpx;
+    padding: 8rpx 16rpx;
+    background: var(--primary-color);
+    color: white;
+    border-radius: 16rpx;
+    border: none;
+    min-width: auto;
+    height: auto;
+    line-height: 1.2;
+    transition: all 0.2s ease;
+  }
+  
+  .detail-btn-small:active {
+    background: rgba(25, 118, 210, 0.8);
+    transform: scale(0.95);
   }
   
   /* 底部操作区域 */

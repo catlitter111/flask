@@ -3,6 +3,7 @@
       "pages/control/control",
       "pages/history/history",
       "pages/feature/feature",
+      "pages/feature/detail/detail",
       "pages/assistant/assistant"
     ],
     "window": {
