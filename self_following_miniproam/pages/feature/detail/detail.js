@@ -31,8 +31,6 @@ Page({
   },
 
   onLoad: function(options) {
-    console.log('🔍 特征详情页面加载');
-    
     // 从全局数据获取目标信息
     const app = getApp();
     const target = app.globalData.currentHistoryTarget;
@@ -44,7 +42,6 @@ Page({
       this.setData({
         target: processedTarget
       });
-      console.log('📊 加载目标详情:', processedTarget);
     } else {
       wx.showToast({
         title: '目标数据不存在',
@@ -58,43 +55,25 @@ Page({
 
   // 处理目标数据，确保格式正确
   processTargetData: function(rawTarget) {
-    console.log('🔄 [详情页] 处理原始数据:', rawTarget);
-    
-    // 详细调试：显示所有图片相关字段
-    console.log('🔍 [详情页图片调试] 所有可能的图片字段:');
-    console.log('🔍 [详情页图片调试] rawTarget.image_data存在:', !!rawTarget.image_data);
-    console.log('🔍 [详情页图片调试] rawTarget.processed_image存在:', !!rawTarget.processed_image);
-    console.log('🔍 [详情页图片调试] rawTarget.result_image存在:', !!rawTarget.result_image);
-    console.log('🔍 [详情页图片调试] rawTarget.previewImage存在:', !!rawTarget.previewImage);
-    console.log('🔍 [详情页图片调试] 所有keys:', Object.keys(rawTarget));
+    // 移除详细调试日志以提升性能
     
     // 提取身体比例数据
     const body_proportions = rawTarget.features?.body_proportions || rawTarget.body_proportions || {};
     const detailed_proportions = rawTarget.features?.detailed_proportions || rawTarget.detailed_proportions || [];
     
-    console.log('📊 [详情页] 提取的比例数据:', {
-      body_proportions: body_proportions,
-      detailed_proportions: detailed_proportions,
-      'body_proportions类型': typeof body_proportions,
-      'body_proportions键数': Object.keys(body_proportions).length,
-      'detailed_proportions类型': Array.isArray(detailed_proportions),
-      'detailed_proportions长度': detailed_proportions.length
-    });
+    // 移除调试日志以提升性能
     
     // 处理图片数据，确保有处理后的图片
     const image_data = rawTarget.image_data || rawTarget.previewImage || '';
     
-    // 优先使用处理后的图片，但加强调试
+    // 优先使用处理后的图片
     let processed_image = '';
     if (rawTarget.processed_image) {
       processed_image = rawTarget.processed_image;
-      console.log('🖼️ [详情页] 使用processed_image字段');
     } else if (rawTarget.result_image) {
       processed_image = rawTarget.result_image;
-      console.log('🖼️ [详情页] 使用result_image字段');
     } else {
       processed_image = image_data;
-      console.log('🖼️ [详情页] 回退到image_data字段');
     }
     
     const result_image = rawTarget.result_image || processed_image || image_data;
@@ -141,15 +120,7 @@ Page({
       detailed_proportions: detailed_proportions
     };
     
-    console.log('✅ [详情页] 处理后的数据:', {
-      id: processed.id,
-      name: processed.name,
-      has_processed_image: !!processed.processed_image,
-      topColor: processed.topColor,
-      bottomColor: processed.bottomColor,
-      body_proportions_keys: Object.keys(processed.body_proportions || {}),
-      detailed_proportions_length: (processed.detailed_proportions || []).length
-    });
+    // 简化日志输出
     return processed;
   },
 

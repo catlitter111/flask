@@ -87,6 +87,9 @@ App({
       
       // 初始化命令处理器
       this.initCommandProcessor();
+      
+      // 初始化性能优化定时器
+      this.initPerformanceTimers();
     },
     
     // 获取用户权限（相机、位置、录音等）
@@ -212,12 +215,23 @@ App({
           const now = Date.now();
           that.globalData.lastMessageTime = now;
           
-          // 处理心跳响应
+          // 处理心跳响应 - 直接返回，不进入分发流程
           if (data.type === 'pong') {
             that.globalData.lastPongTime = now;
             if (data.echo_timestamp) {
               that.globalData.networkLatency = now - data.echo_timestamp;
             }
+            return;
+          }
+          
+          // 处理ping消息 - 直接返回
+          if (data.type === 'ping') {
+            return;
+          }
+          
+          // 过滤频繁但不重要的消息类型，减少处理负担
+          const frequentTypes = ['heartbeat', 'status_ping', 'alive_check'];
+          if (frequentTypes.includes(data.type)) {
             return;
           }
           
@@ -264,8 +278,16 @@ App({
       // 视频流将自动开始传输
     },
     
-    // 消息分发到对应页面
+    // 消息分发到对应页面 - 优化版本
     distributeMessage: function(data) {
+      // 使用异步处理防止阻塞主线程
+      wx.nextTick(() => {
+        this._distributeMessageSync(data);
+      });
+    },
+    
+    // 同步消息分发处理
+    _distributeMessageSync: function(data) {
       switch (data.type) {
         case 'robot_status_update':
           // 机器人状态更新
@@ -387,7 +409,10 @@ App({
           break;
           
         default:
-          console.log('🔍 未知消息类型:', data.type);
+          // 减少日志输出
+          if (data.type !== 'ping' && data.type !== 'pong') {
+            console.log('🔍 未知消息类型:', data.type);
+          }
       }
     },
     
@@ -402,24 +427,28 @@ App({
       }
     },
     
-    // 处理视频帧
+    // 处理视频帧 - 优化版本
     handleVideoFrame: function(data) {
       this.globalData.videoStreamActive = true;
       this.globalData.lastVideoFrame = data;
       
-      // 更新视频统计
-      this.globalData.videoStats.receivedFrames++;
-      if (data.sequence && this.globalData.lastFrameSequence) {
-        const expectedSeq = this.globalData.lastFrameSequence + 1;
-        if (data.sequence > expectedSeq) {
-          this.globalData.videoStats.droppedFrames += (data.sequence - expectedSeq);
+      // 节流：只每5帧更新一次统计
+      if (data.sequence % 5 === 0) {
+        this.globalData.videoStats.receivedFrames++;
+        if (data.sequence && this.globalData.lastFrameSequence) {
+          const expectedSeq = this.globalData.lastFrameSequence + 1;
+          if (data.sequence > expectedSeq) {
+            this.globalData.videoStats.droppedFrames += (data.sequence - expectedSeq);
+          }
         }
+        this.globalData.lastFrameSequence = data.sequence;
       }
-      this.globalData.lastFrameSequence = data.sequence;
       
-      // 分发到控制页面
+      // 分发到控制页面 - 使用异步防止阻塞
       if (this.globalData.controlPage) {
-        this.globalData.controlPage.handleVideoFrame(data);
+        wx.nextTick(() => {
+          this.globalData.controlPage.handleVideoFrame(data);
+        });
       }
     },
     
@@ -503,8 +532,13 @@ App({
       });
     },
     
-    // 保存跟踪数据
+    // 保存跟踪数据 - 优化版本
     saveTrackingData: function(data) {
+      // 节流：只每10条记录保存一次
+      if (!this._trackingDataBuffer) {
+        this._trackingDataBuffer = [];
+      }
+      
       const trackingEntry = {
         timestamp: Date.now(),
         robot_position: data.robot_position,
@@ -513,19 +547,41 @@ App({
         distance: data.distance
       };
       
-      this.globalData.trackingHistory.push(trackingEntry);
+      this._trackingDataBuffer.push(trackingEntry);
+      
+      // 批量处理：每10条数据处理一次
+      if (this._trackingDataBuffer.length >= 10) {
+        this._flushTrackingData();
+      }
+    },
+    
+    // 批量刷新跟踪数据
+    _flushTrackingData: function() {
+      if (!this._trackingDataBuffer || this._trackingDataBuffer.length === 0) {
+        return;
+      }
+      
+      this.globalData.trackingHistory.push(...this._trackingDataBuffer);
+      this._trackingDataBuffer = [];
       
       // 限制历史记录数量
       if (this.globalData.trackingHistory.length > 1000) {
         this.globalData.trackingHistory = this.globalData.trackingHistory.slice(-800);
       }
       
-      // 保存到本地存储
-      wx.setStorageSync('companionHistory', this.globalData.trackingHistory);
+      // 异步保存到本地存储
+      wx.nextTick(() => {
+        wx.setStorageSync('companionHistory', this.globalData.trackingHistory);
+      });
     },
     
-    // 保存特征数据
+    // 保存特征数据 - 优化版本
     saveFeatureData: function(data) {
+      // 节流：批量处理特征数据
+      if (!this._featureDataBuffer) {
+        this._featureDataBuffer = [];
+      }
+      
       const featureEntry = {
         id: data.feature_id || Date.now(),
         timestamp: Date.now(),
@@ -535,28 +591,38 @@ App({
         image_data: data.image_data
       };
       
-      this.globalData.extractedFeatures.push(featureEntry);
+      this._featureDataBuffer.push(featureEntry);
+      
+      // 批量处理：每5条数据处理一次
+      if (this._featureDataBuffer.length >= 5) {
+        this._flushFeatureData();
+      }
+    },
+    
+    // 批量刷新特征数据
+    _flushFeatureData: function() {
+      if (!this._featureDataBuffer || this._featureDataBuffer.length === 0) {
+        return;
+      }
+      
+      this.globalData.extractedFeatures.push(...this._featureDataBuffer);
+      this._featureDataBuffer = [];
       
       // 限制特征数据数量
       if (this.globalData.extractedFeatures.length > 100) {
         this.globalData.extractedFeatures = this.globalData.extractedFeatures.slice(-80);
       }
       
-      // 保存到本地存储
-      wx.setStorageSync('extractedFeatures', this.globalData.extractedFeatures);
+      // 异步保存到本地存储
+      wx.nextTick(() => {
+        wx.setStorageSync('extractedFeatures', this.globalData.extractedFeatures);
+      });
     },
 
-    // 保存处理后图片数据
+    // 保存处理后图片数据 - 优化版本
     saveProcessedImageData: function(data) {
-      console.log('📷 接收到处理后图片数据:', data);
-      
-      // 详细调试日志
-      console.log('🔍 [小程序调试] 原始data对象:', JSON.stringify(data, null, 2));
-      console.log('🔍 [小程序调试] data.features:', data.features);
-      console.log('🔍 [小程序调试] data.features?.body_ratios:', data.features?.body_ratios);
-      console.log('🔍 [小程序调试] data.proportions:', data.proportions);
-      console.log('🔍 [小程序调试] data.body_proportions:', data.body_proportions);
-      console.log('🔍 [小程序调试] data.detailed_proportions:', data.detailed_proportions);
+      // 移除大部分调试日志，只保留关键信息
+      console.log('📷 接收到处理后图片数据');
       
       // 提取图片数据
       const originalImage = data.original_image || data.image_data?.data_base64 || '';
@@ -577,11 +643,7 @@ App({
       const bodyProportions = features.body_proportions || data.proportions || {};
       const detailedProportions = features.detailed_proportions || data.detailed_proportions || [];
       
-      console.log('🔍 [小程序调试] 提取后的bodyRatios:', bodyRatios);
-      console.log('🔍 [小程序调试] bodyRatios类型:', typeof bodyRatios, ', 长度:', Array.isArray(bodyRatios) ? bodyRatios.length : 'not array');
-      console.log('🔍 [小程序调试] bodyRatios前5个值:', Array.isArray(bodyRatios) ? bodyRatios.slice(0, 5) : 'not array');
-      console.log('🔍 [小程序调试] clothingColors:', clothingColors);
-      console.log('🔍 [小程序调试] bodyProportions:', bodyProportions);
+      // 移除详细调试日志以提升性能
       
       // 格式化时间戳
       const formatTimestamp = (ts) => {
@@ -652,13 +714,8 @@ App({
       // 保存到本地存储
       wx.setStorageSync('extractedFeatures', this.globalData.extractedFeatures);
       
-      console.log('💾 保存处理后图片数据完成:', {
-        id: processedImageEntry.id,
-        name: processedImageEntry.name,
-        bodyRatios: bodyRatios.length,
-        hasValidFeatures: data.processing_info?.has_valid_features,
-        imageSize: data.processing_info?.image_size_bytes
-      });
+      // 简化日志输出
+      console.log('💾 保存处理后图片数据完成:', processedImageEntry.id);
     },
     
     // 启动命令处理器
@@ -832,7 +889,6 @@ App({
     handleRobotConnectionStatus: function(data) {
       const isConnected = data.connected;
       const robotId = data.robot_id;
-      const timestamp = data.timestamp;
       
       // 更新全局状态
       if (robotId === this.globalData.robotId) {
@@ -992,5 +1048,19 @@ App({
         interactionMode: this.globalData.interactionMode,
         position: this.globalData.robotPosition
       };
+    },
+    
+    // 初始化性能优化定时器
+    initPerformanceTimers: function() {
+      // 定期刷新缓冲数据（每5秒，减少频率）
+      setInterval(() => {
+        // 检查是否有数据需要刷新，避免无意义的调用
+        if (this._featureDataBuffer && this._featureDataBuffer.length > 0) {
+          this._flushFeatureData();
+        }
+        if (this._trackingDataBuffer && this._trackingDataBuffer.length > 0) {
+          this._flushTrackingData();
+        }
+      }, 5000);
     }
   });
