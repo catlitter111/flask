@@ -879,17 +879,43 @@ class CompanionServer:
             logger.warning(f"⚠️ 特征提取结果无法转发：客户端不存在 - {client_id}")
             return
 
-        # 转发结果到对应的客户端
+        # 转发完整的结果数据到对应的客户端（保持所有兼容字段）
         client_connection = self.connections[client_id]
-        await self.send_message(client_connection.websocket, {
+        
+        # 构建完整的转发消息，包含所有兼容字段
+        forward_message = {
             'type': 'feature_extraction_result',
             'status': data.get('status', 'success'),
             'confidence': data.get('confidence', 0),
             'features': data.get('features', {}),
             'error': data.get('error'),
             'file_id': data.get('file_id'),
-            'timestamp': data.get('timestamp', int(time.time() * 1000))
-        })
+            'timestamp': data.get('timestamp', int(time.time() * 1000)),
+            
+            # 兼容字段 - 从WebSocket桥接节点传来的数据
+            'body_ratios': data.get('body_ratios', []),
+            'bodyRatios': data.get('bodyRatios', []),
+            'shirt_color': data.get('shirt_color', [0, 0, 0]),
+            'pants_color': data.get('pants_color', [0, 0, 0]),
+            'shirtColor': data.get('shirtColor', [0, 0, 0]),
+            'pantsColor': data.get('pantsColor', [0, 0, 0]),
+            'body_proportions': data.get('body_proportions', {}),
+            'detailed_proportions': data.get('detailed_proportions', []),
+            'clothing_colors': data.get('clothing_colors', {}),
+            'result_image_path': data.get('result_image_path', ''),
+            'feature_data_path': data.get('feature_data_path', ''),
+            'resultImagePath': data.get('resultImagePath', ''),
+            'featureDataPath': data.get('featureDataPath', ''),
+            'processing_info': data.get('processing_info', {}),
+            'person_count': data.get('person_count', 1)
+        }
+        
+        # 调试日志
+        logger.info(f"🔍 [服务端转发调试] body_ratios长度: {len(forward_message['body_ratios'])}")
+        logger.info(f"🔍 [服务端转发调试] shirt_color: {forward_message['shirt_color']}")
+        logger.info(f"🔍 [服务端转发调试] pants_color: {forward_message['pants_color']}")
+        
+        await self.send_message(client_connection.websocket, forward_message)
 
         logger.info(f"📊 转发特征提取结果 - 机器人: {robot_id}, 客户端: {client_id}, 状态: {data.get('status')}")
 

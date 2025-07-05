@@ -572,7 +572,7 @@ App({
       
       // 提取特征数据
       const features = data.features || {};
-      const bodyRatios = features.body_ratios || [0.0] * 16;
+      const bodyRatios = features.body_ratios || new Array(16).fill(0.0);
       const clothingColors = features.clothing_colors || data.colors || {};
       const bodyProportions = features.body_proportions || data.proportions || {};
       const detailedProportions = features.detailed_proportions || data.detailed_proportions || [];

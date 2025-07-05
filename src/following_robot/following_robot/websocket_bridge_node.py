@@ -549,7 +549,7 @@ class WebSocketBridgeNode(Node):
             }
             
             self.get_logger().info(f"🔍 [调试] 格式化后的body_proportions: {formatted_features['body_proportions']}")
-            self.get_logger().info(f"🔍 [调试] 格式化后的detailed_proportions前5个: {list(formatted_features['detailed_proportions'].items())[:5] if formatted_features['detailed_proportions'] else 'empty'}")
+            self.get_logger().info(f"🔍 [调试] 格式化后的detailed_proportions前5个: {formatted_features['detailed_proportions'][:5] if formatted_features['detailed_proportions'] else 'empty'}")
             
             # 构建转发消息（格式与小程序期望的一致）
             forward_message = {
@@ -1387,13 +1387,80 @@ class WebSocketBridgeNode(Node):
     
     def send_feature_extraction_result(self, client_id, file_id, result_data):
         """发送特征提取结果给客户端"""
+        # 提取特征数据
+        body_ratios = result_data.get('body_ratios', [])
+        shirt_color = result_data.get('shirt_color', [0, 0, 0])
+        pants_color = result_data.get('pants_color', [0, 0, 0])
+        
+        # 确保 body_ratios 有正确的长度和格式
+        if not isinstance(body_ratios, list) or len(body_ratios) != 16:
+            self.get_logger().warning(f"⚠️ body_ratios格式异常: 类型={type(body_ratios)}, 长度={len(body_ratios) if isinstance(body_ratios, list) else 'N/A'}")
+            body_ratios = [0.0] * 16
+        
+        # 构建格式化的特征数据（与新格式保持一致）
+        formatted_features = {
+            'body_ratios': body_ratios,
+            'clothing_colors': {
+                'top': {
+                    'name': self.get_color_name(shirt_color),
+                    'color': self.rgb_to_hex(shirt_color),
+                    'confidence': 85
+                },
+                'bottom': {
+                    'name': self.get_color_name(pants_color),
+                    'color': self.rgb_to_hex(pants_color),
+                    'confidence': 85
+                }
+            },
+            'body_proportions': self.format_body_proportions(body_ratios),
+            'detailed_proportions': self.format_detailed_proportions(body_ratios)
+        }
+        
+        # 构建完整的消息（包含兼容格式）
         message = {
             'type': 'feature_extraction_result',
             'file_id': file_id,
             'client_id': client_id,
-            'data': result_data,
-            'timestamp': int(time.time() * 1000)
+            'status': result_data.get('status', 'success'),
+            'confidence': 0,  # 保持兼容
+            'person_count': result_data.get('person_count', 1),
+            'features': formatted_features,
+            'error': None,
+            'timestamp': int(time.time() * 1000),
+            
+            # 兼容字段（确保小程序能正确解析）
+            'body_ratios': body_ratios,
+            'bodyRatios': body_ratios,  # 额外的兼容字段
+            'shirtColor': shirt_color,
+            'pantsColor': pants_color,
+            'shirt_color': shirt_color,
+            'pants_color': pants_color,
+            'body_proportions': formatted_features['body_proportions'],
+            'detailed_proportions': formatted_features['detailed_proportions'],
+            'clothing_colors': formatted_features['clothing_colors'],
+            
+            # 文件路径信息
+            'resultImagePath': result_data.get('result_image_path', ''),
+            'featureDataPath': result_data.get('feature_data_path', ''),
+            'result_image_path': result_data.get('result_image_path', ''),
+            'feature_data_path': result_data.get('feature_data_path', ''),
+            
+            # 处理信息
+            'processing_info': {
+                'has_result_image': bool(result_data.get('result_image_path')),
+                'has_feature_data': bool(result_data.get('feature_data_path')),
+                'feature_count': len(body_ratios),
+                'has_valid_features': any(ratio != 0.0 for ratio in body_ratios)
+            }
         }
+        
+        # 详细调试日志
+        self.get_logger().info(f"🔍 [旧格式调试] 发送的body_ratios: {body_ratios[:5]}... (总长度: {len(body_ratios)})")
+        self.get_logger().info(f"🔍 [旧格式调试] 发送的shirt_color: {shirt_color}")
+        self.get_logger().info(f"🔍 [旧格式调试] 发送的pants_color: {pants_color}")
+        self.get_logger().info(f"🔍 [旧格式调试] 发送的body_proportions: {formatted_features['body_proportions']}")
+        self.get_logger().info(f"🔍 [旧格式调试] 消息根级别body_ratios: {message.get('body_ratios', 'MISSING')}")
+        self.get_logger().info(f"🔍 [旧格式调试] 消息根级别shirt_color: {message.get('shirt_color', 'MISSING')}")
         
         # 发送给WebSocket服务器，由服务器转发给客户端
         if self.send_ws_message(message):

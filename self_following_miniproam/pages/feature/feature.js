@@ -584,23 +584,84 @@ Page({
     handleFeatureResult: function(data) {
       console.log('📊 收到特征提取结果:', data);
       
+      // 详细调试：显示完整的原始数据结构
+      console.log('🔍 [原始数据调试] 完整data对象:');
+      console.log('🔍 [原始数据调试] data keys:', Object.keys(data));
+      console.log('🔍 [原始数据调试] data.features:', data.features);
+      console.log('🔍 [原始数据调试] data.body_ratios:', data.body_ratios);
+      console.log('🔍 [原始数据调试] data.bodyRatios:', data.bodyRatios);
+      console.log('🔍 [原始数据调试] data.shirt_color:', data.shirt_color);
+      console.log('🔍 [原始数据调试] data.shirtColor:', data.shirtColor);
+      console.log('🔍 [原始数据调试] data.pants_color:', data.pants_color);
+      console.log('🔍 [原始数据调试] data.pantsColor:', data.pantsColor);
+      if (data.features) {
+        console.log('🔍 [原始数据调试] data.features keys:', Object.keys(data.features));
+        console.log('🔍 [原始数据调试] data.features.body_ratios:', data.features.body_ratios);
+        console.log('🔍 [原始数据调试] data.features.clothing_colors:', data.features.clothing_colors);
+      }
+      
       if (data.status === 'success') {
-        // 处理新的数据格式
-        const resultData = data.data || {};
+        // 兼容处理新旧数据格式
+        const resultData = data.data || data;  // 兼容旧格式
         
-        // 格式化身体比例数据
-        const bodyRatios = resultData.body_ratios || [];
+        // 多路径提取身体比例数据
+        let bodyRatios = [];
+        if (data.body_ratios && Array.isArray(data.body_ratios)) {
+          bodyRatios = data.body_ratios;
+        } else if (data.bodyRatios && Array.isArray(data.bodyRatios)) {
+          bodyRatios = data.bodyRatios;
+        } else if (resultData.body_ratios && Array.isArray(resultData.body_ratios)) {
+          bodyRatios = resultData.body_ratios;
+        } else {
+          bodyRatios = new Array(16).fill(0.0);
+        }
+        
+        console.log('🔍 [小程序解析] bodyRatios检查:', {
+          'data.body_ratios': data.body_ratios,
+          'data.bodyRatios': data.bodyRatios,
+          'resultData.body_ratios': resultData.body_ratios,
+          '最终bodyRatios': bodyRatios,
+          '长度': bodyRatios.length,
+          '有效数据': bodyRatios.some(ratio => ratio !== 0.0)
+        });
+        
+        // 多路径提取颜色数据
+        let shirtColor = [0, 0, 0];
+        let pantsColor = [0, 0, 0];
+        
+        if (data.shirt_color && Array.isArray(data.shirt_color)) {
+          shirtColor = data.shirt_color;
+        } else if (data.shirtColor && Array.isArray(data.shirtColor)) {
+          shirtColor = data.shirtColor;
+        } else if (resultData.shirt_color && Array.isArray(resultData.shirt_color)) {
+          shirtColor = resultData.shirt_color;
+        }
+        
+        if (data.pants_color && Array.isArray(data.pants_color)) {
+          pantsColor = data.pants_color;
+        } else if (data.pantsColor && Array.isArray(data.pantsColor)) {
+          pantsColor = data.pantsColor;
+        } else if (resultData.pants_color && Array.isArray(resultData.pants_color)) {
+          pantsColor = resultData.pants_color;
+        }
+        
+        console.log('🔍 [小程序解析] 颜色数据检查:', {
+          shirtColor: shirtColor,
+          pantsColor: pantsColor
+        });
+        
+        // 使用修复后的数据进行格式化
         const formattedProportions = this.formatBodyRatiosToProportions(bodyRatios);
-        
-        // 格式化服装颜色数据
-        const shirtColor = resultData.shirt_color || [0, 0, 0];
-        const pantsColor = resultData.pants_color || [0, 0, 0];
         const formattedColors = this.formatColorsFromRGB(shirtColor, pantsColor);
+        
+        // 获取文件路径信息
+        const resultImagePath = data.result_image_path || data.resultImagePath || resultData.result_image_path;
+        const featureDataPath = data.feature_data_path || data.featureDataPath || resultData.feature_data_path;
         
         this.setData({
           extracting: false,
           extracted: true,
-          overallConfidence: Math.round((resultData.person_count > 0 ? 95 : 0)),
+          overallConfidence: Math.round((data.person_count || resultData.person_count || 1) > 0 ? 95 : 0),
           clothingColors: formattedColors,
           bodyProportions: formattedProportions.summary,
           detailedProportions: formattedProportions.detailed
@@ -610,8 +671,10 @@ Page({
           bodyRatios: bodyRatios,
           shirtColor: shirtColor,
           pantsColor: pantsColor,
-          resultImagePath: resultData.result_image_path,
-          featureDataPath: resultData.feature_data_path
+          resultImagePath: resultImagePath,
+          featureDataPath: featureDataPath,
+          有效比例数据: Array.isArray(bodyRatios) && bodyRatios.some(ratio => ratio !== 0.0),
+          formattedProportions: formattedProportions
         });
         
         // 自动保存特征数据到历史记录
