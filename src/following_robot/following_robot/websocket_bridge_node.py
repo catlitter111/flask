@@ -521,6 +521,14 @@ class WebSocketBridgeNode(Node):
             shirt_color = features.get('shirt_color', [0, 0, 0])
             pants_color = features.get('pants_color', [0, 0, 0])
             
+            # 详细调试日志
+            self.get_logger().info(f"🔍 [调试] 原始特征数据结构: {json.dumps(features, indent=2)}")
+            self.get_logger().info(f"🔍 [调试] 提取的body_ratios: {body_ratios}")
+            self.get_logger().info(f"🔍 [调试] body_ratios类型: {type(body_ratios)}, 长度: {len(body_ratios) if isinstance(body_ratios, list) else 'not list'}")
+            self.get_logger().info(f"🔍 [调试] body_ratios前5个值: {body_ratios[:5] if isinstance(body_ratios, list) and len(body_ratios) >= 5 else 'insufficient data'}")
+            self.get_logger().info(f"🔍 [调试] shirt_color: {shirt_color}")
+            self.get_logger().info(f"🔍 [调试] pants_color: {pants_color}")
+            
             # 构建格式化的特征数据
             formatted_features = {
                 'body_ratios': body_ratios,
@@ -539,6 +547,9 @@ class WebSocketBridgeNode(Node):
                 'body_proportions': self.format_body_proportions(body_ratios),
                 'detailed_proportions': self.format_detailed_proportions(body_ratios)
             }
+            
+            self.get_logger().info(f"🔍 [调试] 格式化后的body_proportions: {formatted_features['body_proportions']}")
+            self.get_logger().info(f"🔍 [调试] 格式化后的detailed_proportions前5个: {list(formatted_features['detailed_proportions'].items())[:5] if formatted_features['detailed_proportions'] else 'empty'}")
             
             # 构建转发消息（格式与小程序期望的一致）
             forward_message = {
@@ -574,6 +585,8 @@ class WebSocketBridgeNode(Node):
                     'has_valid_features': features.get('has_valid_data', False)
                 }
             }
+            
+            self.get_logger().info(f"🔍 [调试] 最终转发消息的body_proportions: {forward_message.get('body_proportions', 'missing')}")
             
             # 发送给WebSocket服务器
             if self.send_ws_message(forward_message):

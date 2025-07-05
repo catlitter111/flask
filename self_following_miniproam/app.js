@@ -550,6 +550,14 @@ App({
     saveProcessedImageData: function(data) {
       console.log('📷 接收到处理后图片数据:', data);
       
+      // 详细调试日志
+      console.log('🔍 [小程序调试] 原始data对象:', JSON.stringify(data, null, 2));
+      console.log('🔍 [小程序调试] data.features:', data.features);
+      console.log('🔍 [小程序调试] data.features?.body_ratios:', data.features?.body_ratios);
+      console.log('🔍 [小程序调试] data.proportions:', data.proportions);
+      console.log('🔍 [小程序调试] data.body_proportions:', data.body_proportions);
+      console.log('🔍 [小程序调试] data.detailed_proportions:', data.detailed_proportions);
+      
       // 提取图片数据
       const originalImage = data.original_image || data.image_data?.data_base64 || '';
       const processedImage = data.processed_image || data.image_data?.data_base64 || '';
@@ -568,6 +576,12 @@ App({
       const clothingColors = features.clothing_colors || data.colors || {};
       const bodyProportions = features.body_proportions || data.proportions || {};
       const detailedProportions = features.detailed_proportions || data.detailed_proportions || [];
+      
+      console.log('🔍 [小程序调试] 提取后的bodyRatios:', bodyRatios);
+      console.log('🔍 [小程序调试] bodyRatios类型:', typeof bodyRatios, ', 长度:', Array.isArray(bodyRatios) ? bodyRatios.length : 'not array');
+      console.log('🔍 [小程序调试] bodyRatios前5个值:', Array.isArray(bodyRatios) ? bodyRatios.slice(0, 5) : 'not array');
+      console.log('🔍 [小程序调试] clothingColors:', clothingColors);
+      console.log('🔍 [小程序调试] bodyProportions:', bodyProportions);
       
       // 格式化时间戳
       const formatTimestamp = (ts) => {
