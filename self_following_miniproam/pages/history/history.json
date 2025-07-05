@@ -1,0 +1,10 @@
+{
+  "navigationBarTitleText": "陪伴历史",
+  "navigationBarBackgroundColor": "#2196F3",
+  "navigationBarTextStyle": "white",
+  "backgroundColor": "#f5f7fa",
+  "backgroundTextStyle": "dark",
+  "enablePullDownRefresh": true,
+  "onReachBottomDistance": 50,
+  "usingComponents": {}
+}

@@ -1,0 +1,783 @@
+/* 陪伴历史页面样式 */
+.history-container {
+  padding: 20rpx;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  min-height: 100vh;
+}
+
+/* 状态栏 */
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+  padding: 20rpx;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 16rpx;
+  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.08);
+}
+
+.connection-status, .tracking-status {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 20rpx;
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
+.connection-status.connected {
+  background: linear-gradient(135deg, #4CAF50, #8BC34A);
+  color: white;
+}
+
+.connection-status.disconnected {
+  background: linear-gradient(135deg, #f44336, #e57373);
+  color: white;
+}
+
+.tracking-status.tracking {
+  background: linear-gradient(135deg, #2196F3, #03A9F4);
+  color: white;
+}
+
+.tracking-status.idle {
+  background: linear-gradient(135deg, #9E9E9E, #BDBDBD);
+  color: white;
+}
+
+.status-icon {
+  font-size: 32rpx;
+}
+
+.status-text {
+  font-size: 24rpx;
+}
+
+/* 统计卡片 */
+.stats-section {
+  margin-bottom: 30rpx;
+}
+
+.stats-card {
+  display: flex;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 20rpx;
+  padding: 30rpx;
+  box-shadow: 0 12rpx 40rpx rgba(102, 126, 234, 0.25);
+  overflow: hidden;
+  position: relative;
+}
+
+.stats-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4rpx;
+  background: linear-gradient(90deg, #FF9800, #FFC107, #FFEB3B);
+}
+
+.stats-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.stats-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2rpx;
+  height: 60rpx;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.stats-value {
+  font-size: 44rpx;
+  font-weight: bold;
+  color: white;
+  margin-bottom: 8rpx;
+}
+
+.stats-label {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 8rpx;
+}
+
+.stats-icon {
+  font-size: 32rpx;
+  opacity: 0.8;
+}
+
+/* 实时追踪控制 */
+.tracking-control {
+  margin-bottom: 30rpx;
+  padding: 30rpx;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20rpx;
+  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.08);
+}
+
+.tracking-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  padding: 24rpx;
+  border-radius: 16rpx;
+  font-size: 32rpx;
+  font-weight: 600;
+  border: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.tracking-btn.start {
+  background: linear-gradient(135deg, #4CAF50, #8BC34A);
+  color: white;
+}
+
+.tracking-btn.stop {
+  background: linear-gradient(135deg, #f44336, #ff7043);
+  color: white;
+}
+
+.tracking-btn::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 0;
+  height: 0;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.tracking-btn:active::after {
+  width: 200%;
+  height: 200%;
+}
+
+.btn-icon {
+  font-size: 36rpx;
+}
+
+.btn-text {
+  font-size: 32rpx;
+}
+
+.tracking-progress {
+  margin-top: 20rpx;
+  text-align: center;
+}
+
+.progress-text {
+  font-size: 28rpx;
+  color: #666;
+  margin-bottom: 12rpx;
+}
+
+.progress-bar {
+  height: 8rpx;
+  background: #e0e0e0;
+  border-radius: 4rpx;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2196F3, #03A9F4);
+  transition: width 0.3s ease;
+}
+
+/* 筛选和排序 */
+.filter-section {
+  margin-bottom: 30rpx;
+  padding: 30rpx;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20rpx;
+  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.08);
+}
+
+.filter-tabs {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+}
+
+.filter-tab {
+  flex: 1;
+  padding: 16rpx;
+  text-align: center;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  background: #f5f5f5;
+  color: #666;
+}
+
+.filter-tab.active {
+  background: linear-gradient(135deg, #2196F3, #03A9F4);
+  color: white;
+  transform: translateY(-2rpx);
+  box-shadow: 0 4rpx 12rpx rgba(33, 150, 243, 0.3);
+}
+
+.sort-control {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.sort-label {
+  font-size: 28rpx;
+  color: #666;
+}
+
+.sort-picker {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 12rpx 16rpx;
+  background: #f5f5f5;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+}
+
+.sort-icon {
+  font-size: 24rpx;
+  color: #999;
+}
+
+/* 轨迹列表 */
+.tracks-section {
+  margin-bottom: 30rpx;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-bottom: 20rpx;
+}
+
+.section-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #333;
+}
+
+.section-count {
+  font-size: 28rpx;
+  color: #666;
+}
+
+.tracks-list {
+  max-height: 1000rpx;
+}
+
+.track-item {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20rpx;
+  padding: 30rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.track-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4rpx;
+  background: linear-gradient(90deg, #2196F3, #03A9F4);
+}
+
+.track-item:active {
+  transform: translateY(2rpx);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.12);
+}
+
+.track-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20rpx;
+}
+
+.track-info {
+  flex: 1;
+}
+
+.track-name {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8rpx;
+  display: block;
+}
+
+.track-date {
+  font-size: 24rpx;
+  color: #666;
+  display: block;
+}
+
+.track-status {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 8rpx 12rpx;
+  border-radius: 12rpx;
+  font-size: 22rpx;
+}
+
+.track-status.completed {
+  background: rgba(76, 175, 80, 0.1);
+  color: #4CAF50;
+}
+
+.track-status.recording {
+  background: rgba(33, 150, 243, 0.1);
+  color: #2196F3;
+}
+
+.track-status.error {
+  background: rgba(244, 67, 54, 0.1);
+  color: #f44336;
+}
+
+.status-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.track-stats {
+  display: flex;
+  gap: 20rpx;
+  margin-bottom: 20rpx;
+  flex-wrap: wrap;
+}
+
+.track-stat {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  font-size: 24rpx;
+  color: #666;
+}
+
+.stat-icon {
+  font-size: 28rpx;
+}
+
+.stat-value {
+  font-weight: 500;
+}
+
+.track-preview {
+  margin-bottom: 20rpx;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+
+.mini-map {
+  width: 100%;
+  height: 200rpx;
+  border-radius: 12rpx;
+}
+
+.track-actions {
+  display: flex;
+  gap: 16rpx;
+}
+
+.action-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  padding: 16rpx;
+  border-radius: 12rpx;
+  font-size: 24rpx;
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.view-btn {
+  background: linear-gradient(135deg, #2196F3, #03A9F4);
+  color: white;
+}
+
+.share-btn {
+  background: linear-gradient(135deg, #FF9800, #FFC107);
+  color: white;
+}
+
+.export-btn {
+  background: linear-gradient(135deg, #4CAF50, #8BC34A);
+  color: white;
+}
+
+.action-btn:active {
+  transform: translateY(2rpx);
+}
+
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 80rpx 20rpx;
+  color: #666;
+}
+
+.empty-icon {
+  font-size: 120rpx;
+  margin-bottom: 20rpx;
+  display: block;
+}
+
+.empty-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+  display: block;
+}
+
+.empty-desc {
+  font-size: 28rpx;
+  color: #999;
+  display: block;
+}
+
+/* 批量操作 */
+.batch-actions {
+  display: flex;
+  gap: 20rpx;
+  margin-bottom: 30rpx;
+}
+
+.batch-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.batch-btn:nth-child(1) {
+  background: linear-gradient(135deg, #2196F3, #03A9F4);
+  color: white;
+}
+
+.batch-btn:nth-child(2) {
+  background: linear-gradient(135deg, #f44336, #ff7043);
+  color: white;
+}
+
+.batch-btn:active {
+  transform: translateY(2rpx);
+}
+
+/* 模态框 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 40rpx;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 24rpx;
+  max-width: 600rpx;
+  width: 100%;
+  max-height: 80vh;
+  overflow: hidden;
+  box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 30rpx;
+  border-bottom: 2rpx solid #f0f0f0;
+}
+
+.modal-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #333;
+}
+
+.modal-close {
+  width: 60rpx;
+  height: 60rpx;
+  border-radius: 50%;
+  border: none;
+  background: #f5f5f5;
+  color: #666;
+  font-size: 32rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-body {
+  padding: 30rpx;
+  max-height: 60vh;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 20rpx;
+  padding: 30rpx;
+  border-top: 2rpx solid #f0f0f0;
+}
+
+.modal-btn {
+  flex: 1;
+  padding: 20rpx;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.modal-btn.primary {
+  background: linear-gradient(135deg, #2196F3, #03A9F4);
+  color: white;
+}
+
+.modal-btn.secondary {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.modal-btn:active {
+  transform: translateY(2rpx);
+}
+
+/* 轨迹详情 */
+.detail-section {
+  margin-bottom: 30rpx;
+}
+
+.detail-label {
+  font-size: 28rpx;
+  color: #666;
+  margin-bottom: 12rpx;
+  display: block;
+}
+
+.detail-value {
+  font-size: 32rpx;
+  color: #333;
+  font-weight: 500;
+  display: block;
+}
+
+.detail-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
+  margin-top: 16rpx;
+}
+
+.detail-stat {
+  text-align: center;
+  padding: 20rpx;
+  background: #f8f9fa;
+  border-radius: 12rpx;
+}
+
+.stat-label {
+  font-size: 24rpx;
+  color: #666;
+  margin-bottom: 8rpx;
+  display: block;
+}
+
+.stat-value {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #333;
+  display: block;
+}
+
+.detail-map {
+  width: 100%;
+  height: 400rpx;
+  border-radius: 12rpx;
+  margin-top: 16rpx;
+}
+
+/* 导出选项 */
+.export-option {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx;
+  border-radius: 12rpx;
+  margin-bottom: 16rpx;
+  background: #f8f9fa;
+  transition: all 0.3s ease;
+}
+
+.export-option:active {
+  background: #e9ecef;
+  transform: translateY(2rpx);
+}
+
+.option-icon {
+  font-size: 40rpx;
+  width: 80rpx;
+  text-align: center;
+}
+
+.option-content {
+  flex: 1;
+}
+
+.option-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8rpx;
+  display: block;
+}
+
+.option-desc {
+  font-size: 24rpx;
+  color: #666;
+  display: block;
+}
+
+/* 加载状态 */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.loading-content {
+  background: white;
+  border-radius: 20rpx;
+  padding: 60rpx;
+  text-align: center;
+  box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.3);
+}
+
+.loading-icon {
+  font-size: 80rpx;
+  margin-bottom: 20rpx;
+  display: block;
+  animation: rotate 2s linear infinite;
+}
+
+.loading-text {
+  font-size: 28rpx;
+  color: #666;
+  display: block;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 机器人主题按钮 */
+.robot-btn {
+  position: relative;
+  overflow: hidden;
+  border: none;
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+.robot-btn::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 0;
+  height: 0;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.robot-btn:active::before {
+  width: 200%;
+  height: 200%;
+}
+
+/* 响应式设计 */
+@media (max-width: 750rpx) {
+  .stats-card {
+    flex-direction: column;
+    gap: 20rpx;
+  }
+  
+  .stats-item:not(:last-child)::after {
+    display: none;
+  }
+  
+  .filter-tabs {
+    flex-direction: column;
+    gap: 8rpx;
+  }
+  
+  .track-stats {
+    flex-direction: column;
+    gap: 12rpx;
+  }
+  
+  .detail-stats {
+    grid-template-columns: 1fr;
+  }
+}

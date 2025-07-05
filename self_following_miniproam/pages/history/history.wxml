@@ -1,2 +1,295 @@
-<!--pages/history/history.wxml-->
-<text>pages/history/history.wxml</text>
+<!-- 陪伴历史页面 -->
+<view class="history-container">
+  <!-- 状态栏 -->
+  <view class="status-bar">
+    <view class="connection-status {{isConnected ? 'connected' : 'disconnected'}}">
+      <text class="status-icon">{{isConnected ? '●' : '○'}}</text>
+      <text class="status-text">{{isConnected ? '已连接' : '未连接'}}</text>
+    </view>
+    <view class="tracking-status {{isTracking ? 'tracking' : 'idle'}}">
+      <text class="status-icon">{{isTracking ? '📍' : '⭕'}}</text>
+      <text class="status-text">{{isTracking ? '追踪中' : '待机中'}}</text>
+    </view>
+  </view>
+
+  <!-- 统计卡片 -->
+  <view class="stats-section">
+    <view class="stats-card">
+      <view class="stats-item">
+        <text class="stats-value">{{totalTracks}}</text>
+        <text class="stats-label">总轨迹</text>
+        <text class="stats-icon">🛤️</text>
+      </view>
+      <view class="stats-item">
+        <text class="stats-value">{{totalDistance}}</text>
+        <text class="stats-label">总距离</text>
+        <text class="stats-icon">📏</text>
+      </view>
+      <view class="stats-item">
+        <text class="stats-value">{{totalDuration}}</text>
+        <text class="stats-label">总时长</text>
+        <text class="stats-icon">⏱️</text>
+      </view>
+      <view class="stats-item">
+        <text class="stats-value">{{averageSpeed}}</text>
+        <text class="stats-label">平均速度</text>
+        <text class="stats-icon">🚀</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 实时追踪控制 -->
+  <view class="tracking-control" wx:if="{{isConnected}}">
+    <button class="robot-btn tracking-btn {{isTracking ? 'stop' : 'start'}}" 
+            bindtap="{{isTracking ? 'stopTracking' : 'startTracking'}}">
+      <text class="btn-icon">{{isTracking ? '⏹️' : '▶️'}}</text>
+      <text class="btn-text">{{isTracking ? '停止追踪' : '开始追踪'}}</text>
+    </button>
+    <view class="tracking-progress" wx:if="{{isTracking}}">
+      <text class="progress-text">追踪进行中...</text>
+      <view class="progress-bar">
+        <view class="progress-fill" style="width: {{trackingProgress}}%"></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 筛选和排序 -->
+  <view class="filter-section">
+    <view class="filter-tabs">
+      <view class="filter-tab {{currentFilter === 'all' ? 'active' : ''}}" 
+            bindtap="setFilter" data-filter="all">
+        <text>全部</text>
+      </view>
+      <view class="filter-tab {{currentFilter === 'today' ? 'active' : ''}}" 
+            bindtap="setFilter" data-filter="today">
+        <text>今天</text>
+      </view>
+      <view class="filter-tab {{currentFilter === 'week' ? 'active' : ''}}" 
+            bindtap="setFilter" data-filter="week">
+        <text>本周</text>
+      </view>
+      <view class="filter-tab {{currentFilter === 'month' ? 'active' : ''}}" 
+            bindtap="setFilter" data-filter="month">
+        <text>本月</text>
+      </view>
+    </view>
+    <view class="sort-control">
+      <text class="sort-label">排序:</text>
+      <picker bindchange="onSortChange" value="{{sortIndex}}" range="{{sortOptions}}" range-key="name">
+        <view class="sort-picker">
+          <text>{{sortOptions[sortIndex].name}}</text>
+          <text class="sort-icon">▼</text>
+        </view>
+      </picker>
+    </view>
+  </view>
+
+  <!-- 轨迹列表 -->
+  <view class="tracks-section">
+    <view class="section-header">
+      <text class="section-title">轨迹记录</text>
+      <text class="section-count">({{filteredTracks.length}})</text>
+    </view>
+    
+    <scroll-view class="tracks-list" scroll-y="true" enable-flex="true">
+      <view class="track-item" wx:for="{{filteredTracks}}" wx:key="id" bindtap="viewTrackDetail" data-track="{{item}}">
+        <view class="track-header">
+          <view class="track-info">
+            <text class="track-name">{{item.name || '轨迹 ' + (index + 1)}}</text>
+            <text class="track-date">{{item.formattedDate}}</text>
+          </view>
+          <view class="track-status {{item.status}}">
+            <text class="status-dot"></text>
+            <text class="status-text">{{item.statusText}}</text>
+          </view>
+        </view>
+        
+        <view class="track-stats">
+          <view class="track-stat">
+            <text class="stat-icon">📍</text>
+            <text class="stat-value">{{item.pointCount}} 点</text>
+          </view>
+          <view class="track-stat">
+            <text class="stat-icon">📏</text>
+            <text class="stat-value">{{item.formattedDistance}}</text>
+          </view>
+          <view class="track-stat">
+            <text class="stat-icon">⏱️</text>
+            <text class="stat-value">{{item.formattedDuration}}</text>
+          </view>
+          <view class="track-stat">
+            <text class="stat-icon">🚀</text>
+            <text class="stat-value">{{item.formattedSpeed}}</text>
+          </view>
+        </view>
+        
+        <view class="track-preview" wx:if="{{item.previewPoints && item.previewPoints.length > 0}}">
+          <map 
+            class="mini-map" 
+            latitude="{{item.centerLat}}" 
+            longitude="{{item.centerLng}}" 
+            scale="16"
+            markers="{{item.previewMarkers}}"
+            polyline="{{item.previewPolyline}}"
+            show-location="false"
+            enable-scroll="false"
+            enable-zoom="false"
+            enable-rotate="false">
+          </map>
+        </view>
+        
+        <view class="track-actions">
+          <button class="action-btn view-btn" bindtap="viewTrackDetail" data-track="{{item}}" catchtap="true">
+            <text class="btn-icon">👁️</text>
+            <text class="btn-text">查看</text>
+          </button>
+          <button class="action-btn share-btn" bindtap="shareTrack" data-track="{{item}}" catchtap="true">
+            <text class="btn-icon">📤</text>
+            <text class="btn-text">分享</text>
+          </button>
+          <button class="action-btn export-btn" bindtap="exportTrack" data-track="{{item}}" catchtap="true">
+            <text class="btn-icon">💾</text>
+            <text class="btn-text">导出</text>
+          </button>
+        </view>
+      </view>
+      
+      <!-- 空状态 -->
+      <view class="empty-state" wx:if="{{filteredTracks.length === 0}}">
+        <text class="empty-icon">🤖</text>
+        <text class="empty-title">暂无轨迹记录</text>
+        <text class="empty-desc">{{isConnected ? '开始追踪以记录机器人的行动轨迹' : '请先连接机器人'}}</text>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- 批量操作 -->
+  <view class="batch-actions" wx:if="{{filteredTracks.length > 0}}">
+    <button class="robot-btn batch-btn" bindtap="exportAllTracks">
+      <text class="btn-icon">📦</text>
+      <text class="btn-text">导出全部</text>
+    </button>
+    <button class="robot-btn batch-btn" bindtap="clearAllTracks">
+      <text class="btn-icon">🗑️</text>
+      <text class="btn-text">清空记录</text>
+    </button>
+  </view>
+</view>
+
+<!-- 轨迹详情模态框 -->
+<view class="modal-overlay" wx:if="{{showTrackDetail}}" bindtap="closeTrackDetail">
+  <view class="modal-content track-detail-modal" catchtap="true">
+    <view class="modal-header">
+      <text class="modal-title">轨迹详情</text>
+      <button class="modal-close" bindtap="closeTrackDetail">✕</button>
+    </view>
+    
+    <scroll-view class="modal-body" scroll-y="true">
+      <view class="detail-section">
+        <text class="detail-label">轨迹名称</text>
+        <text class="detail-value">{{selectedTrack.name || '未命名轨迹'}}</text>
+      </view>
+      
+      <view class="detail-section">
+        <text class="detail-label">记录时间</text>
+        <text class="detail-value">{{selectedTrack.formattedDate}}</text>
+      </view>
+      
+      <view class="detail-section">
+        <text class="detail-label">轨迹统计</text>
+        <view class="detail-stats">
+          <view class="detail-stat">
+            <text class="stat-label">总点数</text>
+            <text class="stat-value">{{selectedTrack.pointCount}}</text>
+          </view>
+          <view class="detail-stat">
+            <text class="stat-label">总距离</text>
+            <text class="stat-value">{{selectedTrack.formattedDistance}}</text>
+          </view>
+          <view class="detail-stat">
+            <text class="stat-label">总时长</text>
+            <text class="stat-value">{{selectedTrack.formattedDuration}}</text>
+          </view>
+          <view class="detail-stat">
+            <text class="stat-label">平均速度</text>
+            <text class="stat-value">{{selectedTrack.formattedSpeed}}</text>
+          </view>
+        </view>
+      </view>
+      
+      <view class="detail-section">
+        <text class="detail-label">轨迹地图</text>
+        <map 
+          class="detail-map" 
+          latitude="{{selectedTrack.centerLat}}" 
+          longitude="{{selectedTrack.centerLng}}" 
+          scale="15"
+          markers="{{selectedTrack.detailMarkers}}"
+          polyline="{{selectedTrack.detailPolyline}}"
+          show-location="true">
+        </map>
+      </view>
+    </scroll-view>
+    
+    <view class="modal-footer">
+      <button class="modal-btn secondary" bindtap="closeTrackDetail">关闭</button>
+      <button class="modal-btn primary" bindtap="exportCurrentTrack">导出轨迹</button>
+    </view>
+  </view>
+</view>
+
+<!-- 导出选项模态框 -->
+<view class="modal-overlay" wx:if="{{showExportOptions}}" bindtap="closeExportOptions">
+  <view class="modal-content export-options-modal" catchtap="true">
+    <view class="modal-header">
+      <text class="modal-title">选择导出格式</text>
+      <button class="modal-close" bindtap="closeExportOptions">✕</button>
+    </view>
+    
+    <view class="modal-body">
+      <view class="export-option" bindtap="exportAs" data-format="gpx">
+        <text class="option-icon">🗺️</text>
+        <view class="option-content">
+          <text class="option-title">GPX 格式</text>
+          <text class="option-desc">GPS 标准格式，兼容各种地图应用</text>
+        </view>
+      </view>
+      
+      <view class="export-option" bindtap="exportAs" data-format="kml">
+        <text class="option-icon">🌍</text>
+        <view class="option-content">
+          <text class="option-title">KML 格式</text>
+          <text class="option-desc">Google Earth 和地图应用支持</text>
+        </view>
+      </view>
+      
+      <view class="export-option" bindtap="exportAs" data-format="json">
+        <text class="option-icon">📋</text>
+        <view class="option-content">
+          <text class="option-title">JSON 格式</text>
+          <text class="option-desc">程序员友好的数据格式</text>
+        </view>
+      </view>
+      
+      <view class="export-option" bindtap="exportAs" data-format="csv">
+        <text class="option-icon">📊</text>
+        <view class="option-content">
+          <text class="option-title">CSV 格式</text>
+          <text class="option-desc">Excel 和数据分析工具支持</text>
+        </view>
+      </view>
+    </view>
+    
+    <view class="modal-footer">
+      <button class="modal-btn secondary" bindtap="closeExportOptions">取消</button>
+    </view>
+  </view>
+</view>
+
+<!-- 加载状态 -->
+<view class="loading-overlay" wx:if="{{isLoading}}">
+  <view class="loading-content">
+    <text class="loading-icon">🤖</text>
+    <text class="loading-text">{{loadingText}}</text>
+  </view>
+</view>
