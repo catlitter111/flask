@@ -600,6 +600,18 @@ Page({
         console.log('🔍 [原始数据调试] data.features.clothing_colors:', data.features.clothing_colors);
       }
       
+      // 图片数据调试
+      console.log('🖼️ [图片数据调试] data.original_image存在:', !!data.original_image);
+      console.log('🖼️ [图片数据调试] data.processed_image存在:', !!data.processed_image);
+      console.log('🖼️ [图片数据调试] data.result_image存在:', !!data.result_image);
+      console.log('🖼️ [图片数据调试] data.image_data存在:', !!data.image_data);
+      if (data.processed_image) {
+        console.log('🖼️ [图片数据调试] processed_image预览:', data.processed_image.substring(0, 80) + '...');
+      }
+      if (data.original_image) {
+        console.log('🖼️ [图片数据调试] original_image预览:', data.original_image.substring(0, 80) + '...');
+      }
+      
       if (data.status === 'success') {
         // 兼容处理新旧数据格式
         const resultData = data.data || data;  // 兼容旧格式
@@ -654,9 +666,16 @@ Page({
         const formattedProportions = this.formatBodyRatiosToProportions(bodyRatios);
         const formattedColors = this.formatColorsFromRGB(shirtColor, pantsColor);
         
-        // 获取文件路径信息
+        // 获取文件路径信息和图片数据
         const resultImagePath = data.result_image_path || data.resultImagePath || resultData.result_image_path;
         const featureDataPath = data.feature_data_path || data.featureDataPath || resultData.feature_data_path;
+        
+        // 保存处理后的图片数据（用于历史记录）
+        const processedImageData = data.processed_image || data.result_image || '';
+        const originalImageData = data.original_image || data.image_data || this.data.previewImage || '';
+        
+        console.log('🖼️ [图片数据保存] processedImageData存在:', !!processedImageData);
+        console.log('🖼️ [图片数据保存] originalImageData存在:', !!originalImageData);
         
         this.setData({
           extracting: false,
@@ -664,7 +683,10 @@ Page({
           overallConfidence: Math.round((data.person_count || resultData.person_count || 1) > 0 ? 95 : 0),
           clothingColors: formattedColors,
           bodyProportions: formattedProportions.summary,
-          detailedProportions: formattedProportions.detailed
+          detailedProportions: formattedProportions.detailed,
+          // 保存图片数据供后续使用
+          processedImageData: processedImageData,
+          originalImageData: originalImageData
         });
         
         console.log('✅ 特征提取数据已更新:', {
@@ -758,17 +780,40 @@ Page({
   
     // 格式化身体比例数据
     formatBodyProportions: function(proportions) {
+      console.log('🔍 [formatBodyProportions] 输入数据:', proportions);
+      console.log('🔍 [formatBodyProportions] height类型:', typeof proportions?.height, '值:', proportions?.height);
+      
+      // 安全的数字转换函数
+      const safeToFixed = (value, decimals = 1) => {
+        if (value === null || value === undefined || value === '') {
+          return '0.0';
+        }
+        const num = parseFloat(value);
+        return isNaN(num) ? '0.0' : num.toFixed(decimals);
+      };
+      
       return {
-        height: proportions.height?.toFixed(1) || '0.0',
-        shoulderWidth: proportions.shoulder_width?.toFixed(1) || '0.0',
-        chest: proportions.chest_circumference?.toFixed(1) || '0.0',
-        waist: proportions.waist_circumference?.toFixed(1) || '0.0',
-        hip: proportions.hip_circumference?.toFixed(1) || '0.0'
+        height: safeToFixed(proportions?.height),
+        shoulderWidth: safeToFixed(proportions?.shoulder_width),
+        chest: safeToFixed(proportions?.chest_circumference),
+        waist: safeToFixed(proportions?.waist_circumference),
+        hip: safeToFixed(proportions?.hip_circumference)
       };
     },
   
     // 格式化详细比例数据
     formatDetailedProportions: function(detailed) {
+      console.log('🔍 [formatDetailedProportions] 输入数据:', detailed);
+      
+      // 安全的数字转换函数
+      const safeToFixed = (value, decimals = 1) => {
+        if (value === null || value === undefined || value === '') {
+          return '0.0';
+        }
+        const num = parseFloat(value);
+        return isNaN(num) ? '0.0' : num.toFixed(decimals);
+      };
+      
       // 将16项详细数据转换为显示格式
       const keys = [
         'height', 'head_height', 'neck_height', 'shoulder_width',
@@ -799,7 +844,7 @@ Page({
       return keys.map(key => ({
         key: key,
         label: labels[key],
-        value: detailed[key]?.toFixed(1) || '0.0',
+        value: safeToFixed(detailed[key]),
         unit: 'cm'
       }));
     },
@@ -916,7 +961,9 @@ Page({
           detailed_proportions: detailedProportions
         },
         confidence: this.data.overallConfidence,
-        image_data: this.data.previewImage,
+        image_data: this.data.previewImage || this.data.originalImageData,
+        processed_image: this.data.processedImageData,  // 新增：处理后的图片
+        original_image: this.data.originalImageData,    // 新增：原始图片
         isFollowing: false,
         // 添加兼容性字段，直接在顶层提供数据
         body_proportions: bodyProportions,

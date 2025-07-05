@@ -480,15 +480,9 @@ class WebSocketBridgeNode(Node):
             
             self.get_logger().info(f"📊 收到特征提取结果: {result_data.get('extraction_id', 'unknown')}")
             
-            # 获取文件路径
-            files = result_data.get('files', {})
-            result_image_path = files.get('result_image', '')
-            
-            if result_image_path and Path(result_image_path).exists():
-                # 读取并转发处理后的图片
-                self.forward_processed_image(result_data, result_image_path)
-            else:
-                self.get_logger().warning(f"⚠️ 结果图片文件不存在: {result_image_path}")
+            # 注意：不再调用 forward_processed_image，因为 send_feature_extraction_result 已经包含图片数据
+            # 这避免了重复发送消息的问题
+            self.get_logger().info(f"✅ 特征提取结果处理完成 - ID: {result_data.get('extraction_id', 'unknown')}")
                 
         except json.JSONDecodeError as e:
             self.get_logger().error(f"❌ 解析特征提取结果失败: {e}")
@@ -1397,6 +1391,24 @@ class WebSocketBridgeNode(Node):
             self.get_logger().warning(f"⚠️ body_ratios格式异常: 类型={type(body_ratios)}, 长度={len(body_ratios) if isinstance(body_ratios, list) else 'N/A'}")
             body_ratios = [0.0] * 16
         
+        # 读取处理后的图片数据（如果存在）
+        result_image_data = ""
+        original_image_data = ""
+        
+        result_image_path = result_data.get('result_image_path', '')
+        if result_image_path and Path(result_image_path).exists():
+            try:
+                with open(result_image_path, 'rb') as f:
+                    image_data = f.read()
+                result_image_data = base64.b64encode(image_data).decode('utf-8')
+                # 暂时将原图也设为处理后的图片（因为没有单独的原图路径）
+                original_image_data = result_image_data
+                self.get_logger().info(f"🖼️ 读取处理后图片成功: {result_image_path} (大小: {len(image_data)}字节)")
+            except Exception as e:
+                self.get_logger().error(f"❌ 读取处理后图片失败: {e}")
+        else:
+            self.get_logger().warning(f"⚠️ 处理后图片文件不存在或路径为空: {result_image_path}")
+        
         # 构建格式化的特征数据（与新格式保持一致）
         formatted_features = {
             'body_ratios': body_ratios,
@@ -1416,7 +1428,7 @@ class WebSocketBridgeNode(Node):
             'detailed_proportions': self.format_detailed_proportions(body_ratios)
         }
         
-        # 构建完整的消息（包含兼容格式）
+        # 构建完整的消息（包含兼容格式和图片数据）
         message = {
             'type': 'feature_extraction_result',
             'file_id': file_id,
@@ -1439,6 +1451,12 @@ class WebSocketBridgeNode(Node):
             'detailed_proportions': formatted_features['detailed_proportions'],
             'clothing_colors': formatted_features['clothing_colors'],
             
+            # 图片数据（base64编码）
+            'original_image': f'data:image/jpeg;base64,{original_image_data}' if original_image_data else '',
+            'processed_image': f'data:image/jpeg;base64,{result_image_data}' if result_image_data else '',
+            'result_image': f'data:image/jpeg;base64,{result_image_data}' if result_image_data else '',
+            'image_data': f'data:image/jpeg;base64,{original_image_data}' if original_image_data else '',  # 兼容字段
+            
             # 文件路径信息
             'resultImagePath': result_data.get('result_image_path', ''),
             'featureDataPath': result_data.get('feature_data_path', ''),
@@ -1450,7 +1468,9 @@ class WebSocketBridgeNode(Node):
                 'has_result_image': bool(result_data.get('result_image_path')),
                 'has_feature_data': bool(result_data.get('feature_data_path')),
                 'feature_count': len(body_ratios),
-                'has_valid_features': any(ratio != 0.0 for ratio in body_ratios)
+                'has_valid_features': any(ratio != 0.0 for ratio in body_ratios),
+                'has_base64_image': bool(result_image_data),
+                'image_size_bytes': len(result_image_data) if result_image_data else 0
             }
         }
         
@@ -1461,6 +1481,11 @@ class WebSocketBridgeNode(Node):
         self.get_logger().info(f"🔍 [旧格式调试] 发送的body_proportions: {formatted_features['body_proportions']}")
         self.get_logger().info(f"🔍 [旧格式调试] 消息根级别body_ratios: {message.get('body_ratios', 'MISSING')}")
         self.get_logger().info(f"🔍 [旧格式调试] 消息根级别shirt_color: {message.get('shirt_color', 'MISSING')}")
+        self.get_logger().info(f"🖼️ [图片数据调试] processed_image存在: {bool(message.get('processed_image'))}")
+        self.get_logger().info(f"🖼️ [图片数据调试] original_image存在: {bool(message.get('original_image'))}")
+        self.get_logger().info(f"🖼️ [图片数据调试] image_data存在: {bool(message.get('image_data'))}")
+        if message.get('processed_image'):
+            self.get_logger().info(f"🖼️ [图片数据调试] processed_image预览: {message['processed_image'][:80]}...")
         
         # 发送给WebSocket服务器，由服务器转发给客户端
         if self.send_ws_message(message):

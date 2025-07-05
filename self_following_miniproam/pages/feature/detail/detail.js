@@ -60,6 +60,14 @@ Page({
   processTargetData: function(rawTarget) {
     console.log('🔄 [详情页] 处理原始数据:', rawTarget);
     
+    // 详细调试：显示所有图片相关字段
+    console.log('🔍 [详情页图片调试] 所有可能的图片字段:');
+    console.log('🔍 [详情页图片调试] rawTarget.image_data存在:', !!rawTarget.image_data);
+    console.log('🔍 [详情页图片调试] rawTarget.processed_image存在:', !!rawTarget.processed_image);
+    console.log('🔍 [详情页图片调试] rawTarget.result_image存在:', !!rawTarget.result_image);
+    console.log('🔍 [详情页图片调试] rawTarget.previewImage存在:', !!rawTarget.previewImage);
+    console.log('🔍 [详情页图片调试] 所有keys:', Object.keys(rawTarget));
+    
     // 提取身体比例数据
     const body_proportions = rawTarget.features?.body_proportions || rawTarget.body_proportions || {};
     const detailed_proportions = rawTarget.features?.detailed_proportions || rawTarget.detailed_proportions || [];
@@ -75,13 +83,27 @@ Page({
     
     // 处理图片数据，确保有处理后的图片
     const image_data = rawTarget.image_data || rawTarget.previewImage || '';
-    const processed_image = rawTarget.processed_image || rawTarget.result_image || image_data;
+    
+    // 优先使用处理后的图片，但加强调试
+    let processed_image = '';
+    if (rawTarget.processed_image) {
+      processed_image = rawTarget.processed_image;
+      console.log('🖼️ [详情页] 使用processed_image字段');
+    } else if (rawTarget.result_image) {
+      processed_image = rawTarget.result_image;
+      console.log('🖼️ [详情页] 使用result_image字段');
+    } else {
+      processed_image = image_data;
+      console.log('🖼️ [详情页] 回退到image_data字段');
+    }
+    
     const result_image = rawTarget.result_image || processed_image || image_data;
     
-    console.log('🖼️ [详情页] 图片数据:', {
+    console.log('🖼️ [详情页] 图片数据处理结果:', {
       has_image_data: !!image_data,
       has_processed_image: !!processed_image,
       has_result_image: !!result_image,
+      are_images_same: image_data === processed_image,
       processed_image_preview: processed_image ? processed_image.substring(0, 50) + '...' : 'none'
     });
     
@@ -193,12 +215,25 @@ Page({
 
   // 查看处理后的图片
   viewProcessedImage: function() {
+    console.log('🖼️ [查看处理图片] 点击处理结果按钮');
+    console.log('🖼️ [查看处理图片] target存在:', !!this.data.target);
+    console.log('🖼️ [查看处理图片] processed_image存在:', !!this.data.target?.processed_image);
+    if (this.data.target?.processed_image) {
+      console.log('🖼️ [查看处理图片] processed_image预览:', this.data.target.processed_image.substring(0, 80) + '...');
+    }
+    if (this.data.target?.image_data) {
+      console.log('🖼️ [查看处理图片] image_data预览:', this.data.target.image_data.substring(0, 80) + '...');
+    }
+    console.log('🖼️ [查看处理图片] 两者是否相同:', this.data.target?.processed_image === this.data.target?.image_data);
+    
     if (this.data.target && this.data.target.processed_image) {
       this.setData({
         currentImage: this.data.target.processed_image,
         showImageModal: true
       });
+      console.log('🖼️ [查看处理图片] 显示处理后图片');
     } else {
+      console.log('🖼️ [查看处理图片] 没有处理后图片数据');
       wx.showToast({
         title: '没有处理后的图片',
         icon: 'none'
