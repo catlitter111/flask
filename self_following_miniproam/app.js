@@ -548,17 +548,82 @@ App({
 
     // 保存处理后图片数据
     saveProcessedImageData: function(data) {
+      console.log('📷 接收到处理后图片数据:', data);
+      
+      // 提取图片数据
+      const originalImage = data.original_image || data.image_data?.data_base64 || '';
+      const processedImage = data.processed_image || data.image_data?.data_base64 || '';
+      const resultImage = data.result_image || data.image_data?.data_base64 || '';
+      
+      // 确保图片数据格式正确
+      const formatImage = (imageData) => {
+        if (!imageData) return '';
+        if (imageData.startsWith('data:image/')) return imageData;
+        return `data:image/jpeg;base64,${imageData}`;
+      };
+      
+      // 提取特征数据
+      const features = data.features || {};
+      const bodyRatios = features.body_ratios || [0.0] * 16;
+      const clothingColors = features.clothing_colors || data.colors || {};
+      const bodyProportions = features.body_proportions || data.proportions || {};
+      const detailedProportions = features.detailed_proportions || data.detailed_proportions || [];
+      
+      // 格式化时间戳
+      const formatTimestamp = (ts) => {
+        try {
+          const date = new Date(ts);
+          if (isNaN(date.getTime())) {
+            return new Date().toLocaleString();
+          }
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          const hour = String(date.getHours()).padStart(2, '0');
+          const minute = String(date.getMinutes()).padStart(2, '0');
+          return `${year}-${month}-${day} ${hour}:${minute}`;
+        } catch (e) {
+          return new Date().toLocaleString();
+        }
+      };
+
       const processedImageEntry = {
         id: data.extraction_id || Date.now(),
-        timestamp: Date.now(),
-        original_image: data.original_image,
-        processed_image: data.processed_image,
-        result_image: data.result_image,
-        features: data.features,
-        colors: data.colors,
-        proportions: data.proportions,
+        timestamp: formatTimestamp(data.timestamp || Date.now()),
+        name: data.person_name || `处理结果_${new Date().getTime()}`,
+        
+        // 图片数据
+        image_data: formatImage(originalImage),
+        processed_image: formatImage(processedImage),
+        result_image: formatImage(resultImage),
+        previewImage: formatImage(resultImage), // 兼容字段
+        
+        // 特征数据
+        features: {
+          body_ratios: bodyRatios,
+          clothing_colors: clothingColors,
+          body_proportions: bodyProportions,
+          detailed_proportions: detailedProportions
+        },
+        
+        // 兼容的顶层字段
+        body_proportions: bodyProportions,
+        detailed_proportions: detailedProportions,
+        clothing_colors: clothingColors,
+        
+        // 颜色信息（兼容现有格式）
+        topColor: data.topColor || clothingColors.top?.color || '#000000',
+        bottomColor: data.bottomColor || clothingColors.bottom?.color || '#000000',
+        topColorName: data.topColorName || clothingColors.top?.name || '黑色',
+        bottomColorName: data.bottomColorName || clothingColors.bottom?.name || '黑色',
+        
+        // 状态信息
         status: 'success',
-        extraction_type: 'processed_image'
+        extraction_type: 'processed_image',
+        confidence: 95, // 默认置信度
+        
+        // 处理信息
+        processing_info: data.processing_info || {}
       };
       
       // 添加到全局特征数据中（复用现有的存储）
@@ -573,7 +638,13 @@ App({
       // 保存到本地存储
       wx.setStorageSync('extractedFeatures', this.globalData.extractedFeatures);
       
-      console.log('💾 保存处理后图片数据:', data.extraction_id);
+      console.log('💾 保存处理后图片数据完成:', {
+        id: processedImageEntry.id,
+        name: processedImageEntry.name,
+        bodyRatios: bodyRatios.length,
+        hasValidFeatures: data.processing_info?.has_valid_features,
+        imageSize: data.processing_info?.image_size_bytes
+      });
     },
     
     // 启动命令处理器

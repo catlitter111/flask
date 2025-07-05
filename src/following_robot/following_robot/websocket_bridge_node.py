@@ -515,41 +515,203 @@ class WebSocketBridgeNode(Node):
             file_size = len(image_data)
             file_name = image_path_obj.name
             
-            # 构建转发消息
+            # 提取特征数据
+            features = result_data.get('features', {})
+            body_ratios = features.get('body_ratios', [0.0] * 16)
+            shirt_color = features.get('shirt_color', [0, 0, 0])
+            pants_color = features.get('pants_color', [0, 0, 0])
+            
+            # 构建格式化的特征数据
+            formatted_features = {
+                'body_ratios': body_ratios,
+                'clothing_colors': {
+                    'top': {
+                        'name': self.get_color_name(shirt_color),
+                        'color': self.rgb_to_hex(shirt_color),
+                        'confidence': 85  # 默认置信度
+                    },
+                    'bottom': {
+                        'name': self.get_color_name(pants_color),
+                        'color': self.rgb_to_hex(pants_color),
+                        'confidence': 85  # 默认置信度
+                    }
+                },
+                'body_proportions': self.format_body_proportions(body_ratios),
+                'detailed_proportions': self.format_detailed_proportions(body_ratios)
+            }
+            
+            # 构建转发消息（格式与小程序期望的一致）
             forward_message = {
-                'type': 'processed_image_result',
+                'type': 'processed_image_notification',
                 'extraction_id': result_data.get('extraction_id', 'unknown'),
                 'person_name': result_data.get('person_name', ''),
                 'timestamp': result_data.get('timestamp', int(time.time() * 1000)),
                 'robot_id': self.robot_id,
-                'image_data': {
-                    'filename': file_name,
-                    'size': file_size,
-                    'data_base64': image_base64,
-                    'mime_type': 'image/jpeg'
-                },
-                'features': result_data.get('features', {}),
+                # 图片数据（小程序期望的格式）
+                'original_image': f'data:image/jpeg;base64,{image_base64}',  # 暂时用处理后的图片
+                'processed_image': f'data:image/jpeg;base64,{image_base64}',
+                'result_image': f'data:image/jpeg;base64,{image_base64}',
+                # 特征数据
+                'features': formatted_features,
+                'colors': formatted_features['clothing_colors'],
+                'proportions': formatted_features['body_proportions'],
+                # 兼容字段
+                'topColor': self.rgb_to_hex(shirt_color),
+                'bottomColor': self.rgb_to_hex(pants_color),
+                'topColorName': self.get_color_name(shirt_color),
+                'bottomColorName': self.get_color_name(pants_color),
+                'body_proportions': formatted_features['body_proportions'],
+                'detailed_proportions': formatted_features['detailed_proportions'],
+                # 文件信息
                 'files': result_data.get('files', {}),
                 'processing_info': {
-                    'has_result_image': bool(result_data.get('files', {}).get('result_image')),
+                    'has_result_image': True,
                     'has_feature_data': bool(result_data.get('files', {}).get('feature_data')),
                     'has_result_video': bool(result_data.get('files', {}).get('result_video')),
                     'image_size_bytes': file_size,
-                    'compression_info': f'原始图片大小: {file_size}字节'
+                    'compression_info': f'原始图片大小: {file_size}字节',
+                    'feature_count': len(body_ratios),
+                    'has_valid_features': features.get('has_valid_data', False)
                 }
             }
             
             # 发送给WebSocket服务器
             if self.send_ws_message(forward_message):
                 self.get_logger().info(f"📤 已转发处理后图片: {file_name} (大小: {file_size}字节)")
-                self.get_logger().info(f"🎯 特征数据: 身体比例{len(result_data.get('features', {}).get('body_ratios', []))}个, "
-                                     f"有效数据: {result_data.get('features', {}).get('has_valid_data', False)}")
+                self.get_logger().info(f"🎯 特征数据: 身体比例{len(body_ratios)}个, "
+                                     f"有效数据: {features.get('has_valid_data', False)}")
+                self.get_logger().info(f"🎨 颜色数据: 上衣{shirt_color}, 下装{pants_color}")
             else:
                 self.get_logger().warning(f"⚠️ 转发处理后图片失败: WebSocket未连接")
                 
         except Exception as e:
             self.get_logger().error(f"❌ 转发处理后图片失败: {e}")
             traceback.print_exc()
+    
+    def rgb_to_hex(self, rgb):
+        """将RGB值转换为十六进制颜色"""
+        try:
+            if isinstance(rgb, (list, tuple)) and len(rgb) >= 3:
+                r, g, b = int(rgb[0]), int(rgb[1]), int(rgb[2])
+                return f"#{r:02x}{g:02x}{b:02x}"
+            else:
+                return "#000000"
+        except:
+            return "#000000"
+    
+    def get_color_name(self, rgb):
+        """根据RGB值获取颜色名称"""
+        try:
+            if not isinstance(rgb, (list, tuple)) or len(rgb) < 3:
+                return "黑色"
+            
+            r, g, b = int(rgb[0]), int(rgb[1]), int(rgb[2])
+            
+            # 简单的颜色识别逻辑
+            if r > 200 and g > 200 and b > 200:
+                return "白色"
+            elif r < 50 and g < 50 and b < 50:
+                return "黑色"
+            elif r > g and r > b:
+                if g > b:
+                    return "橙色" if g > 100 else "红色"
+                else:
+                    return "红色"
+            elif g > r and g > b:
+                if r > b:
+                    return "黄色"
+                elif b > r:
+                    return "青色"
+                else:
+                    return "绿色"
+            elif b > r and b > g:
+                if r > g:
+                    return "紫色"
+                else:
+                    return "蓝色"
+            else:
+                return "灰色"
+        except:
+            return "未知"
+    
+    def format_body_proportions(self, body_ratios):
+        """格式化身体比例数据"""
+        try:
+            if not body_ratios or len(body_ratios) < 16:
+                body_ratios = [0.0] * 16
+            
+            return {
+                'height': f"{body_ratios[0]:.3f}",
+                'shoulderWidth': f"{body_ratios[3]:.3f}",
+                'chest': f"{body_ratios[5]:.3f}",
+                'waist': f"{body_ratios[7]:.3f}",
+                'hip': f"{body_ratios[9]:.3f}",
+                'armLength': f"{body_ratios[10]:.3f}",
+                'legLength': f"{body_ratios[12]:.3f}",
+                'headHeight': f"{body_ratios[1]:.3f}",
+                'neckHeight': f"{body_ratios[2]:.3f}",
+                'torsoLength': f"{(body_ratios[5] + body_ratios[7]):.3f}",
+                'thighLength': f"{body_ratios[13]:.3f}",
+                'calfLength': f"{body_ratios[14]:.3f}",
+                'footLength': f"{body_ratios[15]:.3f}",
+                'handLength': f"{(body_ratios[10] * 0.15):.3f}",  # 估算
+                'forearmLength': f"{body_ratios[11]:.3f}",
+                'upperArmLength': f"{(body_ratios[10] - body_ratios[11]):.3f}"
+            }
+        except:
+            return {
+                'height': "0.000",
+                'shoulderWidth': "0.000",
+                'chest': "0.000",
+                'waist': "0.000",
+                'hip': "0.000",
+                'armLength': "0.000",
+                'legLength': "0.000",
+                'headHeight': "0.000",
+                'neckHeight': "0.000",
+                'torsoLength': "0.000",
+                'thighLength': "0.000",
+                'calfLength': "0.000",
+                'footLength': "0.000",
+                'handLength': "0.000",
+                'forearmLength': "0.000",
+                'upperArmLength': "0.000"
+            }
+    
+    def format_detailed_proportions(self, body_ratios):
+        """格式化详细比例数据"""
+        try:
+            if not body_ratios or len(body_ratios) < 16:
+                body_ratios = [0.0] * 16
+            
+            labels = [
+                '身高', '头部高度', '颈部高度', '肩膀宽度',
+                '胸部宽度', '胸围', '腰部宽度', '腰围',
+                '臀部宽度', '臀围', '手臂长度', '前臂长度',
+                '腿部长度', '大腿长度', '小腿长度', '脚部长度'
+            ]
+            
+            return [
+                {
+                    'label': labels[i] if i < len(labels) else f'特征{i+1}',
+                    'value': f"{body_ratios[i]:.3f}" if i < len(body_ratios) else "0.000"
+                }
+                for i in range(16)
+            ]
+        except:
+            labels = [
+                '身高', '头部高度', '颈部高度', '肩膀宽度',
+                '胸部宽度', '胸围', '腰部宽度', '腰围',
+                '臀部宽度', '臀围', '手臂长度', '前臂长度',
+                '腿部长度', '大腿长度', '小腿长度', '脚部长度'
+            ]
+            return [
+                {
+                    'label': labels[i],
+                    'value': "0.000"
+                }
+                for i in range(16)
+            ]
     
     def handle_command(self, data):
         """处理远程控制命令"""

@@ -73,6 +73,18 @@ Page({
       'detailed_proportions长度': detailed_proportions.length
     });
     
+    // 处理图片数据，确保有处理后的图片
+    const image_data = rawTarget.image_data || rawTarget.previewImage || '';
+    const processed_image = rawTarget.processed_image || rawTarget.result_image || image_data;
+    const result_image = rawTarget.result_image || processed_image || image_data;
+    
+    console.log('🖼️ [详情页] 图片数据:', {
+      has_image_data: !!image_data,
+      has_processed_image: !!processed_image,
+      has_result_image: !!result_image,
+      processed_image_preview: processed_image ? processed_image.substring(0, 50) + '...' : 'none'
+    });
+    
     const processed = {
       ...rawTarget,
       // 确保时间戳格式正确
@@ -88,26 +100,34 @@ Page({
         clothing_colors: {
           top: {
             ...rawTarget.features?.clothing_colors?.top,
-            confidence: (rawTarget.features?.clothing_colors?.top?.confidence || 0) * 100
+            confidence: (rawTarget.features?.clothing_colors?.top?.confidence || 85)
           },
           bottom: {
             ...rawTarget.features?.clothing_colors?.bottom,
-            confidence: (rawTarget.features?.clothing_colors?.bottom?.confidence || 0) * 100
+            confidence: (rawTarget.features?.clothing_colors?.bottom?.confidence || 85)
           }
         },
         body_proportions: body_proportions,
         detailed_proportions: detailed_proportions
       },
-      // 确保有图片数据
-      image_data: rawTarget.image_data || rawTarget.previewImage || '',
-      // 如果没有processed_image，使用原图
-      processed_image: rawTarget.processed_image || rawTarget.image_data || rawTarget.previewImage || '',
+      // 确保有图片数据，优先使用处理后的图片
+      image_data: image_data,
+      processed_image: processed_image,
+      result_image: result_image,
       // 确保有身体比例数据（顶层也放一份，兼容多种访问方式）
       body_proportions: body_proportions,
       detailed_proportions: detailed_proportions
     };
     
-    console.log('✅ [详情页] 处理后的数据:', processed);
+    console.log('✅ [详情页] 处理后的数据:', {
+      id: processed.id,
+      name: processed.name,
+      has_processed_image: !!processed.processed_image,
+      topColor: processed.topColor,
+      bottomColor: processed.bottomColor,
+      body_proportions_keys: Object.keys(processed.body_proportions || {}),
+      detailed_proportions_length: (processed.detailed_proportions || []).length
+    });
     return processed;
   },
 

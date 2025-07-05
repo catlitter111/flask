@@ -656,7 +656,7 @@ Page({
       console.log('🖼️ 收到处理后图片通知:', data);
       
       // 刷新识别历史列表，新的处理结果会显示在历史中
-      this.loadRecognitionHistory();
+      this.loadHistoryData();
       
       // 如果用户正在特征识别页面，显示提示
       if (data.extraction_id) {
@@ -670,7 +670,8 @@ Page({
         if (this.data.extracting) {
           this.setData({
             extracting: false,
-            extracted: true
+            extracted: true,
+            previewImage: data.result_image || data.processed_image || ''
           });
         }
       }
