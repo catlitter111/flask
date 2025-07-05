@@ -596,6 +596,10 @@ class CompanionServer:
             # 客户端网络状态报告
             logger.info(f"📊 客户端网络状态 - {connection.client_id}: {data.get('status', {})}")
 
+        elif message_type == 'processed_image_result':
+            # 处理后图片结果
+            await self.handle_processed_image_result(connection, data)
+
     async def handle_ros2_bridge(self, connection: ClientConnection, robot_id: str):
         """处理ROS2桥接节点连接"""
         try:
@@ -685,13 +689,13 @@ class CompanionServer:
             # 文件保存结果
             await self.handle_file_save_result(connection, data)
 
-        elif message_type == 'feature_extraction_result':
-            # 特征提取结果
-            await self.handle_feature_extraction_result(connection, data)
-
         elif message_type == 'feature_extraction_error':
             # 特征提取错误
             await self.handle_feature_extraction_error(connection, data)
+
+        elif message_type == 'processed_image_result':
+            # 处理后图片结果
+            await self.handle_processed_image_result(connection, data)
 
         elif message_type == 'heartbeat':
             # 机器人心跳
@@ -910,32 +914,6 @@ class CompanionServer:
 
         logger.info(f"📁 转发文件保存结果 - 机器人: {robot_id}, 客户端: {client_id}, 状态: {data.get('status')}")
 
-    async def handle_feature_extraction_result(self, connection: ClientConnection, data: Dict):
-        """处理特征提取结果"""
-        client_id = data.get('client_id')
-        robot_id = connection.robot_id
-        
-        if not client_id or client_id not in self.connections:
-            logger.warning(f"⚠️ 特征提取结果无法转发：客户端不存在 - {client_id}")
-            return
-
-        # 转发结果到对应的客户端
-        client_connection = self.connections[client_id]
-        
-        # 格式化特征提取结果消息
-        result_message = {
-            'type': 'feature_extraction_complete',
-            'file_id': data.get('file_id'),
-            'status': 'success',
-            'data': data.get('data', {}),
-            'robot_id': robot_id,
-            'timestamp': data.get('timestamp', int(time.time() * 1000))
-        }
-        
-        await self.send_message(client_connection.websocket, result_message)
-        
-        logger.info(f"📊 转发特征提取结果 - 机器人: {robot_id}, 客户端: {client_id}, 文件: {data.get('file_id')}")
-
     async def handle_feature_extraction_error(self, connection: ClientConnection, data: Dict):
         """处理特征提取错误"""
         client_id = data.get('client_id')
@@ -961,6 +939,44 @@ class CompanionServer:
         await self.send_message(client_connection.websocket, error_message)
         
         logger.error(f"❌ 转发特征提取错误 - 机器人: {robot_id}, 客户端: {client_id}, 错误: {data.get('error')}")
+
+    async def handle_processed_image_result(self, connection: ClientConnection, data: Dict):
+        """处理处理后图片结果"""
+        robot_id = connection.robot_id
+        extraction_id = data.get('extraction_id', 'unknown')
+        
+        logger.info(f"📷 收到处理后图片结果 - 机器人: {robot_id}, 提取ID: {extraction_id}")
+        
+        # 广播给所有连接到此机器人的客户端
+        if robot_id in self.robots:
+            robot = self.robots[robot_id]
+            
+            # 构建转发消息
+            forward_message = {
+                'type': 'processed_image_notification',
+                'extraction_id': extraction_id,
+                'person_name': data.get('person_name', ''),
+                'timestamp': data.get('timestamp', int(time.time() * 1000)),
+                'robot_id': robot_id,
+                'image_data': data.get('image_data', {}),
+                'features': data.get('features', {}),
+                'files': data.get('files', {}),
+                'processing_info': data.get('processing_info', {})
+            }
+            
+            # 发送给所有关联的客户端
+            tasks = []
+            for client_id in robot.companion_clients.copy():
+                if client_id in self.connections:
+                    tasks.append(self.send_message(self.connections[client_id].websocket, forward_message))
+            
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+                logger.info(f"✅ 处理后图片结果已转发给 {len(tasks)} 个客户端")
+            else:
+                logger.info(f"ℹ️ 没有客户端连接到机器人 {robot_id}")
+        else:
+            logger.warning(f"⚠️ 机器人 {robot_id} 不存在于机器人列表中")
 
     async def send_message(self, websocket, message: Dict):
         """发送消息到WebSocket"""

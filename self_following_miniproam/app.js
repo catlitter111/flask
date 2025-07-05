@@ -333,6 +333,14 @@ App({
             this.globalData.featurePage.handleFeatureError(data);
           }
           break;
+
+        case 'processed_image_notification':
+          // 处理后图片通知
+          if (this.globalData.featurePage) {
+            this.globalData.featurePage.handleProcessedImageNotification(data);
+          }
+          this.saveProcessedImageData(data);
+          break;
           
         case 'ai_response':
           // AI助手回复
@@ -536,6 +544,36 @@ App({
       
       // 保存到本地存储
       wx.setStorageSync('extractedFeatures', this.globalData.extractedFeatures);
+    },
+
+    // 保存处理后图片数据
+    saveProcessedImageData: function(data) {
+      const processedImageEntry = {
+        id: data.extraction_id || Date.now(),
+        timestamp: Date.now(),
+        original_image: data.original_image,
+        processed_image: data.processed_image,
+        result_image: data.result_image,
+        features: data.features,
+        colors: data.colors,
+        proportions: data.proportions,
+        status: 'success',
+        extraction_type: 'processed_image'
+      };
+      
+      // 添加到全局特征数据中（复用现有的存储）
+      this.globalData.extractedFeatures = this.globalData.extractedFeatures || [];
+      this.globalData.extractedFeatures.push(processedImageEntry);
+      
+      // 限制特征数据数量
+      if (this.globalData.extractedFeatures.length > 100) {
+        this.globalData.extractedFeatures = this.globalData.extractedFeatures.slice(-80);
+      }
+      
+      // 保存到本地存储
+      wx.setStorageSync('extractedFeatures', this.globalData.extractedFeatures);
+      
+      console.log('💾 保存处理后图片数据:', data.extraction_id);
     },
     
     // 启动命令处理器

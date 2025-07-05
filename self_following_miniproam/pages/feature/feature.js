@@ -650,6 +650,31 @@ Page({
         duration: 3000
       });
     },
+
+    // 处理处理后图片通知（由app.js调用）
+    handleProcessedImageNotification: function(data) {
+      console.log('🖼️ 收到处理后图片通知:', data);
+      
+      // 刷新识别历史列表，新的处理结果会显示在历史中
+      this.loadRecognitionHistory();
+      
+      // 如果用户正在特征识别页面，显示提示
+      if (data.extraction_id) {
+        wx.showToast({
+          title: '处理结果已更新',
+          icon: 'success',
+          duration: 2000
+        });
+        
+        // 可选：如果这是当前正在处理的文件，更新页面状态
+        if (this.data.extracting) {
+          this.setData({
+            extracting: false,
+            extracted: true
+          });
+        }
+      }
+    },
   
     // 格式化服装颜色数据（移除鞋子颜色）
     formatClothingColors: function(colors) {

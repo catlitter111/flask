@@ -40,6 +40,7 @@ import numpy as np
 from typing import Optional, Dict, Any
 import logging
 from pathlib import Path
+import traceback
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -213,6 +214,14 @@ class WebSocketBridgeNode(Node):
             RobotStatus,
             '/robot/status',
             self.status_callback,
+            10
+        )
+        
+        # 特征提取结果订阅
+        self.feature_result_subscription = self.create_subscription(
+            String,
+            '/features/processing_result',
+            self.feature_result_callback,
             10
         )
         
@@ -463,6 +472,85 @@ class WebSocketBridgeNode(Node):
             
         self.robot_status['last_update'] = time.time()
         
+    def feature_result_callback(self, msg):
+        """处理特征提取结果"""
+        try:
+            # 解析JSON消息
+            result_data = json.loads(msg.data)
+            
+            self.get_logger().info(f"📊 收到特征提取结果: {result_data.get('extraction_id', 'unknown')}")
+            
+            # 获取文件路径
+            files = result_data.get('files', {})
+            result_image_path = files.get('result_image', '')
+            
+            if result_image_path and Path(result_image_path).exists():
+                # 读取并转发处理后的图片
+                self.forward_processed_image(result_data, result_image_path)
+            else:
+                self.get_logger().warning(f"⚠️ 结果图片文件不存在: {result_image_path}")
+                
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f"❌ 解析特征提取结果失败: {e}")
+        except Exception as e:
+            self.get_logger().error(f"❌ 处理特征提取结果失败: {e}")
+    
+    def forward_processed_image(self, result_data, image_path):
+        """转发处理后的图片给客户端"""
+        try:
+            # 读取图片文件
+            image_path_obj = Path(image_path)
+            if not image_path_obj.exists():
+                self.get_logger().error(f"❌ 图片文件不存在: {image_path}")
+                return
+            
+            # 读取图片数据
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            # 编码为base64
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            # 获取图片信息
+            file_size = len(image_data)
+            file_name = image_path_obj.name
+            
+            # 构建转发消息
+            forward_message = {
+                'type': 'processed_image_result',
+                'extraction_id': result_data.get('extraction_id', 'unknown'),
+                'person_name': result_data.get('person_name', ''),
+                'timestamp': result_data.get('timestamp', int(time.time() * 1000)),
+                'robot_id': self.robot_id,
+                'image_data': {
+                    'filename': file_name,
+                    'size': file_size,
+                    'data_base64': image_base64,
+                    'mime_type': 'image/jpeg'
+                },
+                'features': result_data.get('features', {}),
+                'files': result_data.get('files', {}),
+                'processing_info': {
+                    'has_result_image': bool(result_data.get('files', {}).get('result_image')),
+                    'has_feature_data': bool(result_data.get('files', {}).get('feature_data')),
+                    'has_result_video': bool(result_data.get('files', {}).get('result_video')),
+                    'image_size_bytes': file_size,
+                    'compression_info': f'原始图片大小: {file_size}字节'
+                }
+            }
+            
+            # 发送给WebSocket服务器
+            if self.send_ws_message(forward_message):
+                self.get_logger().info(f"📤 已转发处理后图片: {file_name} (大小: {file_size}字节)")
+                self.get_logger().info(f"🎯 特征数据: 身体比例{len(result_data.get('features', {}).get('body_ratios', []))}个, "
+                                     f"有效数据: {result_data.get('features', {}).get('has_valid_data', False)}")
+            else:
+                self.get_logger().warning(f"⚠️ 转发处理后图片失败: WebSocket未连接")
+                
+        except Exception as e:
+            self.get_logger().error(f"❌ 转发处理后图片失败: {e}")
+            traceback.print_exc()
+    
     def handle_command(self, data):
         """处理远程控制命令"""
         if not self.enable_command_receive:

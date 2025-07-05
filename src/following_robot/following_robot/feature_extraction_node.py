@@ -9,6 +9,7 @@
 - 提取服装颜色信息
 - 保存特征数据到Excel文件
 - 生成带标注的结果图像
+- 发布处理结果文件路径
 
 作者: AI Assistant
 移植自: obtain_features.py
@@ -18,6 +19,7 @@ import rclpy
 from rclpy.node import Node
 from custom_msgs.srv import FeatureExtraction
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
 from cv_bridge import CvBridge
 
 import cv2
@@ -29,6 +31,7 @@ from datetime import datetime
 from pathlib import Path
 import openpyxl
 from collections import Counter
+import json
 
 # 导入现有的检测模块
 try:
@@ -74,6 +77,13 @@ class FeatureExtractionNode(Node):
             self.extract_features_callback
         )
         
+        # 创建发布者 - 发布处理结果文件路径
+        self.result_publisher = self.create_publisher(
+            String,
+            '/features/processing_result',
+            10
+        )
+        
         # 统计信息
         self.extraction_count = 0
         
@@ -93,6 +103,7 @@ class FeatureExtractionNode(Node):
         self.get_logger().info(f'🎬 视频处理功能已启用: 每{frame_interval}帧检测, 最多{detection_limit}帧')
         
         self.get_logger().info('🔧 服务地址: /features/extract_features')
+        self.get_logger().info('📤 结果发布地址: /features/processing_result')
         self.get_logger().info('📝 使用方法: person_name前缀"VIDEO:"可处理视频文件')
 
     def setup_output_directory(self):
@@ -182,6 +193,10 @@ class FeatureExtractionNode(Node):
             response.feature_data_path = result_paths.get('excel', '')
             response.result_video_path = result_paths.get('video', '')
             
+            # 发布处理结果文件路径信息
+            if response.success and result_paths:
+                self.publish_processing_result(request.person_name, result_paths, person_ratios)
+            
             self.extraction_count += 1
             self.get_logger().info(f"✅ 特征提取完成，总处理次数: {self.extraction_count}")
             
@@ -193,6 +208,58 @@ class FeatureExtractionNode(Node):
             response.success = False
             response.message = f"服务处理错误: {str(e)}"
             return response
+
+    def publish_processing_result(self, person_name, result_paths, person_ratios):
+        """发布处理结果文件路径信息"""
+        try:
+            # 构建结果信息
+            result_info = {
+                'type': 'feature_extraction_complete',
+                'person_name': person_name,
+                'timestamp': int(time.time() * 1000),
+                'extraction_id': f"extract_{int(time.time() * 1000)}",
+                'files': {
+                    'result_image': result_paths.get('image', ''),
+                    'feature_data': result_paths.get('excel', ''),
+                    'result_video': result_paths.get('video', '')
+                },
+                'features': {}
+            }
+            
+            # 添加特征数据
+            if person_ratios and len(person_ratios) >= 18:
+                result_info['features'] = {
+                    'body_ratios': [float(x) for x in person_ratios[:16]],
+                    'shirt_color': self.parse_color(person_ratios[16]),
+                    'pants_color': self.parse_color(person_ratios[17]),
+                    'has_valid_data': True
+                }
+            else:
+                result_info['features'] = {
+                    'body_ratios': [0.0] * 16,
+                    'shirt_color': [0, 0, 0],
+                    'pants_color': [0, 0, 0],
+                    'has_valid_data': False
+                }
+            
+            # 发布消息
+            msg = String()
+            msg.data = json.dumps(result_info)
+            self.result_publisher.publish(msg)
+            
+            self.get_logger().info(f"📤 已发布处理结果: {result_info['extraction_id']}")
+            
+            # 检查文件是否存在
+            if result_paths.get('image') and Path(result_paths['image']).exists():
+                file_size = Path(result_paths['image']).stat().st_size
+                self.get_logger().info(f"📷 结果图像: {result_paths['image']} (大小: {file_size}字节)")
+            
+            if result_paths.get('video') and Path(result_paths['video']).exists():
+                file_size = Path(result_paths['video']).stat().st_size / (1024 * 1024)  # MB
+                self.get_logger().info(f"🎬 结果视频: {result_paths['video']} (大小: {file_size:.2f}MB)")
+                
+        except Exception as e:
+            self.get_logger().error(f"❌ 发布处理结果失败: {e}")
 
     def parse_color(self, color_data):
         """解析颜色数据为整数列表"""
