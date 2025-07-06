@@ -1791,9 +1791,21 @@ Page({
       updateData['trackingData.mode'] = detailedData.tracking_mode || '未知';
       updateData['trackingData.targetDetected'] = detailedData.target_detected || false;
       updateData['trackingData.totalTracks'] = detailedData.total_tracks || 0;
+      updateData['trackingData.totalPersons'] = detailedData.total_tracks || 0; // 同步总人数
+      updateData['trackingData.activeTracks'] = detailedData.statistics?.active_tracks || detailedData.total_tracks || 0; // 活跃轨迹数
+      updateData['trackingData.lostTracks'] = detailedData.statistics?.lost_tracks || 0; // 丢失轨迹数
       updateData['trackingData.frameId'] = detailedData.frame_id || 0;
       updateData['trackingData.timestamp'] = detailedData.timestamp || Date.now();
       updateData['trackingData.lastUpdateTime'] = Date.now();
+      
+      // 调试日志：显示数据传输的关键信息
+      console.log('📈 详细跟踪数据更新:', {
+        总人数: detailedData.total_tracks,
+        活跃轨迹: detailedData.statistics?.active_tracks,
+        丢失轨迹: detailedData.statistics?.lost_tracks,
+        目标检测: detailedData.target_detected,
+        轨迹数组长度: detailedData.tracks ? detailedData.tracks.length : 0
+      });
       
       // 批量更新数据
       this.setData(updateData);

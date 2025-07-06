@@ -2985,9 +2985,11 @@ class ByteTrackerNode(Node):
                         detection_results = self.extract_body_ratios_from_detections(
                             frame, detection_results, calculate_ratios=False)
 
+                # 调试输出：检测结果概况
+                self.get_logger().info(f'🔍 检测结果: 检测到 {len(detection_results)} 个人员')
                 return detection_results
             else:
-                self.get_logger().warn("服装检测模块不可用")
+                self.get_logger().warn("⚠️ 服装检测模块不可用")
                 return []
 
         except Exception as e:
@@ -3607,8 +3609,15 @@ class ByteTrackerNode(Node):
             json_msg.data = json.dumps(detailed_data)
             self.detailed_tracking_pub.publish(json_msg)
             
-            # 调试输出：打印发布的数据
-            self.get_logger().info(f'📈 发布详细跟踪数据到 /bytetracker/detailed_tracking_data: {json.dumps(detailed_data, indent=2)}')
+            # 调试输出：简化打印关键信息
+            tracking_mode = detailed_data.get('tracking_mode', '未知')
+            total_tracks = detailed_data.get('total_tracks', 0)
+            target_detected = detailed_data.get('target_detected', False)
+            frame_id = detailed_data.get('frame_id', 0)
+            active_tracks = len([t for t in tracks if t.state == TrackState.TRACKED])
+            
+            target_status = "有目标" if target_detected else "无目标"
+            self.get_logger().info(f'🤖 ByteTracker发布 - 模式: {tracking_mode}, 检测人数: {total_tracks}, 活跃轨迹: {active_tracks}, 目标状态: {target_status}, 帧号: {frame_id}')
             
             # 调试日志（降低频率）
             if self.frame_count % 60 == 0:  # 每60帧记录一次（约2秒）

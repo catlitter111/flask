@@ -779,10 +779,10 @@
   }
 
   .stat-value {
-    font-size: 48rpx;
+    font-size: 32rpx;
     font-weight: bold;
     color: #007ACC;
-    margin-bottom: 8rpx;
+    margin-bottom: 6rpx;
   }
 
   .stat-label {
@@ -1886,11 +1886,11 @@
 }
 
 .stat-number {
-  font-size: 36rpx;
+  font-size: 28rpx;
   font-weight: 700;
   color: #1e293b;
   display: block;
-  margin-bottom: 8rpx;
+  margin-bottom: 6rpx;
 }
 
 .stat-desc {

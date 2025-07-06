@@ -1517,8 +1517,15 @@ class WebSocketBridgeNode(Node):
             # 解析JSON数据
             detailed_data = json.loads(msg.data)
             
-            # 调试输出：打印接收到的数据
-            self.get_logger().info(f'🔄 接收到详细跟踪数据: {json.dumps(detailed_data, indent=2)}')
+            # 提取关键信息进行简洁输出
+            tracking_mode = detailed_data.get('tracking_mode', '未知')
+            total_tracks = detailed_data.get('total_tracks', 0)
+            target_detected = detailed_data.get('target_detected', False)
+            frame_id = detailed_data.get('frame_id', 0)
+            
+            # 格式化控制台输出
+            target_status = "有目标" if target_detected else "无目标"
+            self.get_logger().info(f'📊 模式: {tracking_mode}, 画面人数: {total_tracks}, 目标状态: {target_status}, 帧号: {frame_id}')
             
             # 构造发送给WebSocket服务器的数据
             websocket_message = {
@@ -1531,7 +1538,6 @@ class WebSocketBridgeNode(Node):
             # 发送到WebSocket
             if self.ws:
                 self.ws.send(json.dumps(websocket_message))
-                self.get_logger().info(f'📤 发送详细跟踪数据到WebSocket服务器')
                 
         except Exception as e:
             self.get_logger().error(f'❌ 处理详细跟踪数据时发生错误: {str(e)}')
