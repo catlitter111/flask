@@ -402,18 +402,30 @@ App({
       // 视频流将自动开始传输
     },
     
-    // 消息分发到对应页面 - 优化版本
+    // 消息分发到对应页面 - 高度优化版本
     distributeMessage: function(data) {
-      // 使用异步处理防止阻塞主线程
-      wx.nextTick(() => {
-        this._distributeMessageSync(data);
-      });
+      // 直接处理，避免双重异步嵌套
+      this._distributeMessageSync(data);
     },
     
-    // 异步消息分发处理 - 优化版本
+    // 异步消息分发处理 - 高度优化版本
     _distributeMessageSync: function(data) {
-      // 使用 wx.nextTick 将消息处理转为异步，避免阻塞主线程
-      wx.nextTick(() => {
+      // 对于频繁的消息类型，使用setTimeout进行批处理
+      const isFrequentMessage = data.type === 'video_frame' || data.type === 'robot_status_update' || data.type === 'tracking_data';
+      
+      if (isFrequentMessage) {
+        // 频繁消息使用setTimeout异步处理
+        setTimeout(() => {
+          this._handleMessage(data);
+        }, 0);
+      } else {
+        // 非频繁消息直接处理
+        this._handleMessage(data);
+      }
+    },
+    
+    // 核心消息处理方法
+    _handleMessage: function(data) {
         switch (data.type) {
           case 'robot_status_update':
             // 机器人状态更新
@@ -524,17 +536,33 @@ App({
               console.log('🔍 未知消息类型:', data.type);
             }
         }
-      });
     },
     
-    // 处理机器人状态更新
+    // 处理机器人状态更新 - 优化版本
     handleRobotStatusUpdate: function(data) {
-      this.globalData.batteryLevel = data.battery_level || this.globalData.batteryLevel;
-      this.globalData.signalStrength = data.signal_strength || this.globalData.signalStrength;
-      this.globalData.companionMode = data.mode || this.globalData.companionMode;
-      
-      if (this.globalData.controlPage) {
-        this.globalData.controlPage.updateRobotStatus(data);
+      try {
+        // 使用节流，避免过于频繁的状态更新
+        const now = Date.now();
+        if (!this.globalData.lastRobotStatusUpdate || now - this.globalData.lastRobotStatusUpdate > 200) {
+          this.globalData.lastRobotStatusUpdate = now;
+          
+          // 快速更新全局数据
+          this.globalData.batteryLevel = data.battery_level || this.globalData.batteryLevel;
+          this.globalData.signalStrength = data.signal_strength || this.globalData.signalStrength;  
+          this.globalData.companionMode = data.mode || this.globalData.companionMode;
+          
+          // 异步更新控制页面，避免阻塞
+          if (this.globalData.controlPage) {
+            setTimeout(() => {
+              this.globalData.controlPage.updateRobotStatus(data);
+            }, 0);
+          }
+        }
+      } catch (error) {
+        // 静默处理错误
+        if (this.globalData.debugMode) {
+          console.error('Robot status update error:', error);
+        }
       }
     },
     

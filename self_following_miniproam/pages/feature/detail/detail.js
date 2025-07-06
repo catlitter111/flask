@@ -66,25 +66,37 @@ Page({
     // 处理图片数据，确保有处理后的图片
     const image_data = rawTarget.image_data || rawTarget.previewImage || '';
     
-    // 优先使用处理后的图片
+    // 优先使用处理后的图片，按优先级排序
     let processed_image = '';
-    if (rawTarget.processed_image) {
+    if (rawTarget.processed_image && rawTarget.processed_image.startsWith('data:image/')) {
+      // 优先使用base64格式的处理后图片
+      processed_image = rawTarget.processed_image;
+    } else if (rawTarget.result_image && rawTarget.result_image.startsWith('data:image/')) {
+      // 次优选择base64格式的结果图片
+      processed_image = rawTarget.result_image;
+    } else if (rawTarget.processed_image) {
+      // 其次是其他格式的处理后图片
       processed_image = rawTarget.processed_image;
     } else if (rawTarget.result_image) {
+      // 最后是其他格式的结果图片
       processed_image = rawTarget.result_image;
     } else {
+      // 如果都没有，使用原图
       processed_image = image_data;
     }
     
-    const result_image = rawTarget.result_image || processed_image || image_data;
+    const result_image = processed_image || image_data;
     
-    console.log('🖼️ [详情页] 图片数据处理结果:', {
-      has_image_data: !!image_data,
-      has_processed_image: !!processed_image,
-      has_result_image: !!result_image,
-      are_images_same: image_data === processed_image,
-      processed_image_preview: processed_image ? processed_image.substring(0, 50) + '...' : 'none'
-    });
+    // 只在调试模式下输出详细日志
+    if (wx.getStorageSync('debugMode')) {
+      console.log('🖼️ [详情页] 图片数据处理结果:', {
+        has_image_data: !!image_data,
+        has_processed_image: !!processed_image,
+        has_result_image: !!result_image,
+        are_images_same: image_data === processed_image,
+        processed_image_preview: processed_image ? processed_image.substring(0, 50) + '...' : 'none'
+      });
+    }
     
     const processed = {
       ...rawTarget,
@@ -186,29 +198,26 @@ Page({
 
   // 查看处理后的图片
   viewProcessedImage: function() {
-    console.log('🖼️ [查看处理图片] 点击处理结果按钮');
-    console.log('🖼️ [查看处理图片] target存在:', !!this.data.target);
-    console.log('🖼️ [查看处理图片] processed_image存在:', !!this.data.target?.processed_image);
-    if (this.data.target?.processed_image) {
-      console.log('🖼️ [查看处理图片] processed_image预览:', this.data.target.processed_image.substring(0, 80) + '...');
-    }
-    if (this.data.target?.image_data) {
-      console.log('🖼️ [查看处理图片] image_data预览:', this.data.target.image_data.substring(0, 80) + '...');
-    }
-    console.log('🖼️ [查看处理图片] 两者是否相同:', this.data.target?.processed_image === this.data.target?.image_data);
-    
     if (this.data.target && this.data.target.processed_image) {
       this.setData({
         currentImage: this.data.target.processed_image,
         showImageModal: true
       });
-      console.log('🖼️ [查看处理图片] 显示处理后图片');
+      
+      // 只在调试模式下输出详细日志
+      if (wx.getStorageSync('debugMode')) {
+        console.log('🖼️ [查看处理图片] 显示处理后图片');
+      }
     } else {
-      console.log('🖼️ [查看处理图片] 没有处理后图片数据');
       wx.showToast({
         title: '没有处理后的图片',
         icon: 'none'
       });
+      
+      // 只在调试模式下输出详细日志
+      if (wx.getStorageSync('debugMode')) {
+        console.log('🖼️ [查看处理图片] 没有处理后图片数据');
+      }
     }
   },
 

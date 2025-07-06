@@ -75,5 +75,11 @@
       "location",
       "backgroundFetch"
     ],
+    "requiredPrivateInfos": [
+      "getLocation",
+      "chooseLocation",
+      "startLocationUpdate",
+      "startLocationUpdateBackground"
+    ],
     "usingComponents": {}
   }

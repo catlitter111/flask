@@ -330,25 +330,13 @@ Page({
       console.log('▶️ 页面显示，定时器已恢复');
     },
     
-    // 添加性能监控方法
+    // 添加性能监控方法 - 轻量版本
     addPerformanceMonitor: function() {
-      // 监控长时间运行的setTimeout
-      const originalSetTimeout = setTimeout;
-      setTimeout = function(callback, delay) {
-        return originalSetTimeout(function() {
-          const startTime = Date.now();
-          const result = callback.apply(this, arguments);
-          const executionTime = Date.now() - startTime;
-          
-          if (executionTime > 50) {
-            console.warn(`⚠️ setTimeout执行时间过长: ${executionTime}ms`);
-          }
-          
-          return result;
-        }, delay);
-      };
-      
-      console.log('🔍 性能监控已启用');
+      // 只在调试模式下启用性能监控
+      if (wx.getStorageSync('debugMode')) {
+        this.performanceMonitorEnabled = true;
+        console.log('🔍 性能监控已启用');
+      }
     },
     
     // 启动定期内存清理
@@ -770,15 +758,13 @@ Page({
       }, 3000); // 降低到3秒更新一次
     },
     
-    // 处理视频帧
+    // 处理视频帧 - 高性能版本
     handleVideoFrame: function(data) {
       const now = Date.now();
       
-      // 更新最后收到帧的时间
-      this.setData({
-        lastFrameReceived: now,
-        videoExpired: false
-      });
+      // 使用快速状态更新
+      this.data.lastFrameReceived = now;
+      this.data.videoExpired = false;
       
       // 控制更新频率，避免闪烁
       const timeSinceLastUpdate = now - this.data.lastImageUpdateTime;
@@ -793,11 +779,10 @@ Page({
         if (!this.data.imageUpdatePending) {
           this.data.imageUpdatePending = true;
           
-          // 延迟更新（限制执行时间）
-          const delayTime = Math.min(50, this.data.minImageUpdateInterval - timeSinceLastUpdate);
+          // 延迟更新（优化版本）
+          const delayTime = Math.min(30, this.data.minImageUpdateInterval - timeSinceLastUpdate);
           setTimeout(() => {
-            const startTime = Date.now();
-            if (this.data.pendingImageData && Date.now() - startTime < 30) {
+            if (this.data.pendingImageData) {
               this.updateVideoFrame(this.data.pendingImageData);
               this.data.pendingImageData = null;
             }
