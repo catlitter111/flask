@@ -1,0 +1,39 @@
+# WebRTC服务端依赖
+# 基础WebSocket和HTTP服务
+websockets>=11.0.0
+aiohttp>=3.8.0
+
+# WebRTC相关
+aiortc>=1.6.0
+av>=10.0.0
+uvloop>=0.17.0  # 高性能事件循环
+
+# 数据处理
+numpy>=1.21.0
+opencv-python>=4.8.0
+Pillow>=9.0.0  # 图像处理
+
+# 异步和网络
+python-socketio>=5.8.0
+aiofiles>=22.0.0  # 异步文件操作
+
+# 媒体编解码（WebRTC需要）
+pyav>=10.0.0  # 视频编解码
+opus-fast>=1.0.0  # 音频编解码（可选）
+
+# 性能优化
+cython>=0.29.0  # 编译优化（可选）
+
+# 内置模块（不需要安装）
+# logging
+# asyncio  
+# json
+# uuid
+# pathlib
+# base64
+# time
+# datetime
+# typing
+# dataclasses
+# collections
+# traceback 

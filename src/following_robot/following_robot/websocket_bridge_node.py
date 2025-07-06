@@ -199,6 +199,8 @@ class WebSocketBridgeNode(Node):
         # WebRTC相关变量
         self.webrtc_enabled = WEBRTC_AVAILABLE
         self.webrtc_stream_active = False
+        self.webrtc_priority = True  # 优先使用WebRTC传输
+        self.websocket_fallback = True  # WebSocket作为备用传输
         
         # 文件保存配置
         self.file_save_dir = Path('received_files')
@@ -450,16 +452,31 @@ class WebSocketBridgeNode(Node):
                     'compression_ratio': round(compression_ratio, 2)
                 }
                 
-                # 发送图像
-                if self.send_ws_message(frame_message):
-                    self.last_frame_time = current_time
-                    self.get_logger().debug(f'📹 发送视频帧 #{self.frame_sequence} '
-                                          f'({target_width}x{target_height}, {compressed_size}B, '
-                                          f'压缩率:{compression_ratio:.1f}x)')
+                # 优先使用WebRTC传输
+                webrtc_sent = False
+                if self.webrtc_enabled and self.webrtc_priority:
+                    webrtc_sent = self.send_webrtc_frame_data(cv_image)
+                    if webrtc_sent:
+                        self.webrtc_stream_active = True
+                        self.last_frame_time = current_time
+                        self.get_logger().debug(f'📡 WebRTC发送视频帧 #{self.frame_sequence} '
+                                              f'({target_width}x{target_height}, {compressed_size}B)')
                 
-                # 如果启用WebRTC，同时推送原始帧数据到服务端
-                if self.webrtc_enabled and self.webrtc_stream_active:
-                    self.send_webrtc_frame_data(cv_image)
+                # WebSocket作为备用传输（当WebRTC不可用或失败时）
+                if not webrtc_sent and self.websocket_fallback:
+                    if self.send_ws_message(frame_message):
+                        self.last_frame_time = current_time
+                        self.get_logger().debug(f'📹 WebSocket发送视频帧 #{self.frame_sequence} '
+                                              f'({target_width}x{target_height}, {compressed_size}B, '
+                                              f'压缩率:{compression_ratio:.1f}x)')
+                        
+                        # 如果WebRTC失败但WebSocket成功，提示用户
+                        if self.webrtc_enabled and not webrtc_sent:
+                            self.get_logger().warning('⚠️ WebRTC传输失败，使用WebSocket备用传输')
+                
+                # 都失败时的处理
+                if not webrtc_sent and not self.send_ws_message(frame_message):
+                    self.get_logger().error('❌ 所有视频传输方式都失败')
                     
         except Exception as e:
             self.get_logger().error(f'❌ 图像处理失败: {e}')
@@ -1471,31 +1488,46 @@ class WebSocketBridgeNode(Node):
     def send_webrtc_frame_data(self, cv_image):
         """向服务端推送WebRTC视频帧数据"""
         try:
-            # 编码为JPEG
+            if not self.ws_connected:
+                return False
+                
+            # 编码为JPEG（WebRTC使用更高质量）
             success, encoded_data = cv2.imencode('.jpg', cv_image, [
-                int(cv2.IMWRITE_JPEG_QUALITY), 85  # 使用较高质量
+                int(cv2.IMWRITE_JPEG_QUALITY), 90,  # WebRTC使用更高质量
+                int(cv2.IMWRITE_JPEG_OPTIMIZE), 1
             ])
             
+            if not success:
+                self.get_logger().error('❌ WebRTC帧编码失败')
+                return False
+                
+            # 转换为base64
+            frame_base64 = base64.b64encode(encoded_data.tobytes()).decode('utf-8')
+            
+            # 构建WebRTC帧消息
+            webrtc_frame_message = {
+                'type': 'webrtc_frame_data',
+                'robot_id': self.robot_id,
+                'frame_data': frame_base64,
+                'timestamp': int(time.time() * 1000),
+                'width': cv_image.shape[1],
+                'height': cv_image.shape[0],
+                'format': 'jpeg',
+                'transmission_mode': 'webrtc'  # 标识传输方式
+            }
+            
+            # 发送到服务端
+            success = self.send_ws_message(webrtc_frame_message)
             if success:
-                # 转换为base64
-                frame_base64 = base64.b64encode(encoded_data).decode('utf-8')
-                
-                # 构建WebRTC帧消息
-                webrtc_frame_message = {
-                    'type': 'webrtc_frame_data',
-                    'robot_id': self.robot_id,
-                    'frame_data': frame_base64,
-                    'timestamp': int(time.time() * 1000),
-                    'width': cv_image.shape[1],
-                    'height': cv_image.shape[0],
-                    'format': 'jpeg'
-                }
-                
-                # 发送到服务端
-                self.send_ws_message(webrtc_frame_message)
+                self.get_logger().debug(f'📡 WebRTC帧数据推送成功')
+                return True
+            else:
+                self.get_logger().warning('⚠️ WebRTC帧数据推送失败')
+                return False
                 
         except Exception as e:
             self.get_logger().error(f'❌ WebRTC帧数据推送失败: {e}')
+            return False
 
     def destroy_node(self):
         """节点销毁时的清理工作"""

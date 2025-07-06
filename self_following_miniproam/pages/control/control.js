@@ -97,8 +97,11 @@ Page({
       showDragHint: true, // 是否显示拖拽提示
       
       // WebRTC相关
-      useWebRTC: false, // 是否使用WebRTC
+      useWebRTC: true, // 默认使用WebRTC（优先传输方式）
       webrtcStreamUrl: '', // WebRTC流地址
+      webrtcEnabled: true, // WebRTC功能是否启用
+      webrtcConnected: false, // WebRTC连接状态
+      fallbackToWebSocket: true, // 允许降级到WebSocket
       livePlayerContext: null // live-player上下文
     },
   
@@ -249,6 +252,41 @@ Page({
       wx.setStorageSync('userVideoHeight', this.data.videoHeight);
     },
     
+    // 新增：更新视频统计信息（WebRTC和WebSocket通用）
+    updateVideoStats: function(data) {
+      const now = Date.now();
+      
+      // 更新基本统计
+      const updateData = {
+        receivedFrames: this.data.receivedFrames + 1,
+        fpsCounter: this.data.fpsCounter + 1
+      };
+      
+      // 计算延迟
+      if (data.timestamp) {
+        const frameLatency = now - data.timestamp;
+        updateData.frameLatency = frameLatency;
+        updateData.networkDelay = data.server_timestamp ? (now - data.server_timestamp) : frameLatency;
+      }
+      
+      // 更新分辨率信息
+      if (data.width && data.height) {
+        updateData.videoResolution = `${data.width}×${data.height}`;
+      }
+      
+      // 更新序列号和丢帧统计
+      if (data.sequence) {
+        if (this.data.expectedSequence > 0 && data.sequence > this.data.expectedSequence) {
+          const dropped = data.sequence - this.data.expectedSequence;
+          updateData.droppedFrames = this.data.droppedFrames + dropped;
+        }
+        updateData.frameSequence = data.sequence;
+        updateData.expectedSequence = data.sequence + 1;
+      }
+      
+      this.setData(updateData);
+    },
+
     // 检查全局连接状态
     checkGlobalConnectionState: function() {
       const app = getApp();
@@ -257,6 +295,11 @@ Page({
         connected: app.globalData.connected,
         connecting: app.globalData.connecting
       });
+      
+      // 连接成功后，如果启用WebRTC，尝试建立WebRTC连接
+      if (app.globalData.connected && this.data.webrtcEnabled && this.data.useWebRTC && !this.data.webrtcConnected) {
+        this.initializeWebRTC();
+      }
       
       // 如果未连接，通过全局方法重连
       if (!app.globalData.connected && !app.globalData.connecting) {
@@ -388,27 +431,57 @@ Page({
         videoExpired: false
       });
       
-      // 控制更新频率，避免闪烁
-      const timeSinceLastUpdate = now - this.data.lastImageUpdateTime;
+      // 检查传输模式
+      const isWebRTCFrame = data.transmission_mode === 'webrtc';
       
-      if (timeSinceLastUpdate >= this.data.minImageUpdateInterval) {
-        // 立即更新
-        this.updateVideoFrame(data);
-      } else {
-        // 缓存最新帧，稍后更新
-        this.data.pendingImageData = data;
+      // 如果使用WebRTC模式且收到WebRTC帧，则不需要处理image组件
+      if (this.data.useWebRTC && isWebRTCFrame) {
+        // WebRTC模式下，视频由live-player直接处理
+        this.updateVideoStats(data);
+        console.log('📡 WebRTC视频帧已由live-player处理');
+        return;
+      }
+      
+      // 如果使用WebRTC但收到WebSocket帧，说明发生了降级
+      if (this.data.useWebRTC && !isWebRTCFrame) {
+        console.warn('⚠️ WebRTC模式下收到WebSocket帧，可能发生降级');
+        // 可选择是否要降级到WebSocket模式
+        if (this.data.fallbackToWebSocket) {
+          this.setData({
+            useWebRTC: false,
+            webrtcConnected: false
+          });
+          wx.showToast({
+            title: '已切换到备用传输',
+            icon: 'none'
+          });
+        }
+      }
+      
+      // WebSocket模式或降级模式下处理视频帧
+      if (!this.data.useWebRTC || this.data.fallbackToWebSocket) {
+        // 控制更新频率，避免闪烁
+        const timeSinceLastUpdate = now - this.data.lastImageUpdateTime;
         
-        if (!this.data.imageUpdatePending) {
-          this.data.imageUpdatePending = true;
+        if (timeSinceLastUpdate >= this.data.minImageUpdateInterval) {
+          // 立即更新
+          this.updateVideoFrame(data);
+        } else {
+          // 缓存最新帧，稍后更新
+          this.data.pendingImageData = data;
           
-          // 延迟更新
-          setTimeout(() => {
-            if (this.data.pendingImageData) {
-              this.updateVideoFrame(this.data.pendingImageData);
-              this.data.pendingImageData = null;
-            }
-            this.data.imageUpdatePending = false;
-          }, this.data.minImageUpdateInterval - timeSinceLastUpdate);
+          if (!this.data.imageUpdatePending) {
+            this.data.imageUpdatePending = true;
+            
+            // 延迟更新
+            setTimeout(() => {
+              if (this.data.pendingImageData) {
+                this.updateVideoFrame(this.data.pendingImageData);
+                this.data.pendingImageData = null;
+              }
+              this.data.imageUpdatePending = false;
+            }, this.data.minImageUpdateInterval - timeSinceLastUpdate);
+          }
         }
       }
     },
@@ -1142,6 +1215,32 @@ Page({
     
     // WebRTC相关方法
     
+    // 新增：初始化WebRTC连接
+    initializeWebRTC: function() {
+      console.log('📡 正在初始化WebRTC连接...');
+      
+      if (!this.data.webrtcEnabled) {
+        console.warn('⚠️ WebRTC功能未启用');
+        return;
+      }
+      
+      // 构建WebRTC流地址
+      const streamUrl = `http://101.201.150.96:1236/video_stream/${this.data.robotId}`;
+      
+      this.setData({
+        useWebRTC: true,
+        webrtcStreamUrl: streamUrl,
+        webrtcConnected: false
+      });
+      
+      // 延迟初始化live-player，给服务器一些时间准备
+      setTimeout(() => {
+        this.initLivePlayer();
+      }, 1000);
+      
+      console.log('📡 WebRTC初始化完成，流地址:', streamUrl);
+    },
+    
     // 切换到WebRTC模式
     switchToWebRTC: function(data) {
       console.log('📡 切换到WebRTC视频传输模式');
@@ -1170,19 +1269,33 @@ Page({
       
       this.setData({
         useWebRTC: false,
-        webrtcStreamUrl: ''
+        webrtcStreamUrl: '',
+        webrtcConnected: false
       });
       
       // 停止live-player
       if (this.data.livePlayerContext) {
         this.data.livePlayerContext.stop();
+        this.setData({
+          livePlayerContext: null
+        });
       }
+      
+      // 通知服务器切换到WebSocket模式
+      this.sendSocketMessage({
+        type: 'fallback_to_websocket',
+        robot_id: this.data.robotId,
+        client_id: this.data.clientId,
+        timestamp: Date.now()
+      });
       
       wx.showToast({
         title: '已切换到标准模式',
         icon: 'none',
         duration: 2000
       });
+      
+      console.log('📡 WebSocket降级完成，等待接收图像数据...');
     },
     
     // 初始化live-player
@@ -1202,16 +1315,34 @@ Page({
         context.play({
           success: () => {
             console.log('📡 WebRTC live-player开始播放');
+            this.setData({
+              webrtcConnected: true
+            });
+            wx.showToast({
+              title: 'WebRTC连接成功',
+              icon: 'success',
+              duration: 1500
+            });
           },
           fail: (error) => {
             console.error('❌ WebRTC live-player播放失败:', error);
-            this.fallbackToWebSocket();
+            this.setData({
+              webrtcConnected: false
+            });
+            if (this.data.fallbackToWebSocket) {
+              this.fallbackToWebSocket();
+            }
           }
         });
         
       } catch (error) {
         console.error('❌ 初始化live-player失败:', error);
-        this.fallbackToWebSocket();
+        this.setData({
+          webrtcConnected: false
+        });
+        if (this.data.fallbackToWebSocket) {
+          this.fallbackToWebSocket();
+        }
       }
     },
     

@@ -9,13 +9,14 @@
     - 提供WebSocket服务，连接微信小程序客户端和ROS2机器人节点
     - 实现消息路由，在客户端和机器人之间转发消息
     - 管理连接状态，处理心跳和重连
-    - 转发视频流、控制命令、状态更新等
+    - 优先使用WebRTC传输视频流，WebSocket作为备用
     - 提供HTTP文件上传接口
 
 架构设计：
     - 客户端连接：/ws/companion/{client_id}
     - 机器人连接：/ws/ros2_bridge/{robot_id}
     - 文件上传：/api/upload/{client_id}
+    - WebRTC信令：/api/webrtc/*
     - 消息队列：处理并发消息
     - 连接池：管理多个客户端和机器人
 
@@ -38,36 +39,31 @@ from pathlib import Path
 
 # WebRTC相关导入
 try:
-    from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
-    from aiortc.contrib.media import MediaPlayer, MediaRelay
+    from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, VideoStreamTrack
+    from aiortc.contrib.media import MediaPlayer, MediaRelay, MediaStreamTrack
     from aiortc.contrib.signaling import object_from_string, object_to_string
+    import uvloop  # 高性能事件循环
     WEBRTC_AVAILABLE = True
-except ImportError:
-    print("警告: aiortc未安装，WebRTC功能将不可用")
-    print("请安装: pip install aiortc")
+    print("✅ WebRTC库加载成功，WebRTC功能已启用")
+except ImportError as e:
+    print(f"警告: WebRTC库未完全安装，部分功能不可用: {e}")
+    print("请安装: pip install -r requirements_webrtc.txt")
     WEBRTC_AVAILABLE = False
 
-# 兼容不同版本的 websockets 库
+# WebSocket导入（兼容不同版本）
 try:
-    # 尝试新版本的导入方式
-    from websockets.server import WebSocketServerProtocol
-    from websockets.legacy.server import WebSocketServerProtocol as LegacyWebSocketServerProtocol
-
-    WebSocketType = Union[WebSocketServerProtocol, LegacyWebSocketServerProtocol]
+    import websockets
+    from websockets.server import serve
+    from websockets.exceptions import ConnectionClosed
+    WS_SERVE_AVAILABLE = True
 except ImportError:
     try:
-        # 尝试旧版本的导入方式
-        from websockets import WebSocketServerProtocol
-
-        WebSocketType = WebSocketServerProtocol
-    except ImportError:
-        # 使用通用类型
         import websockets
-
-        WebSocketType = Any
-
-import websockets
-from websockets.exceptions import ConnectionClosed
+        from websockets import serve, ConnectionClosed
+        WS_SERVE_AVAILABLE = True
+    except ImportError:
+        print("错误: websockets库未安装")
+        WS_SERVE_AVAILABLE = False
 
 # HTTP服务器相关
 try:
@@ -86,11 +82,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger('companion_server')
 
+# 兼容类型定义
+if WS_SERVE_AVAILABLE:
+    try:
+        from websockets.server import WebSocketServerProtocol
+        WebSocketType = WebSocketServerProtocol
+    except ImportError:
+        try:
+            from websockets.legacy.server import WebSocketServerProtocol
+            WebSocketType = WebSocketServerProtocol
+        except ImportError:
+            WebSocketType = Any
+else:
+    WebSocketType = Any
+
 
 @dataclass
 class ClientConnection:
     """客户端连接信息"""
-    websocket: WebSocketType  # 使用兼容的类型
+    websocket: Any  # 兼容类型
     client_id: str
     client_type: str  # 'companion' or 'ros2_bridge'
     robot_id: Optional[str] = None
@@ -115,13 +125,63 @@ class RobotInfo:
     video_streaming: bool = False
     last_video_frame: Optional[Dict] = None
     # WebRTC相关
-    webrtc_peer_connection: Optional[Any] = None
+    webrtc_peer_connections: Dict[str, Any] = field(default_factory=dict)  # client_id -> RTCPeerConnection
     webrtc_relay: Optional[Any] = None
     webrtc_track: Optional[Any] = None
+    webrtc_enabled: bool = field(default_factory=lambda: WEBRTC_AVAILABLE)
+
+
+class RobotVideoTrack(VideoStreamTrack):
+    """机器人视频轨道类 - 用于WebRTC传输"""
+    
+    def __init__(self, robot_id: str):
+        super().__init__()
+        self.robot_id = robot_id
+        self.frame_data = None
+        self.frame_time = 0
+        
+    async def recv(self):
+        """接收视频帧"""
+        import cv2
+        import numpy as np
+        from av import VideoFrame
+        
+        # 如果没有帧数据，返回黑色帧
+        if self.frame_data is None:
+            # 创建黑色帧
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        else:
+            try:
+                # 解码base64帧数据
+                frame_bytes = base64.b64decode(self.frame_data)
+                frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
+                frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+                
+                if frame is None:
+                    # 解码失败，使用黑色帧
+                    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            except Exception as e:
+                logger.error(f"❌ 解码视频帧失败: {e}")
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        
+        # 转换为RGB (OpenCV是BGR)
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        # 创建VideoFrame
+        video_frame = VideoFrame.from_ndarray(frame_rgb, format="rgb24")
+        video_frame.pts = self.frame_time
+        video_frame.time_base = "1/30"  # 30fps时间基
+        
+        self.frame_time += 1
+        return video_frame
+    
+    def update_frame(self, frame_data: str):
+        """更新帧数据"""
+        self.frame_data = frame_data
 
 
 class CompanionServer:
-    """机器人伴侣WebSocket服务器"""
+    """机器人伴侣WebSocket服务器 - 优先使用WebRTC传输"""
 
     def __init__(self, host: str = '0.0.0.0', port: int = 1234, http_port: int = 8080, video_port: int = 1236):
         self.host = host
@@ -156,6 +216,7 @@ class CompanionServer:
             'messages_sent': 0,
             'messages_received': 0,
             'video_frames_forwarded': 0,
+            'webrtc_streams_active': 0,
             'commands_forwarded': 0,
             'files_uploaded': 0,
             'errors': 0,
@@ -169,14 +230,18 @@ class CompanionServer:
         # WebRTC配置
         self.webrtc_enabled = WEBRTC_AVAILABLE
         self.webrtc_relay = None
-        self.webrtc_connections = {}  # client_id -> RTCPeerConnection
+        self.robot_video_tracks = {}  # robot_id -> RobotVideoTrack
+        self.webrtc_connections = {}  # client_id -> RTCPeerConnection (添加这个属性)
         
         if self.webrtc_enabled:
-            if WEBRTC_AVAILABLE:
+            try:
                 self.webrtc_relay = MediaRelay()
-                logger.info("✅ WebRTC支持已启用")
-            else:
-                logger.warning("⚠️ WebRTC库未安装，仅支持WebSocket视频传输")
+                logger.info("✅ WebRTC支持已启用，将作为主要视频传输方式")
+            except Exception as e:
+                logger.error(f"❌ WebRTC初始化失败: {e}")
+                self.webrtc_enabled = False
+        else:
+            logger.warning("⚠️ WebRTC库未安装，将使用WebSocket备用传输")
 
         logger.info(f"🚀 服务器初始化 - WebSocket: {host}:{port}, HTTP: {host}:{http_port}, Video: {host}:{video_port}")
 
@@ -473,7 +538,9 @@ class CompanionServer:
 
     async def _start_new_version(self):
         """新版本 websockets 的启动方式"""
-        import websockets
+        if not WS_SERVE_AVAILABLE:
+            logger.error("❌ WebSocket库未正确安装")
+            return
 
         # 对于新版本，使用process_request来获取路径信息
         async def process_request(connection, request):
@@ -489,7 +556,7 @@ class CompanionServer:
             await self.handle_connection(websocket, path)
 
         # 使用新版本的服务器，优化心跳参数与客户端协调
-        async with websockets.serve(
+        async with serve(
                 handler,
                 self.host,
                 self.port,
@@ -502,8 +569,12 @@ class CompanionServer:
 
     async def _start_legacy_version(self):
         """旧版本 websockets 的启动方式"""
+        if not WS_SERVE_AVAILABLE:
+            logger.error("❌ WebSocket库未正确安装")
+            return
+            
         # 旧版本的启动方式，优化心跳参数与客户端协调
-        async with websockets.serve(
+        async with serve(
                 self.handle_connection,
                 self.host,
                 self.port,
@@ -513,7 +584,7 @@ class CompanionServer:
             logger.info(f"✅ 服务器已启动 - ws://{self.host}:{self.port}")
             await asyncio.Future()  # 永久运行
 
-    async def handle_connection(self, websocket, path: str = None):
+    async def handle_connection(self, websocket, path: Optional[str] = None):
         """处理新的WebSocket连接"""
         client_id = None
         connection_type = None
@@ -756,15 +827,28 @@ class CompanionServer:
         message_type = data.get('type', '')
         robot_id = data.get('robot_id') or connection.robot_id
 
+        # 确保robot_id不为None
+        if not robot_id:
+            logger.error(f"❌ 机器人消息缺少robot_id: {message_type}")
+            return
+
         logger.debug(f"🤖 机器人消息 - 类型: {message_type}, 机器人: {robot_id}")
 
         if message_type == 'robot_init':
             # 机器人初始化
             connection.capabilities = data.get('capabilities', {})
             logger.info(f"🔧 机器人初始化 - ID: {robot_id}, 能力: {connection.capabilities}")
+            
+            # 初始化WebRTC视频轨道
+            if self.webrtc_enabled and robot_id not in self.robot_video_tracks:
+                self.robot_video_tracks[robot_id] = RobotVideoTrack(robot_id)
+                logger.info(f"📡 为机器人 {robot_id} 创建WebRTC视频轨道")
 
         elif message_type == 'video_frame':
-            # 转发视频帧到所有客户端
+            # 优先更新WebRTC视频轨道
+            await self.handle_webrtc_video_frame(robot_id, data)
+            
+            # 仍然支持WebSocket转发作为备用
             await self.forward_video_frame(robot_id, data)
             self.stats['video_frames_forwarded'] += 1
 
@@ -1517,15 +1601,25 @@ class CompanionServer:
         except Exception as e:
             logger.error(f"❌ WebRTC流准备处理失败: {e}")
     
-    async def handle_webrtc_frame_data(self, connection: ClientConnection, data: Dict):
-        """处理WebRTC视频帧数据"""
+    async def handle_webrtc_video_frame(self, robot_id: str, data: Dict):
+        """处理WebRTC视频帧 - 新增方法"""
         try:
-            robot_id = connection.robot_id
-            
-            if robot_id not in self.robots:
+            if not self.webrtc_enabled:
                 return
-            
-            # 存储最新帧数据
+                
+            # 更新机器人视频轨道
+            if robot_id in self.robot_video_tracks:
+                frame_data = data.get('frame_data')
+                if frame_data:
+                    track = self.robot_video_tracks[robot_id]
+                    track.update_frame(frame_data)
+                    
+                    # 更新统计
+                    self.stats['webrtc_streams_active'] = len(self.robot_video_tracks)
+                    
+                    logger.debug(f"📡 更新WebRTC视频轨道 - 机器人: {robot_id}")
+                    
+            # 存储最新帧数据（用于HTTP视频流）
             self.latest_frames[robot_id] = {
                 'frame_data': data.get('frame_data'),
                 'timestamp': data.get('timestamp'),
@@ -1534,12 +1628,26 @@ class CompanionServer:
                 'format': data.get('format', 'jpeg')
             }
             
-            # 可选：限制存储的帧数量以节省内存
-            if len(self.latest_frames) > 10:  # 最多保存10个机器人的帧
+            # 限制存储的帧数量
+            if len(self.latest_frames) > 10:
                 oldest_robot = min(self.latest_frames.keys(), 
                                  key=lambda k: self.latest_frames[k]['timestamp'])
                 if len(self.latest_frames) > 10:
                     del self.latest_frames[oldest_robot]
+                    
+        except Exception as e:
+            logger.error(f"❌ WebRTC视频帧处理失败: {e}")
+
+    async def handle_webrtc_frame_data(self, connection: ClientConnection, data: Dict):
+        """处理WebRTC视频帧数据"""
+        try:
+            robot_id = connection.robot_id
+            
+            if robot_id not in self.robots:
+                return
+            
+            # 调用统一的WebRTC视频帧处理方法
+            await self.handle_webrtc_video_frame(robot_id, data)
                 
         except Exception as e:
             logger.error(f"❌ WebRTC帧数据处理失败: {e}")
