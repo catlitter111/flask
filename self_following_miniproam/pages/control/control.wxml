@@ -1,4 +1,5 @@
 <!-- pages/control/control.wxml - 机器人伴侣控制页面 -->
+<wxs module="utils" src="./utils.wxs"></wxs>
 <view class="container">
   <!-- 视频容器，高度动态调整 -->
   <view class="video-container" style="height: {{videoHeight}}vh;">
@@ -146,14 +147,33 @@
   <scroll-view class="control-container {{!robotConnected ? 'disabled' : ''}}" 
                scroll-y="true"
                style="height: calc(100vh - {{videoHeight}}vh - {{statusBarHeight + navBarHeight}}px - 40rpx);">
-    <view class="control-header">
-      <text class="title">伴侣控制</text>
-      <view class="mode-switch">
-        <text class="{{operationMode === 'manual' ? 'active' : ''}}">手动模式</text>
-        <switch checked="{{operationMode === 'auto'}}" bindchange="switchMode" color="#007ACC" />
-        <text class="{{operationMode === 'auto' ? 'active' : ''}}">自动模式</text>
+    
+    <!-- Tab切换栏 -->
+    <view class="tab-header">
+      <view class="tab-nav">
+        <view class="tab-item {{currentTab === 'control' ? 'active' : ''}}" 
+              bindtap="switchTab" data-tab="control">
+          <text class="tab-icon">🎮</text>
+          <text class="tab-text">控制</text>
+        </view>
+        <view class="tab-item {{currentTab === 'data' ? 'active' : ''}}" 
+              bindtap="switchTab" data-tab="data">
+          <text class="tab-icon">📊</text>
+          <text class="tab-text">数据</text>
+        </view>
       </view>
     </view>
+
+    <!-- 控制页面内容 -->
+    <view class="tab-content" wx:if="{{currentTab === 'control'}}">
+      <view class="control-header">
+        <text class="title">伴侣控制</text>
+        <view class="mode-switch">
+          <text class="{{operationMode === 'manual' ? 'active' : ''}}">手动模式</text>
+          <switch checked="{{operationMode === 'auto'}}" bindchange="switchMode" color="#007ACC" />
+          <text class="{{operationMode === 'auto' ? 'active' : ''}}">自动模式</text>
+        </view>
+      </view>
 
     <view class="control-panel" wx:if="{{operationMode === 'manual'}}">
       <!-- 控制类型切换 -->
@@ -234,6 +254,99 @@
         <button class="btn-auto btn-pause" bindtap="pauseAutoMode">暂停</button>
         <button class="btn-auto btn-emergency" bindtap="emergencyStop">紧急停止</button>
       </view>
+    </view>
+    </view>
+    
+    <!-- 数据展示页面内容 -->
+    <view class="tab-content" wx:if="{{currentTab === 'data'}}">
+      <view class="data-header">
+        <text class="title">跟踪数据</text>
+        <view class="data-stats">
+          <view class="stat-item">
+            <text class="stat-value">{{trackingData.totalTracks}}</text>
+            <text class="stat-label">总轨迹</text>
+          </view>
+          <view class="stat-item">
+            <text class="stat-value">{{trackingData.activeTracks}}</text>
+            <text class="stat-label">活跃</text>
+          </view>
+          <view class="stat-item">
+            <text class="stat-value">{{trackingData.lostTracks}}</text>
+            <text class="stat-label">丢失</text>
+          </view>
+        </view>
+      </view>
+      
+      <!-- 轨迹列表 -->
+      <view class="track-list">
+        <view class="track-item {{trackingData.targetTrackId === track.id ? 'is-target' : ''}}" 
+              wx:for="{{trackingData.tracks}}" 
+              wx:key="id"
+              bindtap="setTargetTrack"
+              data-track-id="{{item.id}}">
+          
+          <!-- 轨迹基本信息 -->
+          <view class="track-header">
+            <view class="track-id">
+              <text class="id-label">ID:</text>
+              <text class="id-value">{{item.id}}</text>
+              <view class="target-badge" wx:if="{{trackingData.targetTrackId === item.id}}">目标</view>
+            </view>
+                         <view class="track-status" style="color: {{utils.getStatusColor(item.status)}}">
+               <text class="status-dot" style="background-color: {{utils.getStatusColor(item.status)}}"></text>
+               <text class="status-text">{{utils.getStatusText(item.status)}}</text>
+             </view>
+          </view>
+          
+          <!-- 置信度 -->
+          <view class="track-confidence">
+            <text class="confidence-label">置信度:</text>
+                         <view class="confidence-bar">
+               <view class="confidence-fill" style="width: {{utils.confidencePercent(item.confidence)}}%; background-color: {{utils.getConfidenceColor(item.confidence)}}"></view>
+             </view>
+             <text class="confidence-value">{{utils.confidencePercent(item.confidence)}}%</text>
+          </view>
+          
+          <!-- 服装颜色 -->
+          <view class="track-clothing">
+            <text class="clothing-label">服装颜色:</text>
+            <view class="clothing-colors">
+              <view class="color-item">
+                <view class="color-dot" style="background-color: {{item.clothingColors.top.color}}"></view>
+                <text class="color-name">上衣: {{item.clothingColors.top.name}}</text>
+              </view>
+              <view class="color-item">
+                <view class="color-dot" style="background-color: {{item.clothingColors.bottom.color}}"></view>
+                <text class="color-name">下衣: {{item.clothingColors.bottom.name}}</text>
+              </view>
+            </view>
+          </view>
+          
+          <!-- 位置信息 -->
+                     <view class="track-position">
+             <text class="position-label">位置:</text>
+             <text class="position-value">X: {{utils.toFixed(item.position.x, 0)}}, Y: {{utils.toFixed(item.position.y, 0)}}</text>
+             <text class="update-time">{{utils.formatTimeAgo(item.lastUpdateTime)}}</text>
+           </view>
+          
+        </view>
+      </view>
+      
+      <!-- 空状态 -->
+      <view class="empty-state" wx:if="{{trackingData.tracks.length === 0}}">
+        <view class="empty-icon">📊</view>
+        <text class="empty-title">暂无跟踪数据</text>
+        <text class="empty-desc">请确保机器人已连接并开始检测</text>
+      </view>
+      
+             <!-- 数据更新信息 -->
+       <view class="data-footer">
+         <text class="update-info">最后更新: {{utils.formatTimeAgo(trackingData.lastUpdateTime)}}</text>
+         <view class="refresh-indicator">
+           <view class="pulse-dot"></view>
+           <text class="refresh-text">实时更新中</text>
+         </view>
+       </view>
     </view>
   </scroll-view>
   

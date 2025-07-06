@@ -95,6 +95,43 @@ Page({
       dragStartY: 0, // 拖拽开始时的Y坐标
       dragStartHeight: 0, // 拖拽开始时的高度
       showDragHint: true, // 是否显示拖拽提示
+      
+      // 新增：Tab切换相关
+      currentTab: 'control', // 当前tab：'control' 或 'data'
+      
+      // 新增：跟踪数据展示
+      trackingData: {
+        tracks: [
+          // 模拟数据，后续会从服务器接收
+          {
+            id: 1,
+            confidence: 0.85,
+            status: 'tracking',
+            clothingColors: {
+              top: { name: '蓝色', color: '#2196F3' },
+              bottom: { name: '黑色', color: '#424242' }
+            },
+            position: { x: 320, y: 240 },
+            lastUpdateTime: Date.now()
+          },
+          {
+            id: 2,
+            confidence: 0.72,
+            status: 'lost',
+            clothingColors: {
+              top: { name: '红色', color: '#F44336' },
+              bottom: { name: '白色', color: '#FFFFFF' }
+            },
+            position: { x: 180, y: 160 },
+            lastUpdateTime: Date.now() - 5000
+          }
+        ],
+        totalTracks: 2,
+        activeTracks: 1,
+        lostTracks: 1,
+        targetTrackId: 1, // 当前跟踪目标ID
+        lastUpdateTime: Date.now()
+      }
     },
   
     onLoad: function(options) {
@@ -108,13 +145,14 @@ Page({
       // 注册到全局应用以接收消息
       app.globalData.controlPage = this;
       
-      // 获取系统信息，适配不同屏幕
-      const systemInfo = wx.getSystemInfoSync();
-      const statusBarHeight = systemInfo.statusBarHeight || 20;
+      // 获取系统信息，适配不同屏幕 - 使用新的API
+      const windowInfo = wx.getWindowInfo();
+      const systemSetting = wx.getSystemSetting();
+      const statusBarHeight = windowInfo.statusBarHeight || 20;
       const navBarHeight = 44; // 导航栏标准高度
       
       // 计算可用高度
-      const windowHeight = systemInfo.windowHeight;
+      const windowHeight = windowInfo.windowHeight;
       const availableHeight = windowHeight - statusBarHeight - navBarHeight;
       
       this.setData({
@@ -140,12 +178,15 @@ Page({
       // 更新连接状态
       this.checkGlobalConnectionState();
       
-      // 新增：3秒后隐藏拖拽提示
-      setTimeout(() => {
-        this.setData({
-          showDragHint: false
-        });
-      }, 3000);
+          // 新增：3秒后隐藏拖拽提示
+    setTimeout(() => {
+      this.setData({
+        showDragHint: false
+      });
+    }, 3000);
+    
+    // 启动跟踪数据更新定时器
+    this.startTrackingDataUpdater();
     },
   
     onShow: function() {
@@ -189,7 +230,91 @@ Page({
       if (this.videoExpireChecker) {
         clearInterval(this.videoExpireChecker);
       }
+      
+      if (this.trackingDataTimer) {
+        clearInterval(this.trackingDataTimer);
+      }
     },
+    
+    // Tab切换方法
+    switchTab: function(e) {
+      const tab = e.currentTarget.dataset.tab;
+      this.setData({
+        currentTab: tab
+      });
+    },
+    
+    // 启动跟踪数据更新定时器
+    startTrackingDataUpdater: function() {
+      // 每500ms更新一次跟踪数据（模拟实时更新）
+      this.trackingDataTimer = setInterval(() => {
+        this.updateTrackingData();
+      }, 500);
+    },
+    
+    // 更新跟踪数据（模拟）
+    updateTrackingData: function() {
+      const now = Date.now();
+      const tracks = this.data.trackingData.tracks;
+      
+      // 模拟数据变化
+      const updatedTracks = tracks.map(track => {
+        const timeSinceUpdate = now - track.lastUpdateTime;
+        
+        // 模拟置信度波动
+        let newConfidence = track.confidence + (Math.random() - 0.5) * 0.1;
+        newConfidence = Math.max(0, Math.min(1, newConfidence));
+        
+        // 如果超过10秒未更新，标记为丢失
+        let newStatus = track.status;
+        if (timeSinceUpdate > 10000 && track.status === 'tracking') {
+          newStatus = 'lost';
+        } else if (timeSinceUpdate < 1000 && track.status === 'lost') {
+          newStatus = 'tracking';
+        }
+        
+        // 模拟位置轻微变化
+        const newPosition = {
+          x: track.position.x + (Math.random() - 0.5) * 20,
+          y: track.position.y + (Math.random() - 0.5) * 20
+        };
+        
+        return {
+          ...track,
+          confidence: parseFloat(newConfidence.toFixed(2)),
+          status: newStatus,
+          position: newPosition,
+          lastUpdateTime: Math.random() > 0.8 ? now : track.lastUpdateTime // 80%的概率更新时间
+        };
+      });
+      
+      // 计算统计信息
+      const activeTracks = updatedTracks.filter(t => t.status === 'tracking').length;
+      const lostTracks = updatedTracks.filter(t => t.status === 'lost').length;
+      
+      this.setData({
+        'trackingData.tracks': updatedTracks,
+        'trackingData.activeTracks': activeTracks,
+        'trackingData.lostTracks': lostTracks,
+        'trackingData.lastUpdateTime': now
+      });
+    },
+    
+    // 设置目标跟踪ID
+    setTargetTrack: function(e) {
+      const trackId = e.currentTarget.dataset.trackId;
+      this.setData({
+        'trackingData.targetTrackId': parseInt(trackId)
+      });
+      
+      wx.showToast({
+        title: `已设置目标轨迹 ID: ${trackId}`,
+        icon: 'success',
+        duration: 1500
+      });
+    },
+    
+
     
     // 新增：处理拖拽开始
     handleDragStart: function(e) {

@@ -1,0 +1,51 @@
+// utils.wxs - 控制页面工具函数
+module.exports = {
+  // 获取状态颜色
+  getStatusColor: function(status) {
+    switch (status) {
+      case 'tracking': return '#4CAF50';
+      case 'lost': return '#FF9800';
+      case 'removed': return '#F44336';
+      default: return '#9E9E9E';
+    }
+  },
+  
+  // 获取状态文本
+  getStatusText: function(status) {
+    switch (status) {
+      case 'tracking': return '跟踪中';
+      case 'lost': return '已丢失';
+      case 'removed': return '已移除';
+      default: return '未知';
+    }
+  },
+  
+  // 格式化时间显示
+  formatTimeAgo: function(timestamp) {
+    var now = getDate().getTime();
+    var diff = now - timestamp;
+    
+    if (diff < 1000) return '刚刚';
+    if (diff < 60000) return Math.floor(diff / 1000) + '秒前';
+    if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+    return Math.floor(diff / 3600000) + '小时前';
+  },
+  
+  // 数值保留小数位
+  toFixed: function(value, decimals) {
+    decimals = decimals || 0;
+    return parseFloat(value).toFixed(decimals);
+  },
+  
+  // 计算置信度百分比
+  confidencePercent: function(confidence) {
+    return Math.round(confidence * 100);
+  },
+  
+  // 获取置信度颜色
+  getConfidenceColor: function(confidence) {
+    if (confidence > 0.7) return '#4CAF50';
+    if (confidence > 0.4) return '#FF9800';
+    return '#F44336';
+  }
+}; 
