@@ -708,7 +708,10 @@ class WebSocketBridgeNode(Node):
             pants_color = features.get('pants_color', [0, 0, 0])
             
             # 详细调试日志
-            self.get_logger().info(f"🔍 [调试] 原始特征数据结构: {json.dumps(features, indent=2)}")
+            try:
+                self.get_logger().info(f"🔍 [调试] 原始特征数据结构: {json.dumps(features, indent=2)}")
+            except Exception as e:
+                self.get_logger().info(f"🔍 [调试] 原始特征数据结构（序列化失败）: {features}, 错误: {e}")
             self.get_logger().info(f"🔍 [调试] 提取的body_ratios: {body_ratios}")
             self.get_logger().info(f"🔍 [调试] body_ratios类型: {type(body_ratios)}, 长度: {len(body_ratios) if isinstance(body_ratios, list) else 'not list'}")
             self.get_logger().info(f"🔍 [调试] body_ratios前5个值: {body_ratios[:5] if isinstance(body_ratios, list) and len(body_ratios) >= 5 else 'insufficient data'}")

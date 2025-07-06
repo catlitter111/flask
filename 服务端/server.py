@@ -697,6 +697,11 @@ class CompanionServer:
             # 处理后图片结果
             await self.handle_processed_image_result(connection, data)
 
+        elif message_type == 'tracking_data':
+            # 转发跟踪数据到所有客户端
+            await self.forward_to_companions(robot_id, data)
+            logger.debug(f"📊 转发跟踪数据 - 机器人: {robot_id}, 目标检测: {data.get('data', {}).get('target_detected', False)}")
+            
         elif message_type == 'heartbeat':
             # 机器人心跳
             connection.last_heartbeat = time.time()

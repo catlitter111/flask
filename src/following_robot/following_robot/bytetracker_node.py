@@ -2728,6 +2728,7 @@ class ByteTrackerNode(Node):
         # 统计信息
         self.frame_count = 0
         self.processing_time = 0
+        self.current_fps = 0.0  # 当前帧率
 
         # 设置参数
         self.setup_parameters()
@@ -2897,17 +2898,32 @@ class ByteTrackerNode(Node):
             publish_time = time.time() - publish_start
             self.get_logger().debug(f"📡 发布完成: 耗时 {publish_time:.3f}s")
 
-            # 📊 Step 7: 性能统计
+            # 📊 Step 7: 性能统计和FPS计算
             total_time = time.time() - start_time
             fps = 1.0 / total_time if total_time > 0 else 0
             self.processing_time = total_time
             
+            # 滑动窗口FPS计算
+            if not hasattr(self, 'fps_window'):
+                self.fps_window = []
+                self.fps_window_size = 10
+                
+            self.fps_window.append(fps)
+            if len(self.fps_window) > self.fps_window_size:
+                self.fps_window.pop(0)
+            
+            # 平均FPS
+            self.current_fps = sum(self.fps_window) / len(self.fps_window)
+            
+            # 📊 发布详细跟踪数据（每帧都发布）
+            self.publish_detailed_tracking_data(tracks, target_track, mode)
+            
             # 每10帧输出一次性能信息
-            # if self.frame_count % 10 == 0:
-            #     self.get_logger().info(f"📊 性能统计 (第{self.frame_count}帧): "
-            #                          f"总耗时={total_time:.3f}s, FPS={fps:.1f}, "
-            #                          f"检测={detection_time:.3f}s, 跟踪={tracking_time:.3f}s, "
-            #                          f"发布={publish_time:.3f}s")
+            if self.frame_count % 10 == 0:
+                self.get_logger().info(f"📊 性能统计 (第{self.frame_count}帧): "
+                                     f"总耗时={total_time:.3f}s, FPS={self.current_fps:.1f}, "
+                                     f"检测={detection_time:.3f}s, 跟踪={tracking_time:.3f}s, "
+                                     f"发布={publish_time:.3f}s")
 
         except Exception as e:
             self.get_logger().error(f"❌ 处理第{self.frame_count}帧时发生错误: {e}")
@@ -3445,8 +3461,8 @@ class ByteTrackerNode(Node):
                 msg.tracking_status = 'searching'
             
             # 性能信息
-            if hasattr(self, 'fps'):
-                msg.fps = float(self.fps)
+            if hasattr(self, 'current_fps'):
+                msg.fps = float(self.current_fps)
             else:
                 msg.fps = 0.0
             msg.frame_count = self.frame_count
@@ -3472,12 +3488,40 @@ class ByteTrackerNode(Node):
         try:
             import json
             import time
+            import numpy as np
+            
+            # 定义类型转换函数
+            def safe_int(value):
+                """安全转换为Python int类型"""
+                if hasattr(value, 'item'):  # NumPy数组元素
+                    return int(value.item())
+                if hasattr(value, 'dtype') and 'int' in str(value.dtype):  # NumPy整数类型
+                    return int(value)
+                return int(value) if value is not None else 0
+            
+            def safe_float(value):
+                """安全转换为Python float类型"""
+                if hasattr(value, 'item'):  # NumPy数组元素
+                    return float(value.item())
+                if hasattr(value, 'dtype') and 'float' in str(value.dtype):  # NumPy浮点类型
+                    return float(value)
+                return float(value) if value is not None else 0.0
+            
+            def safe_list(value):
+                """安全转换为Python list类型"""
+                if value is None:
+                    return []
+                if isinstance(value, np.ndarray):
+                    return [safe_float(x) for x in value.tolist()]
+                if isinstance(value, (list, tuple)):
+                    return [safe_float(x) for x in value]
+                return []
             
             # 构建详细的跟踪数据
             detailed_data = {
                 'timestamp': int(time.time() * 1000),
-                'frame_id': self.frame_count,
-                'tracking_mode': mode,
+                'frame_id': safe_int(self.frame_count),
+                'tracking_mode': str(mode),
                 'target_detected': target_track is not None,
                 'total_tracks': len(tracks),
                 'tracks': [],
@@ -3494,67 +3538,67 @@ class ByteTrackerNode(Node):
                 if track.state == TrackState.TRACKED:
                     tlwh = track.tlwh
                     tlbr = track.tlbr
-                    center_x = int(tlbr[0] + (tlbr[2] - tlbr[0]) / 2)
-                    center_y = int(tlbr[1] + (tlbr[3] - tlbr[1]) / 2)
+                    center_x = safe_int(tlbr[0] + (tlbr[2] - tlbr[0]) / 2)
+                    center_y = safe_int(tlbr[1] + (tlbr[3] - tlbr[1]) / 2)
                     
                     track_data = {
-                        'id': track.track_id,
+                        'id': safe_int(track.track_id),
                         'status': 'tracking',
                         'position': {
-                            'x': float(center_x),
-                            'y': float(center_y),
-                            'width': float(tlbr[2] - tlbr[0]),
-                            'height': float(tlbr[3] - tlbr[1]),
-                            'tlbr': [float(tlbr[0]), float(tlbr[1]), float(tlbr[2]), float(tlbr[3])]
+                            'x': safe_float(center_x),
+                            'y': safe_float(center_y),
+                            'width': safe_float(tlbr[2] - tlbr[0]),
+                            'height': safe_float(tlbr[3] - tlbr[1]),
+                            'tlbr': [safe_float(tlbr[0]), safe_float(tlbr[1]), safe_float(tlbr[2]), safe_float(tlbr[3])]
                         },
-                        'confidence': float(track.score),
-                        'age': track.tracklet_len,
-                        'time_since_update': track.time_since_update,
+                        'confidence': safe_float(track.score),
+                        'age': safe_int(track.tracklet_len),
+                        'time_since_update': safe_int(track.time_since_update),
                         'colors': {
-                            'upper': list(track.upper_color) if track.upper_color is not None else [0, 0, 0],
-                            'lower': list(track.lower_color) if track.lower_color is not None else [0, 0, 0]
+                            'upper': safe_list(track.upper_color),
+                            'lower': safe_list(track.lower_color)
                         },
-                        'body_ratios': list(track.body_ratios) if track.body_ratios is not None else [],
-                        'distance': float(self.get_distance_at_point(center_x, center_y) / 1000.0),  # 转换为米
+                        'body_ratios': safe_list(track.body_ratios),
+                        'distance': safe_float(self.get_distance_at_point(center_x, center_y) / 1000.0),  # 转换为米
                         'is_target': track == target_track,
-                        'tracking_quality': self.calculate_tracking_quality(track)
+                        'tracking_quality': safe_float(self.calculate_tracking_quality(track))
                     }
                     detailed_data['tracks'].append(track_data)
             
             # 处理目标轨迹
             if target_track:
                 tlbr = target_track.tlbr
-                center_x = int(tlbr[0] + (tlbr[2] - tlbr[0]) / 2)
-                center_y = int(tlbr[1] + (tlbr[3] - tlbr[1]) / 2)
+                center_x = safe_int(tlbr[0] + (tlbr[2] - tlbr[0]) / 2)
+                center_y = safe_int(tlbr[1] + (tlbr[3] - tlbr[1]) / 2)
                 
                 detailed_data['target_track'] = {
-                    'id': target_track.track_id,
+                    'id': safe_int(target_track.track_id),
                     'position': {
-                        'x': float(center_x),
-                        'y': float(center_y),
-                        'width': float(tlbr[2] - tlbr[0]),
-                        'height': float(tlbr[3] - tlbr[1]),
-                        'tlbr': [float(tlbr[0]), float(tlbr[1]), float(tlbr[2]), float(tlbr[3])]
+                        'x': safe_float(center_x),
+                        'y': safe_float(center_y),
+                        'width': safe_float(tlbr[2] - tlbr[0]),
+                        'height': safe_float(tlbr[3] - tlbr[1]),
+                        'tlbr': [safe_float(tlbr[0]), safe_float(tlbr[1]), safe_float(tlbr[2]), safe_float(tlbr[3])]
                     },
-                    'confidence': float(target_track.score),
-                    'distance': float(self.get_distance_at_point(center_x, center_y) / 1000.0),  # 转换为米
+                    'confidence': safe_float(target_track.score),
+                    'distance': safe_float(self.get_distance_at_point(center_x, center_y) / 1000.0),  # 转换为米
                     'colors': {
-                        'upper': list(target_track.upper_color) if target_track.upper_color is not None else [0, 0, 0],
-                        'lower': list(target_track.lower_color) if target_track.lower_color is not None else [0, 0, 0]
+                        'upper': safe_list(target_track.upper_color),
+                        'lower': safe_list(target_track.lower_color)
                     },
-                    'body_ratios': list(target_track.body_ratios) if target_track.body_ratios is not None else [],
-                    'tracking_quality': self.calculate_tracking_quality(target_track),
+                    'body_ratios': safe_list(target_track.body_ratios),
+                    'tracking_quality': safe_float(self.calculate_tracking_quality(target_track)),
                     'velocity': {
-                        'x': float(target_track.mean[4]) if len(target_track.mean) > 4 else 0.0,
-                        'y': float(target_track.mean[5]) if len(target_track.mean) > 5 else 0.0
+                        'x': safe_float(target_track.mean[4]) if len(target_track.mean) > 4 else 0.0,
+                        'y': safe_float(target_track.mean[5]) if len(target_track.mean) > 5 else 0.0
                     }
                 }
             
             # 添加系统性能信息
             detailed_data['system_info'] = {
-                'fps': getattr(self, 'fps', 0.0),
-                'processing_time_ms': getattr(self, 'last_processing_time', 0.0),
-                'memory_usage_mb': self.get_memory_usage(),
+                'fps': safe_float(getattr(self, 'current_fps', 0.0)),
+                'processing_time_ms': safe_float(getattr(self, 'processing_time', 0.0)),
+                'memory_usage_mb': safe_float(self.get_memory_usage()),
                 'camera_connected': self.cap is not None and self.cap.isOpened()
             }
             
@@ -3565,12 +3609,19 @@ class ByteTrackerNode(Node):
             
             # 调试日志（降低频率）
             if self.frame_count % 60 == 0:  # 每60帧记录一次（约2秒）
+                if target_track:
+                    distance_str = f', 距离: {detailed_data["target_track"]["distance"]:.2f}m'
+                else:
+                    distance_str = ''
                 self.get_logger().info(f'📈 发布详细跟踪数据 - 轨迹数: {len(tracks)}, '
-                                     f'目标ID: {target_track.track_id if target_track else "无"}, '
-                                     f'距离: {detailed_data["target_track"]["distance"]:.2f}m' if target_track else '')
+                                     f'目标ID: {safe_int(target_track.track_id) if target_track else "无"}'
+                                     f'{distance_str}')
         
         except Exception as e:
             self.get_logger().error(f'❌ 发布详细跟踪数据失败: {e}')
+            # 添加更详细的错误信息
+            import traceback
+            self.get_logger().error(f'❌ 详细错误信息: {traceback.format_exc()}')
     
     def calculate_tracking_quality(self, track):
         """计算跟踪质量评分"""
@@ -4050,23 +4101,18 @@ class ByteTrackerNode(Node):
             
             # 设置格式 - 兼容多版本OpenCV
             try:
-                # 尝试新版本OpenCV API
-                fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
-                self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-            except (AttributeError, cv2.error):
-                try:
-                    # 尝试旧版本OpenCV API
+                # 使用兼容的方式设置MJPEG编码
+                if hasattr(cv2, 'VideoWriter_fourcc'):
+                    fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+                elif hasattr(cv2, 'VideoWriter') and hasattr(cv2.VideoWriter, 'fourcc'):
                     fourcc = cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')
-                    self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-                except (AttributeError, cv2.error):
-                    try:
-                        # 尝试直接使用fourcc代码
-                        fourcc = cv2.cv.CV_FOURCC('M', 'J', 'P', 'G') if hasattr(cv2, 'cv') else 0x47504A4D
-                        self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-                    except:
-                        # 如果都失败，跳过fourcc设置
-                        self.get_logger().warn("⚠️ 无法设置视频格式，使用默认格式")
-                        pass
+                else:
+                    # 使用MJPG的数字代码
+                    fourcc = 0x47504A4D
+                self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+            except Exception:
+                # 如果都失败，跳过fourcc设置
+                self.get_logger().warn("⚠️ 无法设置视频格式，使用默认格式")
             
             if not self.cap.isOpened():
                 self.get_logger().warn(f"无法打开相机ID {self.camera_config.camera_id}，尝试使用默认相机...")
