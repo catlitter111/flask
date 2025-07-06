@@ -49,6 +49,13 @@ App({
         jitter: 0
       },
       
+      // WebRTC相关
+      webrtcSupported: false,
+      webrtcEnabled: false,
+      webrtcConnected: false,
+      useWebRTC: false,  // 是否使用WebRTC传输视频
+      webrtcStreamUrl: '', // WebRTC视频流地址
+      
       // 命令队列和状态
       commandQueue: [],
       commandSending: false,
@@ -149,6 +156,9 @@ App({
     initCommandProcessor: function() {
       // 启动命令队列处理器
       this.startCommandProcessor();
+      
+      // 检测WebRTC支持
+      this.detectWebRTCSupport();
     },
     
     // 连接WebSocket服务器
@@ -197,7 +207,8 @@ App({
             video_receive: true,
             command_send: true,
             feature_extraction: true,
-            voice_interaction: true
+            voice_interaction: true,
+            webrtc_support: this.globalData.webrtcSupported
           }
         });
         
@@ -406,6 +417,21 @@ App({
         case 'error':
           // 错误消息
           this.handleError(data);
+          break;
+          
+        case 'webrtc_available':
+          // WebRTC可用通知
+          this.handleWebRTCAvailable(data);
+          break;
+          
+        case 'webrtc_answer':
+          // WebRTC答案
+          this.handleWebRTCAnswer(data);
+          break;
+          
+        case 'webrtc_error':
+          // WebRTC错误
+          this.handleWebRTCError(data);
           break;
           
         default:
@@ -1062,5 +1088,95 @@ App({
           this._flushTrackingData();
         }
       }, 5000);
+    },
+    
+    // WebRTC功能检测
+    detectWebRTCSupport: function() {
+      // 微信小程序环境中，WebRTC支持有限
+      // 这里我们检测是否有相关API可用
+      try {
+        if (typeof wx.createLivePlayerContext !== 'undefined') {
+          this.globalData.webrtcSupported = true;
+          console.log('📡 检测到WebRTC相关功能支持');
+        } else {
+          this.globalData.webrtcSupported = false;
+          console.log('⚠️ 当前环境不支持WebRTC功能');
+        }
+      } catch (e) {
+        this.globalData.webrtcSupported = false;
+        console.log('⚠️ WebRTC功能检测失败:', e);
+      }
+    },
+    
+    // 处理WebRTC可用通知
+    handleWebRTCAvailable: function(data) {
+      console.log('📡 收到WebRTC可用通知:', data.robot_id);
+      console.log('📡 视频流地址:', data.video_stream_url);
+      
+      if (this.globalData.webrtcSupported && !this.globalData.webrtcConnected) {
+        // 尝试建立WebRTC连接
+        this.initWebRTCConnection(data.robot_id, data.video_stream_url);
+      }
+    },
+    
+    // 初始化WebRTC连接
+    initWebRTCConnection: function(robotId, videoStreamUrl) {
+      console.log('📡 正在初始化WebRTC连接...');
+      console.log('📡 使用视频流地址:', videoStreamUrl);
+      
+      // 存储视频流地址
+      this.globalData.webrtcStreamUrl = videoStreamUrl;
+      
+      // 在微信小程序中，我们直接使用视频流地址
+      // 标记WebRTC为已连接状态
+      this.globalData.webrtcConnected = true;
+      this.globalData.useWebRTC = true;
+      
+      // 通知控制页面切换到WebRTC模式
+      if (this.globalData.controlPage) {
+        this.globalData.controlPage.switchToWebRTC({
+          video_stream_url: videoStreamUrl,
+          robot_id: robotId
+        });
+      }
+      
+      console.log('✅ WebRTC连接已建立');
+    },
+    
+    // 处理WebRTC答案
+    handleWebRTCAnswer: function(data) {
+      console.log('📡 收到WebRTC答案');
+      
+      // 在微信小程序中，我们标记WebRTC为可用状态
+      this.globalData.webrtcConnected = true;
+      this.globalData.useWebRTC = true;
+      
+      // 通知控制页面切换到WebRTC模式
+      if (this.globalData.controlPage) {
+        this.globalData.controlPage.switchToWebRTC(data);
+      }
+      
+      console.log('✅ WebRTC连接已建立');
+    },
+    
+    // 处理WebRTC错误
+    handleWebRTCError: function(data) {
+      console.error('❌ WebRTC错误:', data.error);
+      
+      this.globalData.webrtcConnected = false;
+      this.globalData.useWebRTC = false;
+      
+      // 降级到WebSocket视频传输
+      if (this.globalData.controlPage) {
+        this.globalData.controlPage.fallbackToWebSocket();
+      }
+    },
+    
+    // 发送WebRTC ICE候选（如果需要）
+    sendWebRTCIce: function(candidate) {
+      this.sendSocketMessage({
+        type: 'webrtc_ice',
+        ice: candidate
+      });
     }
   });

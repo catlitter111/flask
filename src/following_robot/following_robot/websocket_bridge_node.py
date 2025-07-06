@@ -42,6 +42,18 @@ import logging
 from pathlib import Path
 import traceback
 
+# WebRTC相关导入
+try:
+    import uvloop
+    import asyncio
+    from aiohttp import web
+    from aiohttp.web_runner import GracefulExit
+    WEBRTC_AVAILABLE = True
+except ImportError:
+    WEBRTC_AVAILABLE = False
+    print("警告: WebRTC相关库未安装，将仅支持WebSocket视频传输")
+    print("请安装: pip install uvloop aiohttp")
+
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -98,6 +110,9 @@ class WebSocketBridgeNode(Node):
             
             # 启动心跳和状态监控
             self.setup_timers()
+            
+            # WebRTC支持初始化
+            self.setup_webrtc()
             
             self.get_logger().info('🌉 WebSocket桥接节点已启动')
             
@@ -180,6 +195,10 @@ class WebSocketBridgeNode(Node):
         # 跳帧控制
         self.frame_skip_counter = 0
         self.current_skip_rate = 1  # 1=不跳帧, 2=每2帧发送1帧
+        
+        # WebRTC相关变量
+        self.webrtc_enabled = WEBRTC_AVAILABLE
+        self.webrtc_stream_active = False
         
         # 文件保存配置
         self.file_save_dir = Path('received_files')
@@ -392,6 +411,9 @@ class WebSocketBridgeNode(Node):
             # 转换为OpenCV图像
             cv_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             
+            # 存储当前帧用于WebRTC
+            self.current_frame = cv_image.copy()
+            
             # 动态调整图像大小（基于网络状况）
             target_width, target_height = self.get_adaptive_resolution()
             if cv_image.shape[1] != target_width or cv_image.shape[0] != target_height:
@@ -434,6 +456,10 @@ class WebSocketBridgeNode(Node):
                     self.get_logger().debug(f'📹 发送视频帧 #{self.frame_sequence} '
                                           f'({target_width}x{target_height}, {compressed_size}B, '
                                           f'压缩率:{compression_ratio:.1f}x)')
+                
+                # 如果启用WebRTC，同时推送原始帧数据到服务端
+                if self.webrtc_enabled and self.webrtc_stream_active:
+                    self.send_webrtc_frame_data(cv_image)
                     
         except Exception as e:
             self.get_logger().error(f'❌ 图像处理失败: {e}')
@@ -1417,6 +1443,60 @@ class WebSocketBridgeNode(Node):
         else:
             self.get_logger().error(f'❌ 特征提取错误发送失败 - 客户端: {client_id}, 错误: {error_message}')
     
+    def setup_webrtc(self):
+        """设置WebRTC功能"""
+        if not self.webrtc_enabled:
+            self.get_logger().info('⚠️ WebRTC功能未启用')
+            return
+        
+        try:
+            # 通知服务端WebRTC流已准备就绪
+            self.send_webrtc_ready_notification()
+            self.get_logger().info('📡 WebRTC功能已启用，将向服务端推送视频流')
+            
+        except Exception as e:
+            self.get_logger().error(f'❌ WebRTC设置失败: {e}')
+            self.webrtc_enabled = False
+    
+    def send_webrtc_ready_notification(self):
+        """通知服务端WebRTC流已准备就绪"""
+        if self.ws_connected:
+            message = {
+                'type': 'webrtc_stream_ready',
+                'robot_id': self.robot_id,
+                'timestamp': int(time.time() * 1000)
+            }
+            self.send_ws_message(message)
+    
+    def send_webrtc_frame_data(self, cv_image):
+        """向服务端推送WebRTC视频帧数据"""
+        try:
+            # 编码为JPEG
+            success, encoded_data = cv2.imencode('.jpg', cv_image, [
+                int(cv2.IMWRITE_JPEG_QUALITY), 85  # 使用较高质量
+            ])
+            
+            if success:
+                # 转换为base64
+                frame_base64 = base64.b64encode(encoded_data).decode('utf-8')
+                
+                # 构建WebRTC帧消息
+                webrtc_frame_message = {
+                    'type': 'webrtc_frame_data',
+                    'robot_id': self.robot_id,
+                    'frame_data': frame_base64,
+                    'timestamp': int(time.time() * 1000),
+                    'width': cv_image.shape[1],
+                    'height': cv_image.shape[0],
+                    'format': 'jpeg'
+                }
+                
+                # 发送到服务端
+                self.send_ws_message(webrtc_frame_message)
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ WebRTC帧数据推送失败: {e}')
+
     def destroy_node(self):
         """节点销毁时的清理工作"""
         self.get_logger().info('🔄 正在关闭WebSocket桥接节点...')
@@ -1436,6 +1516,10 @@ class WebSocketBridgeNode(Node):
         # 取消特征服务检查定时器
         if hasattr(self, 'check_feature_service_timer'):
             self.check_feature_service_timer.cancel()
+            
+        # 停止WebRTC功能
+        if self.webrtc_enabled:
+            self.webrtc_stream_active = False
             
         super().destroy_node()
         self.get_logger().info('✅ WebSocket桥接节点已关闭')

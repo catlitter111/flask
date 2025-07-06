@@ -95,6 +95,11 @@ Page({
       dragStartY: 0, // 拖拽开始时的Y坐标
       dragStartHeight: 0, // 拖拽开始时的高度
       showDragHint: true, // 是否显示拖拽提示
+      
+      // WebRTC相关
+      useWebRTC: false, // 是否使用WebRTC
+      webrtcStreamUrl: '', // WebRTC流地址
+      livePlayerContext: null // live-player上下文
     },
   
     onLoad: function(options) {
@@ -1133,5 +1138,110 @@ Page({
       this.setData({
         autoStatus: '已停止'
       });
+    },
+    
+    // WebRTC相关方法
+    
+    // 切换到WebRTC模式
+    switchToWebRTC: function(data) {
+      console.log('📡 切换到WebRTC视频传输模式');
+      console.log('📡 视频流地址:', data.video_stream_url);
+      
+      const streamUrl = data.video_stream_url || `http://101.201.150.96:1236/video_stream/${this.data.robotId}`;
+      
+      this.setData({
+        useWebRTC: true,
+        webrtcStreamUrl: streamUrl
+      });
+      
+      // 初始化live-player
+      this.initLivePlayer();
+      
+      wx.showToast({
+        title: 'WebRTC模式已启用',
+        icon: 'success',
+        duration: 2000
+      });
+    },
+    
+    // 降级到WebSocket模式
+    fallbackToWebSocket: function() {
+      console.log('📡 降级到WebSocket视频传输模式');
+      
+      this.setData({
+        useWebRTC: false,
+        webrtcStreamUrl: ''
+      });
+      
+      // 停止live-player
+      if (this.data.livePlayerContext) {
+        this.data.livePlayerContext.stop();
+      }
+      
+      wx.showToast({
+        title: '已切换到标准模式',
+        icon: 'none',
+        duration: 2000
+      });
+    },
+    
+    // 初始化live-player
+    initLivePlayer: function() {
+      if (!this.data.useWebRTC) {
+        return;
+      }
+      
+      try {
+        // 创建live-player上下文
+        const context = wx.createLivePlayerContext('webrtcLivePlayer', this);
+        this.setData({
+          livePlayerContext: context
+        });
+        
+        // 开始播放
+        context.play({
+          success: () => {
+            console.log('📡 WebRTC live-player开始播放');
+          },
+          fail: (error) => {
+            console.error('❌ WebRTC live-player播放失败:', error);
+            this.fallbackToWebSocket();
+          }
+        });
+        
+      } catch (error) {
+        console.error('❌ 初始化live-player失败:', error);
+        this.fallbackToWebSocket();
+      }
+    },
+    
+    // 处理live-player状态变化
+    onLivePlayerStateChange: function(e) {
+      console.log('📡 live-player状态变化:', e.detail);
+      
+      const { code } = e.detail;
+      
+      // 根据状态码处理不同情况
+      switch (code) {
+        case 2001: // 连接成功
+          console.log('✅ WebRTC连接成功');
+          break;
+        case 2002: // 开始播放
+          console.log('▶️ WebRTC开始播放');
+          break;
+        case -2301: // 网络断连，且经多次重连亦不能恢复
+        case -2302: // 获取加速拉流地址失败
+          console.error('❌ WebRTC连接失败，降级到WebSocket');
+          this.fallbackToWebSocket();
+          break;
+        default:
+          console.log(`📡 live-player状态: ${code}`);
+      }
+    },
+    
+    // 处理live-player错误
+    onLivePlayerError: function(e) {
+      console.error('❌ live-player错误:', e.detail);
+      this.fallbackToWebSocket();
     }
   });

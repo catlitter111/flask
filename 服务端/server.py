@@ -36,6 +36,17 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 from pathlib import Path
 
+# WebRTC相关导入
+try:
+    from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
+    from aiortc.contrib.media import MediaPlayer, MediaRelay
+    from aiortc.contrib.signaling import object_from_string, object_to_string
+    WEBRTC_AVAILABLE = True
+except ImportError:
+    print("警告: aiortc未安装，WebRTC功能将不可用")
+    print("请安装: pip install aiortc")
+    WEBRTC_AVAILABLE = False
+
 # 兼容不同版本的 websockets 库
 try:
     # 尝试新版本的导入方式
@@ -103,15 +114,20 @@ class RobotInfo:
     })
     video_streaming: bool = False
     last_video_frame: Optional[Dict] = None
+    # WebRTC相关
+    webrtc_peer_connection: Optional[Any] = None
+    webrtc_relay: Optional[Any] = None
+    webrtc_track: Optional[Any] = None
 
 
 class CompanionServer:
     """机器人伴侣WebSocket服务器"""
 
-    def __init__(self, host: str = '0.0.0.0', port: int = 1234, http_port: int = 8080):
+    def __init__(self, host: str = '0.0.0.0', port: int = 1234, http_port: int = 8080, video_port: int = 1236):
         self.host = host
         self.port = port
         self.http_port = http_port
+        self.video_port = video_port
 
         # 连接管理
         self.connections: Dict[str, ClientConnection] = {}
@@ -128,6 +144,11 @@ class CompanionServer:
         # HTTP应用
         self.http_app = None
         self.http_runner = None
+        
+        # 视频流服务器
+        self.video_app = None
+        self.video_runner = None
+        self.latest_frames = {}  # robot_id -> 最新帧数据
 
         # 统计信息
         self.stats = {
@@ -145,7 +166,19 @@ class CompanionServer:
         self.heartbeat_interval = 30  # 秒
         self.heartbeat_timeout = 60  # 秒
 
-        logger.info(f"🚀 服务器初始化 - WebSocket: {host}:{port}, HTTP: {host}:{http_port}")
+        # WebRTC配置
+        self.webrtc_enabled = WEBRTC_AVAILABLE
+        self.webrtc_relay = None
+        self.webrtc_connections = {}  # client_id -> RTCPeerConnection
+        
+        if self.webrtc_enabled:
+            if WEBRTC_AVAILABLE:
+                self.webrtc_relay = MediaRelay()
+                logger.info("✅ WebRTC支持已启用")
+            else:
+                logger.warning("⚠️ WebRTC库未安装，仅支持WebSocket视频传输")
+
+        logger.info(f"🚀 服务器初始化 - WebSocket: {host}:{port}, HTTP: {host}:{http_port}, Video: {host}:{video_port}")
 
     def get_websockets_version(self):
         """获取websockets库版本"""
@@ -171,6 +204,13 @@ class CompanionServer:
         self.http_app.router.add_get('/api/health', self.handle_health_check)
         self.http_app.router.add_options('/api/upload/{client_id}', self.handle_cors_preflight)
         
+        # WebRTC路由
+        if self.webrtc_enabled:
+            self.http_app.router.add_post('/api/webrtc/offer', self.handle_webrtc_offer)
+            self.http_app.router.add_post('/api/webrtc/answer', self.handle_webrtc_answer)
+            self.http_app.router.add_post('/api/webrtc/ice', self.handle_webrtc_ice)
+            self.http_app.router.add_options('/api/webrtc/{path:.*}', self.handle_cors_preflight)
+        
         # 添加CORS中间件
         self.http_app.middlewares.append(self.cors_middleware)
         
@@ -182,6 +222,71 @@ class CompanionServer:
         await site.start()
         
         logger.info(f"✅ HTTP服务器已启动 - http://{self.host}:{self.http_port}")
+
+    async def start_video_server(self):
+        """启动视频流服务器"""
+        if not AIOHTTP_AVAILABLE:
+            return
+
+        self.video_app = web.Application()
+        
+        # 添加视频流路由
+        self.video_app.router.add_get('/video_stream/{robot_id}', self.handle_video_stream)
+        self.video_app.router.add_options('/video_stream/{robot_id}', self.handle_cors_preflight)
+        
+        # 添加CORS中间件
+        self.video_app.middlewares.append(self.cors_middleware)
+        
+        # 启动视频流服务器
+        self.video_runner = web.AppRunner(self.video_app)
+        await self.video_runner.setup()
+        
+        site = web.TCPSite(self.video_runner, self.host, self.video_port)
+        await site.start()
+        
+        logger.info(f"✅ 视频流服务器已启动 - http://{self.host}:{self.video_port}")
+
+    async def handle_video_stream(self, request):
+        """处理视频流请求"""
+        robot_id = request.match_info['robot_id']
+        
+        try:
+            # 检查机器人是否存在且有最新帧
+            if robot_id not in self.latest_frames:
+                return web.Response(
+                    status=404,
+                    text=f'Robot {robot_id} not found or no video data',
+                    headers={'Access-Control-Allow-Origin': '*'}
+                )
+            
+            frame_data = self.latest_frames[robot_id]
+            
+            # 解码base64图像数据
+            import base64
+            image_data = base64.b64decode(frame_data['frame_data'])
+            
+            # 返回JPEG图像
+            return web.Response(
+                body=image_data,
+                content_type='image/jpeg',
+                headers={
+                    'Access-Control-Allow-Origin': '*',
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                    'X-Frame-Width': str(frame_data.get('width', 640)),
+                    'X-Frame-Height': str(frame_data.get('height', 480)),
+                    'X-Frame-Timestamp': str(frame_data.get('timestamp', 0))
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ 视频流处理失败: {e}")
+            return web.Response(
+                status=500,
+                text=f'Video stream error: {str(e)}',
+                headers={'Access-Control-Allow-Origin': '*'}
+            )
 
     @web.middleware
     async def cors_middleware(self, request, handler):
@@ -349,6 +454,7 @@ class CompanionServer:
         # 启动HTTP服务器
         if AIOHTTP_AVAILABLE:
             await self.start_http_server()
+            await self.start_video_server()
         else:
             logger.warning("⚠️ HTTP服务器未启动，文件上传功能不可用")
 
@@ -599,6 +705,18 @@ class CompanionServer:
         elif message_type == 'processed_image_result':
             # 处理后图片结果
             await self.handle_processed_image_result(connection, data)
+        
+        elif message_type == 'webrtc_offer':
+            # WebRTC Offer信令
+            await self.handle_webrtc_offer_ws(connection, data)
+        
+        elif message_type == 'webrtc_answer':
+            # WebRTC Answer信令
+            await self.handle_webrtc_answer_ws(connection, data)
+        
+        elif message_type == 'webrtc_ice':
+            # WebRTC ICE候选信令
+            await self.handle_webrtc_ice_ws(connection, data)
 
     async def handle_ros2_bridge(self, connection: ClientConnection, robot_id: str):
         """处理ROS2桥接节点连接"""
@@ -704,6 +822,14 @@ class CompanionServer:
                 'type': 'heartbeat_ack',
                 'timestamp': int(time.time() * 1000)
             })
+        
+        elif message_type == 'webrtc_stream_ready':
+            # WebRTC视频流准备就绪
+            await self.handle_webrtc_stream_ready(connection, data)
+        
+        elif message_type == 'webrtc_frame_data':
+            # WebRTC视频帧数据
+            await self.handle_webrtc_frame_data(connection, data)
 
     async def forward_video_frame(self, robot_id: str, frame_data: Dict):
         """转发视频帧到客户端"""
@@ -1039,6 +1165,16 @@ class CompanionServer:
                 # 通知所有客户端
                 await self.notify_robot_connection_change(connection.robot_id, False)
 
+        # 清理WebRTC连接
+        if client_id in self.webrtc_connections:
+            try:
+                pc = self.webrtc_connections[client_id]
+                await pc.close()
+                del self.webrtc_connections[client_id]
+                logger.info(f"📡 WebRTC连接已清理 - 客户端: {client_id}")
+            except Exception as e:
+                logger.error(f"❌ WebRTC连接清理失败: {e}")
+
         # 从连接池移除
         del self.connections[client_id]
 
@@ -1097,10 +1233,321 @@ class CompanionServer:
 
             await asyncio.sleep(300)  # 每5分钟记录一次
 
+    async def handle_webrtc_offer(self, request):
+        """处理WebRTC Offer"""
+        if not self.webrtc_enabled:
+            return web.json_response({'error': 'WebRTC not enabled'}, status=400)
+        
+        try:
+            data = await request.json()
+            client_id = data.get('client_id')
+            robot_id = data.get('robot_id')
+            offer = data.get('offer')
+            
+            if not client_id or not robot_id or not offer:
+                return web.json_response({'error': 'Missing parameters'}, status=400)
+            
+            # 创建RTCPeerConnection
+            pc = RTCPeerConnection()
+            self.webrtc_connections[client_id] = pc
+            
+            # 设置远程描述
+            await pc.setRemoteDescription(RTCSessionDescription(
+                sdp=offer.get('sdp'),
+                type=offer.get('type')
+            ))
+            
+            # 创建答案
+            answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+            
+            # 如果机器人有视频流，添加到PeerConnection
+            if robot_id in self.robots:
+                robot = self.robots[robot_id]
+                if robot.webrtc_track and self.webrtc_relay:
+                    relayed_track = self.webrtc_relay.relay(robot.webrtc_track)
+                    pc.addTrack(relayed_track)
+            
+            logger.info(f"📡 WebRTC Offer处理完成 - 客户端: {client_id}, 机器人: {robot_id}")
+            
+            return web.json_response({
+                'answer': {
+                    'sdp': pc.localDescription.sdp,
+                    'type': pc.localDescription.type
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"❌ WebRTC Offer处理失败: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def handle_webrtc_answer(self, request):
+        """处理WebRTC Answer"""
+        if not self.webrtc_enabled:
+            return web.json_response({'error': 'WebRTC not enabled'}, status=400)
+        
+        try:
+            data = await request.json()
+            client_id = data.get('client_id')
+            answer = data.get('answer')
+            
+            if not client_id or not answer:
+                return web.json_response({'error': 'Missing parameters'}, status=400)
+            
+            if client_id not in self.webrtc_connections:
+                return web.json_response({'error': 'No peer connection found'}, status=400)
+            
+            pc = self.webrtc_connections[client_id]
+            
+            # 设置远程描述
+            await pc.setRemoteDescription(RTCSessionDescription(
+                sdp=answer.get('sdp'),
+                type=answer.get('type')
+            ))
+            
+            logger.info(f"📡 WebRTC Answer处理完成 - 客户端: {client_id}")
+            
+            return web.json_response({'success': True})
+            
+        except Exception as e:
+            logger.error(f"❌ WebRTC Answer处理失败: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    
+    async def handle_webrtc_ice(self, request):
+        """处理WebRTC ICE候选"""
+        if not self.webrtc_enabled:
+            return web.json_response({'error': 'WebRTC not enabled'}, status=400)
+        
+        try:
+            data = await request.json()
+            client_id = data.get('client_id')
+            ice = data.get('ice')
+            
+            if not client_id or not ice:
+                return web.json_response({'error': 'Missing parameters'}, status=400)
+            
+            if client_id not in self.webrtc_connections:
+                return web.json_response({'error': 'No peer connection found'}, status=400)
+            
+            pc = self.webrtc_connections[client_id]
+            
+            # 添加ICE候选
+            candidate = RTCIceCandidate(
+                candidate=ice.get('candidate'),
+                sdpMLineIndex=ice.get('sdpMLineIndex'),
+                sdpMid=ice.get('sdpMid')
+            )
+            
+            await pc.addIceCandidate(candidate)
+            
+            logger.info(f"📡 WebRTC ICE候选处理完成 - 客户端: {client_id}")
+            
+            return web.json_response({'success': True})
+            
+        except Exception as e:
+            logger.error(f"❌ WebRTC ICE候选处理失败: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_webrtc_offer_ws(self, connection: ClientConnection, data: Dict):
+        """处理WebSocket的WebRTC Offer信令"""
+        if not self.webrtc_enabled:
+            await self.send_message(connection.websocket, {
+                'type': 'webrtc_error',
+                'error': 'WebRTC not enabled'
+            })
+            return
+        
+        try:
+            robot_id = data.get('robot_id') or connection.robot_id
+            offer = data.get('offer')
+            
+            if not robot_id or not offer:
+                await self.send_message(connection.websocket, {
+                    'type': 'webrtc_error',
+                    'error': 'Missing robot_id or offer'
+                })
+                return
+            
+            # 创建RTCPeerConnection
+            pc = RTCPeerConnection()
+            self.webrtc_connections[connection.client_id] = pc
+            
+            # 设置远程描述
+            await pc.setRemoteDescription(RTCSessionDescription(
+                sdp=offer.get('sdp'),
+                type=offer.get('type')
+            ))
+            
+            # 创建答案
+            answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+            
+            # 如果机器人有视频流，添加到PeerConnection
+            if robot_id in self.robots:
+                robot = self.robots[robot_id]
+                if robot.webrtc_track and self.webrtc_relay:
+                    relayed_track = self.webrtc_relay.relay(robot.webrtc_track)
+                    pc.addTrack(relayed_track)
+            
+            # 发送答案
+            await self.send_message(connection.websocket, {
+                'type': 'webrtc_answer',
+                'answer': {
+                    'sdp': pc.localDescription.sdp,
+                    'type': pc.localDescription.type
+                }
+            })
+            
+            logger.info(f"📡 WebRTC Offer处理完成 - 客户端: {connection.client_id}, 机器人: {robot_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ WebRTC Offer处理失败: {e}")
+            await self.send_message(connection.websocket, {
+                'type': 'webrtc_error',
+                'error': str(e)
+            })
+    
+    async def handle_webrtc_answer_ws(self, connection: ClientConnection, data: Dict):
+        """处理WebSocket的WebRTC Answer信令"""
+        if not self.webrtc_enabled:
+            await self.send_message(connection.websocket, {
+                'type': 'webrtc_error',
+                'error': 'WebRTC not enabled'
+            })
+            return
+        
+        try:
+            answer = data.get('answer')
+            
+            if not answer:
+                await self.send_message(connection.websocket, {
+                    'type': 'webrtc_error',
+                    'error': 'Missing answer'
+                })
+                return
+            
+            if connection.client_id not in self.webrtc_connections:
+                await self.send_message(connection.websocket, {
+                    'type': 'webrtc_error',
+                    'error': 'No peer connection found'
+                })
+                return
+            
+            pc = self.webrtc_connections[connection.client_id]
+            
+            # 设置远程描述
+            await pc.setRemoteDescription(RTCSessionDescription(
+                sdp=answer.get('sdp'),
+                type=answer.get('type')
+            ))
+            
+            logger.info(f"📡 WebRTC Answer处理完成 - 客户端: {connection.client_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ WebRTC Answer处理失败: {e}")
+            await self.send_message(connection.websocket, {
+                'type': 'webrtc_error',
+                'error': str(e)
+            })
+    
+    async def handle_webrtc_ice_ws(self, connection: ClientConnection, data: Dict):
+        """处理WebSocket的WebRTC ICE候选信令"""
+        if not self.webrtc_enabled:
+            await self.send_message(connection.websocket, {
+                'type': 'webrtc_error',
+                'error': 'WebRTC not enabled'
+            })
+            return
+        
+        try:
+            ice = data.get('ice')
+            
+            if not ice:
+                await self.send_message(connection.websocket, {
+                    'type': 'webrtc_error',
+                    'error': 'Missing ice candidate'
+                })
+                return
+            
+            if connection.client_id not in self.webrtc_connections:
+                await self.send_message(connection.websocket, {
+                    'type': 'webrtc_error',
+                    'error': 'No peer connection found'
+                })
+                return
+            
+            pc = self.webrtc_connections[connection.client_id]
+            
+            # 添加ICE候选
+            candidate = RTCIceCandidate(
+                candidate=ice.get('candidate'),
+                sdpMLineIndex=ice.get('sdpMLineIndex'),
+                sdpMid=ice.get('sdpMid')
+            )
+            
+            await pc.addIceCandidate(candidate)
+            
+            logger.info(f"📡 WebRTC ICE候选处理完成 - 客户端: {connection.client_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ WebRTC ICE候选处理失败: {e}")
+            await self.send_message(connection.websocket, {
+                'type': 'webrtc_error',
+                'error': str(e)
+            })
+    
+    async def handle_webrtc_stream_ready(self, connection: ClientConnection, data: Dict):
+        """处理WebRTC视频流准备就绪"""
+        try:
+            robot_id = connection.robot_id
+            
+            if robot_id not in self.robots:
+                return
+            
+            logger.info(f"📡 WebRTC视频流已就绪 - 机器人: {robot_id}")
+            
+            # 通知所有客户端WebRTC可用
+            await self.forward_to_companions(robot_id, {
+                'type': 'webrtc_available',
+                'robot_id': robot_id,
+                'video_stream_url': f"http://{self.host}:{self.video_port}/video_stream/{robot_id}",
+                'timestamp': int(time.time() * 1000)
+            })
+                
+        except Exception as e:
+            logger.error(f"❌ WebRTC流准备处理失败: {e}")
+    
+    async def handle_webrtc_frame_data(self, connection: ClientConnection, data: Dict):
+        """处理WebRTC视频帧数据"""
+        try:
+            robot_id = connection.robot_id
+            
+            if robot_id not in self.robots:
+                return
+            
+            # 存储最新帧数据
+            self.latest_frames[robot_id] = {
+                'frame_data': data.get('frame_data'),
+                'timestamp': data.get('timestamp'),
+                'width': data.get('width'),
+                'height': data.get('height'),
+                'format': data.get('format', 'jpeg')
+            }
+            
+            # 可选：限制存储的帧数量以节省内存
+            if len(self.latest_frames) > 10:  # 最多保存10个机器人的帧
+                oldest_robot = min(self.latest_frames.keys(), 
+                                 key=lambda k: self.latest_frames[k]['timestamp'])
+                if len(self.latest_frames) > 10:
+                    del self.latest_frames[oldest_robot]
+                
+        except Exception as e:
+            logger.error(f"❌ WebRTC帧数据处理失败: {e}")
+
 
 async def main():
     """主函数"""
-    server = CompanionServer(host='172.20.39.181', port=1234, http_port=1235)
+    server = CompanionServer(host='172.20.39.181', port=1234, http_port=1235, video_port=1236)
     await server.start()
 
 

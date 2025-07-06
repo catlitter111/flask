@@ -22,13 +22,33 @@
           <text>视频连接超时</text>
         </view>
       </block>
-      <block wx:elif="{{videoBase64}}">
+      <block wx:elif="{{videoBase64 && !useWebRTC}}">
+        <!-- WebSocket模式：使用image组件显示base64图像 -->
         <image 
           src="{{videoBase64}}" 
           mode="aspectFill"
           lazy-load="{{false}}"
           show-menu-by-longpress="{{false}}"
         ></image>
+      </block>
+      <block wx:elif="{{useWebRTC && webrtcStreamUrl}}">
+        <!-- WebRTC模式：使用live-player组件 -->
+        <live-player 
+          id="webrtcLivePlayer"
+          src="{{webrtcStreamUrl}}"
+          mode="live"
+          autoplay="{{true}}"
+          muted="{{true}}"
+          orientation="vertical"
+          object-fit="fillCrop"
+          background-mute="{{false}}"
+          min-cache="1"
+          max-cache="3"
+          sound-mode="speaker"
+          bindstatechange="onLivePlayerStateChange"
+          binderror="onLivePlayerError"
+          style="width: 100%; height: 100%;"
+        ></live-player>
       </block>
       <block wx:else>
         <view class="loading-connection">
@@ -42,8 +62,8 @@
       </view>
       
       <!-- 视频质量指示器 (仅在连接状态显示) -->
-      <view class="video-quality-indicator" bindtap="toggleQualityPanel" wx:if="{{connected && robotConnected && !videoExpired && videoBase64}}">
-        <text class="quality-label">{{qualityLabels[currentQuality]}}</text>
+      <view class="video-quality-indicator" bindtap="toggleQualityPanel" wx:if="{{connected && robotConnected && !videoExpired && (videoBase64 || useWebRTC)}}">
+        <text class="quality-label">{{useWebRTC ? 'WebRTC' : qualityLabels[currentQuality]}}</text>
         <text class="quality-stats">{{videoFps}}fps | {{frameLatency}}ms</text>
       </view>
     </view>
