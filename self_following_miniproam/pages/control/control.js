@@ -101,8 +101,21 @@ Page({
       
       // 新增：跟踪数据展示
       trackingData: {
+        mode: '未知',                  // 跟踪模式：multi_target, single_target等
+        status: '未知',                // 跟踪状态：跟踪中, 搜索中等
+        totalPersons: 0,              // 总人数
+        activeTracks: 0,              // 活跃轨迹数
+        targetInfo: null,             // 目标信息
+        persons: [],                  // 人员列表
+        systemStatus: {               // 系统状态
+          fps: 0,
+          memoryUsage: 0,
+          cameraStatus: '未知'
+        },
+        lastUpdateTime: 0,            // 最后更新时间
+        
+        // 保留一些模拟数据作为备用
         tracks: [
-          // 模拟数据，后续会从服务器接收
           {
             id: 1,
             confidence: 0.85,
@@ -113,24 +126,11 @@ Page({
             },
             position: { x: 320, y: 240 },
             lastUpdateTime: Date.now()
-          },
-          {
-            id: 2,
-            confidence: 0.72,
-            status: 'lost',
-            clothingColors: {
-              top: { name: '红色', color: '#F44336' },
-              bottom: { name: '白色', color: '#FFFFFF' }
-            },
-            position: { x: 180, y: 160 },
-            lastUpdateTime: Date.now() - 5000
           }
         ],
-        totalTracks: 2,
-        activeTracks: 1,
-        lostTracks: 1,
-        targetTrackId: 1, // 当前跟踪目标ID
-        lastUpdateTime: Date.now()
+        totalTracks: 0,
+        lostTracks: 0,
+        targetTrackId: -1 // 当前跟踪目标ID
       },
       
       // 新增：真实特征数据
@@ -1493,6 +1493,116 @@ Page({
     this.setData({
       autoStatus: '已停止'
     });
+  },
+
+  // 处理实时跟踪数据
+  handleTrackingData: function(data) {
+    console.log('📊 收到跟踪数据:', data);
+    
+    try {
+      // 检查当前是否在数据页面
+      if (this.data.currentTab !== 'data') {
+        console.log('⚠️ 当前不在数据页面，跳过跟踪数据处理');
+        return;
+      }
+      
+      // 处理基本跟踪信息
+      const displayData = data.display_data || {};
+      const summary = displayData.summary || {};
+      const targetInfo = displayData.target_info;
+      const personsList = displayData.persons_list || [];
+      const systemStatus = displayData.system_status || {};
+      
+      console.log('📈 跟踪数据详情:', {
+        mode: summary.mode,
+        status: summary.status,
+        totalPersons: summary.total_persons,
+        hasTarget: !!targetInfo
+      });
+      
+      // 更新跟踪状态摘要
+      this.setData({
+        'trackingData.mode': summary.mode || '未知',
+        'trackingData.status': summary.status || '未知',
+        'trackingData.totalPersons': summary.total_persons || 0,
+        'trackingData.activeTracks': summary.active_tracks || 0,
+        'trackingData.lastUpdateTime': Date.now()
+      });
+      
+      // 处理目标信息
+      if (targetInfo) {
+        console.log('🎯 目标信息:', targetInfo);
+        
+        this.setData({
+          'trackingData.targetInfo': {
+            id: targetInfo.id || -1,
+            distance: targetInfo.distance || '未知',
+            confidence: targetInfo.confidence || '0%',
+            quality: targetInfo.quality || '0分',
+            position: targetInfo.position || {},
+            colors: targetInfo.colors || {upper: {name: '未知', hex: '#000000'}, lower: {name: '未知', hex: '#000000'}},
+            bodyFeatures: targetInfo.body_features || 0,
+            velocity: targetInfo.velocity || {x: 0, y: 0}
+          }
+        });
+      } else {
+        // 清空目标信息
+        this.setData({
+          'trackingData.targetInfo': null
+        });
+      }
+      
+      // 处理人员列表
+      if (personsList.length > 0) {
+        console.log('👥 检测到人员:', personsList.length);
+        
+        // 限制显示数量，避免界面过于拥挤
+        const limitedPersons = personsList.slice(0, 8);
+        
+        this.setData({
+          'trackingData.persons': limitedPersons.map(person => ({
+            id: person.id || -1,
+            status: person.status || '未知',
+            distance: person.distance || '未知',
+            confidence: person.confidence || '0%',
+            isTarget: person.is_target || false,
+            position: person.position || {},
+            colors: person.colors || {upper: {name: '未知', hex: '#000000'}, lower: {name: '未知', hex: '#000000'}}
+          }))
+        });
+      } else {
+        // 清空人员列表
+        this.setData({
+          'trackingData.persons': []
+        });
+      }
+      
+      // 处理系统状态
+      this.setData({
+        'trackingData.systemStatus': {
+          fps: systemStatus.fps || 0,
+          memoryUsage: systemStatus.memory_usage || 0,
+          cameraStatus: systemStatus.camera_status || '未知'
+        }
+      });
+      
+      // 如果有目标检测成功，显示提示
+      if (targetInfo && this.data.trackingData.targetInfo?.id !== targetInfo.id) {
+        wx.showToast({
+          title: `目标已锁定 ID:${targetInfo.id}`,
+          icon: 'success',
+          duration: 1500
+        });
+      }
+      
+    } catch (error) {
+      console.error('❌ 处理跟踪数据失败:', error);
+      wx.showToast({
+        title: '跟踪数据处理失败',
+        icon: 'none',
+        duration: 2000
+      });
+    }
   },
 
   // 处理真实特征数据

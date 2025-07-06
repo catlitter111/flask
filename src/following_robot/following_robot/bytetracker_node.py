@@ -3454,8 +3454,164 @@ class ByteTrackerNode(Node):
             # 发布消息
             self.tracking_result_pub.publish(msg)
             
+            # 同时发布详细的跟踪数据给WebSocket桥接节点
+            self.publish_detailed_tracking_data(tracks, target_track, mode)
+            
         except Exception as e:
             self.get_logger().error(f"发布TrackingResult消息错误: {e}")
+
+    def publish_detailed_tracking_data(self, tracks, target_track, mode):
+        """
+        发布详细的跟踪数据给WebSocket桥接节点
+        ===================================
+        
+        功能说明：
+            发布包含所有轨迹详细信息的数据，供微信小程序显示
+            包括每个轨迹的位置、颜色、身体比例等详细信息
+        """
+        try:
+            import json
+            import time
+            
+            # 构建详细的跟踪数据
+            detailed_data = {
+                'timestamp': int(time.time() * 1000),
+                'frame_id': self.frame_count,
+                'tracking_mode': mode,
+                'target_detected': target_track is not None,
+                'total_tracks': len(tracks),
+                'tracks': [],
+                'target_track': None,
+                'statistics': {
+                    'active_tracks': len([t for t in tracks if t.state == TrackState.TRACKED]),
+                    'lost_tracks': len([t for t in tracks if t.state == TrackState.LOST]),
+                    'new_tracks': len([t for t in tracks if t.state == TrackState.NEW]),
+                }
+            }
+            
+            # 处理所有轨迹
+            for track in tracks:
+                if track.state == TrackState.TRACKED:
+                    tlwh = track.tlwh
+                    tlbr = track.tlbr
+                    center_x = int(tlbr[0] + (tlbr[2] - tlbr[0]) / 2)
+                    center_y = int(tlbr[1] + (tlbr[3] - tlbr[1]) / 2)
+                    
+                    track_data = {
+                        'id': track.track_id,
+                        'status': 'tracking',
+                        'position': {
+                            'x': float(center_x),
+                            'y': float(center_y),
+                            'width': float(tlbr[2] - tlbr[0]),
+                            'height': float(tlbr[3] - tlbr[1]),
+                            'tlbr': [float(tlbr[0]), float(tlbr[1]), float(tlbr[2]), float(tlbr[3])]
+                        },
+                        'confidence': float(track.score),
+                        'age': track.tracklet_len,
+                        'time_since_update': track.time_since_update,
+                        'colors': {
+                            'upper': list(track.upper_color) if track.upper_color is not None else [0, 0, 0],
+                            'lower': list(track.lower_color) if track.lower_color is not None else [0, 0, 0]
+                        },
+                        'body_ratios': list(track.body_ratios) if track.body_ratios is not None else [],
+                        'distance': float(self.get_distance_at_point(center_x, center_y) / 1000.0),  # 转换为米
+                        'is_target': track == target_track,
+                        'tracking_quality': self.calculate_tracking_quality(track)
+                    }
+                    detailed_data['tracks'].append(track_data)
+            
+            # 处理目标轨迹
+            if target_track:
+                tlbr = target_track.tlbr
+                center_x = int(tlbr[0] + (tlbr[2] - tlbr[0]) / 2)
+                center_y = int(tlbr[1] + (tlbr[3] - tlbr[1]) / 2)
+                
+                detailed_data['target_track'] = {
+                    'id': target_track.track_id,
+                    'position': {
+                        'x': float(center_x),
+                        'y': float(center_y),
+                        'width': float(tlbr[2] - tlbr[0]),
+                        'height': float(tlbr[3] - tlbr[1]),
+                        'tlbr': [float(tlbr[0]), float(tlbr[1]), float(tlbr[2]), float(tlbr[3])]
+                    },
+                    'confidence': float(target_track.score),
+                    'distance': float(self.get_distance_at_point(center_x, center_y) / 1000.0),  # 转换为米
+                    'colors': {
+                        'upper': list(target_track.upper_color) if target_track.upper_color is not None else [0, 0, 0],
+                        'lower': list(target_track.lower_color) if target_track.lower_color is not None else [0, 0, 0]
+                    },
+                    'body_ratios': list(target_track.body_ratios) if target_track.body_ratios is not None else [],
+                    'tracking_quality': self.calculate_tracking_quality(target_track),
+                    'velocity': {
+                        'x': float(target_track.mean[4]) if len(target_track.mean) > 4 else 0.0,
+                        'y': float(target_track.mean[5]) if len(target_track.mean) > 5 else 0.0
+                    }
+                }
+            
+            # 添加系统性能信息
+            detailed_data['system_info'] = {
+                'fps': getattr(self, 'fps', 0.0),
+                'processing_time_ms': getattr(self, 'last_processing_time', 0.0),
+                'memory_usage_mb': self.get_memory_usage(),
+                'camera_connected': self.cap is not None and self.cap.isOpened()
+            }
+            
+            # 发布JSON消息
+            json_msg = String()
+            json_msg.data = json.dumps(detailed_data)
+            self.detailed_tracking_pub.publish(json_msg)
+            
+            # 调试日志（降低频率）
+            if self.frame_count % 60 == 0:  # 每60帧记录一次（约2秒）
+                self.get_logger().info(f'📈 发布详细跟踪数据 - 轨迹数: {len(tracks)}, '
+                                     f'目标ID: {target_track.track_id if target_track else "无"}, '
+                                     f'距离: {detailed_data["target_track"]["distance"]:.2f}m' if target_track else '')
+        
+        except Exception as e:
+            self.get_logger().error(f'❌ 发布详细跟踪数据失败: {e}')
+    
+    def calculate_tracking_quality(self, track):
+        """计算跟踪质量评分"""
+        try:
+            quality_score = 0.0
+            
+            # 基础置信度 (0-40分)
+            quality_score += min(40.0, track.score * 40)
+            
+            # 跟踪稳定性 (0-30分)
+            if track.tracklet_len > 10:
+                stability = min(30.0, (track.tracklet_len / 50.0) * 30)
+                quality_score += stability
+            
+            # 更新及时性 (0-20分)
+            if track.time_since_update == 0:
+                quality_score += 20.0
+            elif track.time_since_update <= 3:
+                quality_score += 15.0
+            elif track.time_since_update <= 5:
+                quality_score += 10.0
+            
+            # 特征完整性 (0-10分)
+            if track.upper_color is not None and track.lower_color is not None:
+                quality_score += 5.0
+            if track.body_ratios is not None and len(track.body_ratios) > 0:
+                quality_score += 5.0
+            
+            return min(100.0, quality_score)
+        
+        except Exception:
+            return 50.0  # 默认评分
+    
+    def get_memory_usage(self):
+        """获取内存使用情况（MB）"""
+        try:
+            import psutil
+            process = psutil.Process()
+            return process.memory_info().rss / 1024 / 1024
+        except Exception:
+            return 0.0
 
     def get_distance_at_point(self, x, y):
         """
@@ -3739,6 +3895,10 @@ class ByteTrackerNode(Node):
         # 新增：TrackingResult发布者（供WebSocket桥接节点使用）
         self.tracking_result_pub = self.create_publisher(
             TrackingResult, '/bytetracker/tracking_result', qos)
+
+        # 新增：详细跟踪数据发布者（供WebSocket桥接节点和微信小程序使用）
+        self.detailed_tracking_pub = self.create_publisher(
+            String, '/bytetracker/detailed_tracking_data', qos)
 
         # 可视化图像发布者（供WebSocket桥接节点使用）
         self.visualization_pub = self.create_publisher(

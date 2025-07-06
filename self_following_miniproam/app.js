@@ -634,6 +634,13 @@ App({
 
     // 跟踪数据异步处理
     handleTrackingDataAsync: function(data) {
+      // 异步分发到控制页面（新增）
+      if (this.globalData.controlPage) {
+        wx.nextTick(() => {
+          this.globalData.controlPage.handleTrackingData(data);
+        });
+      }
+      
       // 异步分发到历史页面
       if (this.globalData.historyPage) {
         wx.nextTick(() => {

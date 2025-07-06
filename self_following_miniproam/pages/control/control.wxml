@@ -277,6 +277,132 @@
         </view>
       </view>
       
+      <!-- 实时跟踪数据区域 -->
+      <view class="real-tracking-data" wx:if="{{trackingData.lastUpdateTime > 0}}">
+        <view class="tracking-section-header">
+          <text class="section-title">📊 实时跟踪数据</text>
+          <text class="update-time">{{utils.formatTimeAgo(trackingData.lastUpdateTime)}}</text>
+        </view>
+        
+        <!-- 跟踪状态摘要 -->
+        <view class="tracking-summary">
+          <view class="summary-item">
+            <text class="summary-label">跟踪模式</text>
+            <text class="summary-value">{{trackingData.mode}}</text>
+          </view>
+          <view class="summary-item">
+            <text class="summary-label">系统状态</text>
+            <text class="summary-value">{{trackingData.status}}</text>
+          </view>
+          <view class="summary-item">
+            <text class="summary-label">检测人数</text>
+            <text class="summary-value">{{trackingData.totalPersons}} 人</text>
+          </view>
+          <view class="summary-item">
+            <text class="summary-label">活跃轨迹</text>
+            <text class="summary-value">{{trackingData.activeTracks}} 个</text>
+          </view>
+        </view>
+        
+        <!-- 目标信息 -->
+        <view class="target-info" wx:if="{{trackingData.targetInfo}}">
+          <text class="target-title">🎯 跟踪目标 (ID: {{trackingData.targetInfo.id}})</text>
+          <view class="target-details">
+            <view class="target-item">
+              <text class="target-label">距离</text>
+              <text class="target-value">{{trackingData.targetInfo.distance}}</text>
+            </view>
+            <view class="target-item">
+              <text class="target-label">置信度</text>
+              <text class="target-value">{{trackingData.targetInfo.confidence}}</text>
+            </view>
+            <view class="target-item">
+              <text class="target-label">跟踪质量</text>
+              <text class="target-value">{{trackingData.targetInfo.quality}}</text>
+            </view>
+            <view class="target-item">
+              <text class="target-label">身体特征</text>
+              <text class="target-value">{{trackingData.targetInfo.bodyFeatures}} 项</text>
+            </view>
+          </view>
+          
+          <!-- 目标颜色信息 -->
+          <view class="target-colors" wx:if="{{trackingData.targetInfo.colors}}">
+            <text class="colors-title">服装颜色</text>
+            <view class="color-row">
+              <view class="color-item">
+                <view class="color-indicator" style="background-color: {{trackingData.targetInfo.colors.upper.hex}}"></view>
+                <text class="color-name">{{trackingData.targetInfo.colors.upper.name}}</text>
+              </view>
+              <view class="color-item">
+                <view class="color-indicator" style="background-color: {{trackingData.targetInfo.colors.lower.hex}}"></view>
+                <text class="color-name">{{trackingData.targetInfo.colors.lower.name}}</text>
+              </view>
+            </view>
+          </view>
+          
+          <!-- 目标速度信息 -->
+          <view class="target-velocity" wx:if="{{trackingData.targetInfo.velocity}}">
+            <text class="velocity-title">运动速度</text>
+            <view class="velocity-info">
+              <text class="velocity-item">X: {{utils.toFixed(trackingData.targetInfo.velocity.x, 2)}} px/frame</text>
+              <text class="velocity-item">Y: {{utils.toFixed(trackingData.targetInfo.velocity.y, 2)}} px/frame</text>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 所有人员列表 -->
+        <view class="persons-list" wx:if="{{trackingData.persons && trackingData.persons.length > 0}}">
+          <text class="persons-title">👥 检测到的所有人员 ({{trackingData.persons.length}})</text>
+          <view class="persons-grid">
+            <view class="person-card {{person.isTarget ? 'is-target' : ''}}" 
+                  wx:for="{{trackingData.persons}}" 
+                  wx:key="id"
+                  wx:for-item="person">
+              <view class="person-header">
+                <text class="person-id">ID: {{person.id}}</text>
+                <view class="person-target-badge" wx:if="{{person.isTarget}}">目标</view>
+                <text class="person-status">{{person.status}}</text>
+              </view>
+              <view class="person-info">
+                <text class="person-distance">{{person.distance}}</text>
+                <text class="person-confidence">{{person.confidence}}</text>
+              </view>
+              <view class="person-colors">
+                <view class="color-dot" style="background-color: {{person.colors.upper.hex}}" title="{{person.colors.upper.name}}"></view>
+                <view class="color-dot" style="background-color: {{person.colors.lower.hex}}" title="{{person.colors.lower.name}}"></view>
+              </view>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 系统状态 -->
+        <view class="system-status" wx:if="{{trackingData.systemStatus}}">
+          <text class="system-title">⚙️ 系统状态</text>
+          <view class="system-items">
+            <view class="system-item">
+              <text class="system-label">帧率</text>
+              <text class="system-value">{{utils.toFixed(trackingData.systemStatus.fps, 1)}} FPS</text>
+            </view>
+            <view class="system-item">
+              <text class="system-label">内存使用</text>
+              <text class="system-value">{{utils.toFixed(trackingData.systemStatus.memoryUsage, 1)}} MB</text>
+            </view>
+            <view class="system-item">
+              <text class="system-label">摄像头</text>
+              <text class="system-value">{{trackingData.systemStatus.cameraStatus}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+      
+      <!-- 跟踪数据空状态 -->
+      <view class="tracking-empty-state" wx:else-if="{{trackingData.lastUpdateTime === 0 && realFeatureData.lastUpdate === 0}}">
+        <view class="empty-icon">📊</view>
+        <text class="empty-title">暂无跟踪数据</text>
+        <text class="empty-desc">请确保ByteTracker节点正在运行</text>
+      </view>
+
       <!-- 真实特征数据区域 -->
       <view class="real-feature-data" wx:if="{{realFeatureData.lastUpdate > 0}}">
         <view class="feature-section-header">

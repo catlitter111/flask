@@ -225,6 +225,14 @@ class WebSocketBridgeNode(Node):
             10
         )
         
+        # 详细跟踪数据订阅（来自ByteTracker节点）
+        self.detailed_tracking_subscription = self.create_subscription(
+            String,
+            '/bytetracker/detailed_tracking_data',
+            self.detailed_tracking_callback,
+            10
+        )
+        
         # 发布者
         self.command_publisher = self.create_publisher(
             String,
@@ -495,6 +503,184 @@ class WebSocketBridgeNode(Node):
         except Exception as e:
             self.get_logger().error(f"❌ 处理特征提取结果失败: {e}")
     
+    def detailed_tracking_callback(self, msg):
+        """处理详细跟踪数据"""
+        try:
+            # 解析JSON消息
+            tracking_data = json.loads(msg.data)
+            
+            # 转发给WebSocket客户端（微信小程序）
+            self.forward_tracking_data_to_clients(tracking_data)
+            
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f"❌ 解析详细跟踪数据失败: {e}")
+        except Exception as e:
+            self.get_logger().error(f"❌ 处理详细跟踪数据失败: {e}")
+    
+    def forward_tracking_data_to_clients(self, tracking_data):
+        """转发跟踪数据给WebSocket客户端"""
+        try:
+            # 构建发送给微信小程序的数据格式
+            client_message = {
+                'type': 'tracking_data',
+                'robot_id': self.robot_id,
+                'timestamp': tracking_data.get('timestamp', int(time.time() * 1000)),
+                'data': {
+                    # 基本跟踪信息
+                    'tracking_mode': tracking_data.get('tracking_mode', 'multi_target'),
+                    'target_detected': tracking_data.get('target_detected', False),
+                    'total_tracks': tracking_data.get('total_tracks', 0),
+                    
+                    # 统计信息
+                    'statistics': tracking_data.get('statistics', {}),
+                    
+                    # 目标轨迹信息
+                    'target_track': tracking_data.get('target_track'),
+                    
+                    # 所有轨迹信息
+                    'tracks': tracking_data.get('tracks', []),
+                    
+                    # 系统性能信息
+                    'system_info': tracking_data.get('system_info', {}),
+                    
+                    # 为微信小程序添加额外的显示数据
+                    'display_data': self.format_tracking_data_for_display(tracking_data)
+                }
+            }
+            
+            # 发送给WebSocket服务器
+            if self.send_ws_message(client_message):
+                self.get_logger().debug(f'📤 转发跟踪数据 - 目标检测: {tracking_data.get("target_detected")}, '
+                                       f'轨迹数: {tracking_data.get("total_tracks")}')
+            else:
+                self.get_logger().warning(f'⚠️ 转发跟踪数据失败: WebSocket未连接')
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ 转发跟踪数据失败: {e}')
+    
+    def format_tracking_data_for_display(self, tracking_data):
+        """格式化跟踪数据供微信小程序显示"""
+        try:
+            display_data = {
+                'summary': {
+                    'mode': tracking_data.get('tracking_mode', 'unknown'),
+                    'status': '跟踪中' if tracking_data.get('target_detected') else '搜索中',
+                    'total_persons': tracking_data.get('total_tracks', 0),
+                    'active_tracks': tracking_data.get('statistics', {}).get('active_tracks', 0)
+                },
+                'target_info': None,
+                'persons_list': [],
+                'system_status': {
+                    'fps': tracking_data.get('system_info', {}).get('fps', 0.0),
+                    'memory_usage': tracking_data.get('system_info', {}).get('memory_usage_mb', 0.0),
+                    'camera_status': '已连接' if tracking_data.get('system_info', {}).get('camera_connected') else '未连接'
+                }
+            }
+            
+            # 处理目标信息
+            target_track = tracking_data.get('target_track')
+            if target_track:
+                display_data['target_info'] = {
+                    'id': target_track.get('id', -1),
+                    'distance': f"{target_track.get('distance', 0.0):.2f}米",
+                    'confidence': f"{target_track.get('confidence', 0.0):.1%}",
+                    'quality': f"{target_track.get('tracking_quality', 0.0):.0f}分",
+                    'position': target_track.get('position', {}),
+                    'colors': {
+                        'upper': self.format_color_display(target_track.get('colors', {}).get('upper', [0, 0, 0])),
+                        'lower': self.format_color_display(target_track.get('colors', {}).get('lower', [0, 0, 0]))
+                    },
+                    'body_features': len(target_track.get('body_ratios', [])),
+                    'velocity': target_track.get('velocity', {'x': 0.0, 'y': 0.0})
+                }
+            
+            # 处理所有人员列表
+            tracks = tracking_data.get('tracks', [])
+            for track in tracks:
+                person_info = {
+                    'id': track.get('id', -1),
+                    'status': track.get('status', 'unknown'),
+                    'distance': f"{track.get('distance', 0.0):.2f}米",
+                    'confidence': f"{track.get('confidence', 0.0):.1%}",
+                    'is_target': track.get('is_target', False),
+                    'position': track.get('position', {}),
+                    'colors': {
+                        'upper': self.format_color_display(track.get('colors', {}).get('upper', [0, 0, 0])),
+                        'lower': self.format_color_display(track.get('colors', {}).get('lower', [0, 0, 0]))
+                    }
+                }
+                display_data['persons_list'].append(person_info)
+            
+            return display_data
+            
+        except Exception as e:
+            self.get_logger().error(f'❌ 格式化显示数据失败: {e}')
+            return {
+                'summary': {'mode': 'error', 'status': '数据处理错误', 'total_persons': 0, 'active_tracks': 0},
+                'target_info': None,
+                'persons_list': [],
+                'system_status': {'fps': 0.0, 'memory_usage': 0.0, 'camera_status': '未知'}
+            }
+    
+    def format_color_display(self, bgr_color):
+        """格式化颜色显示"""
+        try:
+            if not bgr_color or len(bgr_color) < 3:
+                return {'name': '未知', 'hex': '#000000', 'rgb': [0, 0, 0]}
+            
+            # BGR转RGB
+            r, g, b = int(bgr_color[2]), int(bgr_color[1]), int(bgr_color[0])
+            
+            # 转换为十六进制
+            hex_color = f"#{r:02x}{g:02x}{b:02x}"
+            
+            # 获取颜色名称
+            color_name = self.get_color_name([r, g, b])
+            
+            return {
+                'name': color_name,
+                'hex': hex_color,
+                'rgb': [r, g, b]
+            }
+            
+        except Exception:
+            return {'name': '未知', 'hex': '#000000', 'rgb': [0, 0, 0]}
+    
+    def get_color_name(self, rgb_color):
+        """根据RGB值获取颜色名称"""
+        try:
+            r, g, b = rgb_color
+            
+            # 检查基本颜色
+            if r < 50 and g < 50 and b < 50:
+                return '黑色'
+            elif r > 200 and g > 200 and b > 200:
+                return '白色'
+            elif r > 150 and g < 100 and b < 100:
+                return '红色'
+            elif g > 150 and r < 100 and b < 100:
+                return '绿色'
+            elif b > 150 and r < 100 and g < 100:
+                return '蓝色'
+            elif r > 150 and g > 150 and b < 100:
+                return '黄色'
+            elif r > 200 and 100 < g < 200 and b < 100:
+                return '橙色'
+            elif r > 100 and b > 100 and g < 100:
+                return '紫色'
+            elif r > 150 and g < 150 and b > 100:
+                return '粉色'
+            elif r > 100 and 50 < g < 150 and b < 100:
+                return '棕色'
+            elif abs(r - g) < 30 and abs(g - b) < 30 and abs(r - b) < 30 and 50 <= r <= 200:
+                return '灰色'
+            else:
+                # 默认返回RGB描述
+                return f'RGB({r},{g},{b})'
+            
+        except Exception:
+            return '未知'
+     
     def forward_processed_image(self, result_data, image_path):
         """转发处理后的图片给客户端"""
         try:
@@ -611,41 +797,6 @@ class WebSocketBridgeNode(Node):
                 return "#000000"
         except:
             return "#000000"
-    
-    def get_color_name(self, rgb):
-        """根据RGB值获取颜色名称"""
-        try:
-            if not isinstance(rgb, (list, tuple)) or len(rgb) < 3:
-                return "黑色"
-            
-            r, g, b = int(rgb[0]), int(rgb[1]), int(rgb[2])
-            
-            # 简单的颜色识别逻辑
-            if r > 200 and g > 200 and b > 200:
-                return "白色"
-            elif r < 50 and g < 50 and b < 50:
-                return "黑色"
-            elif r > g and r > b:
-                if g > b:
-                    return "橙色" if g > 100 else "红色"
-                else:
-                    return "红色"
-            elif g > r and g > b:
-                if r > b:
-                    return "黄色"
-                elif b > r:
-                    return "青色"
-                else:
-                    return "绿色"
-            elif b > r and b > g:
-                if r > g:
-                    return "紫色"
-                else:
-                    return "蓝色"
-            else:
-                return "灰色"
-        except:
-            return "未知"
     
     def format_body_proportions(self, body_ratios):
         """格式化身体比例数据"""

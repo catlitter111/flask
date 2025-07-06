@@ -1336,3 +1336,340 @@
     line-height: 1.5;
     color: #999;
   }
+
+/* =========================== 
+   实时跟踪数据样式
+   =========================== */
+
+/* 跟踪数据主容器 */
+.real-tracking-data {
+  margin: 24rpx 0;
+  padding: 24rpx;
+  background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+  border-radius: 16rpx;
+  border: 2rpx solid #bbdefb;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.08);
+}
+
+/* 跟踪数据区域标题 */
+.tracking-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24rpx;
+  padding-bottom: 16rpx;
+  border-bottom: 2rpx solid #e1f5fe;
+}
+
+/* 跟踪状态摘要 */
+.tracking-summary {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16rpx;
+  margin-bottom: 24rpx;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16rpx;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 12rpx;
+  border: 1rpx solid #e3f2fd;
+  box-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.05);
+}
+
+.summary-label {
+  font-size: 22rpx;
+  color: #6c757d;
+  margin-bottom: 8rpx;
+}
+
+.summary-value {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #1976d2;
+}
+
+/* 目标信息样式 */
+.target-info {
+  margin: 24rpx 0;
+  padding: 24rpx;
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+  border-radius: 16rpx;
+  border: 2rpx solid #ffcc02;
+  box-shadow: 0 4rpx 8rpx rgba(255, 193, 7, 0.2);
+}
+
+.target-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #e65100;
+  margin-bottom: 20rpx;
+  display: block;
+}
+
+.target-details {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+}
+
+.target-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12rpx 16rpx;
+  background-color: rgba(255, 255, 255, 0.8);
+  border-radius: 8rpx;
+  border: 1rpx solid #ffecb3;
+}
+
+.target-label {
+  font-size: 24rpx;
+  color: #f57c00;
+  font-weight: 500;
+}
+
+.target-value {
+  font-size: 24rpx;
+  color: #e65100;
+  font-weight: 600;
+}
+
+/* 目标颜色信息 */
+.target-colors {
+  margin: 16rpx 0;
+  padding: 16rpx;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 12rpx;
+  border: 1rpx solid #ffecb3;
+}
+
+.color-row {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 12rpx;
+}
+
+.target-colors .color-item {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  flex: 1;
+  padding: 8rpx 12rpx;
+  background-color: #fff;
+  border-radius: 8rpx;
+  border: 1rpx solid #ffecb3;
+}
+
+.target-colors .color-indicator {
+  width: 24rpx;
+  height: 24rpx;
+  border-radius: 4rpx;
+  border: 1rpx solid #dee2e6;
+}
+
+.target-colors .color-name {
+  font-size: 22rpx;
+  color: #e65100;
+  font-weight: 500;
+}
+
+/* 目标速度信息 */
+.target-velocity {
+  margin: 16rpx 0;
+  padding: 16rpx;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 12rpx;
+  border: 1rpx solid #ffecb3;
+}
+
+.velocity-title {
+  font-size: 24rpx;
+  color: #f57c00;
+  font-weight: 600;
+  margin-bottom: 12rpx;
+  display: block;
+}
+
+.velocity-info {
+  display: flex;
+  gap: 16rpx;
+}
+
+.velocity-item {
+  flex: 1;
+  font-size: 22rpx;
+  color: #e65100;
+  font-family: 'Courier New', monospace;
+  padding: 8rpx;
+  background-color: #fff;
+  border-radius: 6rpx;
+  text-align: center;
+}
+
+/* 人员列表样式 */
+.persons-list {
+  margin: 24rpx 0;
+  padding: 24rpx;
+  background: linear-gradient(135deg, #f1f8e9 0%, #dcedc8 100%);
+  border-radius: 16rpx;
+  border: 2rpx solid #aed581;
+  box-shadow: 0 4rpx 8rpx rgba(139, 195, 74, 0.2);
+}
+
+.persons-title {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #33691e;
+  margin-bottom: 20rpx;
+  display: block;
+}
+
+.persons-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12rpx;
+}
+
+.person-card {
+  padding: 16rpx;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 12rpx;
+  border: 1rpx solid #c5e1a5;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.person-card.is-target {
+  background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+  border-color: #ffcc02;
+  box-shadow: 0 2rpx 8rpx rgba(255, 193, 7, 0.3);
+}
+
+.person-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+
+.person-id {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #2e7d32;
+}
+
+.person-target-badge {
+  font-size: 18rpx;
+  color: #e65100;
+  background-color: #ffcc02;
+  padding: 2rpx 8rpx;
+  border-radius: 10rpx;
+  font-weight: 600;
+}
+
+.person-status {
+  font-size: 20rpx;
+  color: #558b2f;
+}
+
+.person-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8rpx;
+}
+
+.person-distance, .person-confidence {
+  font-size: 20rpx;
+  color: #689f38;
+}
+
+.person-colors {
+  display: flex;
+  gap: 8rpx;
+  justify-content: center;
+}
+
+.color-dot {
+  width: 20rpx;
+  height: 20rpx;
+  border-radius: 50%;
+  border: 1rpx solid #c5e1a5;
+}
+
+/* 系统状态样式 */
+.system-status {
+  margin: 24rpx 0;
+  padding: 24rpx;
+  background: linear-gradient(135deg, #fce4ec 0%, #f8bbd9 100%);
+  border-radius: 16rpx;
+  border: 2rpx solid #f48fb1;
+  box-shadow: 0 4rpx 8rpx rgba(233, 30, 99, 0.15);
+}
+
+.system-title {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #ad1457;
+  margin-bottom: 20rpx;
+  display: block;
+}
+
+.system-items {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12rpx;
+}
+
+.system-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16rpx;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 12rpx;
+  border: 1rpx solid #f8bbd9;
+}
+
+.system-label {
+  font-size: 22rpx;
+  color: #c2185b;
+  margin-bottom: 8rpx;
+}
+
+.system-value {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #ad1457;
+  font-family: 'Courier New', monospace;
+}
+
+/* 跟踪数据空状态 */
+.tracking-empty-state {
+  text-align: center;
+  padding: 60rpx 20rpx;
+  color: #6c757d;
+}
+
+.tracking-empty-state .empty-icon {
+  font-size: 80rpx;
+  margin-bottom: 20rpx;
+  opacity: 0.5;
+}
+
+.tracking-empty-state .empty-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 12rpx;
+  display: block;
+}
+
+.tracking-empty-state .empty-desc {
+  font-size: 26rpx;
+  color: #6c757d;
+  display: block;
+}
