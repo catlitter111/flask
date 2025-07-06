@@ -277,6 +277,67 @@
         </view>
       </view>
       
+      <!-- 真实特征数据区域 -->
+      <view class="real-feature-data" wx:if="{{realFeatureData.lastUpdate > 0}}">
+        <view class="feature-section-header">
+          <text class="section-title">🎯 实时特征数据</text>
+          <text class="update-time">{{utils.formatTimeAgo(realFeatureData.lastUpdate)}}</text>
+        </view>
+        
+        <!-- 人数统计 -->
+        <view class="feature-item" wx:if="{{realFeatureData.personCount > 0}}">
+          <view class="feature-label">
+            <text class="label-icon">👥</text>
+            <text class="label-text">检测人数</text>
+          </view>
+          <text class="feature-value">{{realFeatureData.personCount}} 人</text>
+        </view>
+        
+        <!-- 服装颜色 -->
+        <view class="feature-colors" wx:if="{{realFeatureData.shirtColor.length > 0 || realFeatureData.pantsColor.length > 0}}">
+          <text class="colors-title">服装颜色</text>
+          <view class="color-info">
+            <view class="color-item" wx:if="{{realFeatureData.shirtColor.length > 0}}">
+              <view class="color-indicator" style="background-color: rgb({{realFeatureData.shirtColor[0]}}, {{realFeatureData.shirtColor[1]}}, {{realFeatureData.shirtColor[2]}})"></view>
+              <text class="color-label">上衣</text>
+              <text class="color-rgb">RGB({{realFeatureData.shirtColor[0]}}, {{realFeatureData.shirtColor[1]}}, {{realFeatureData.shirtColor[2]}})</text>
+            </view>
+            <view class="color-item" wx:if="{{realFeatureData.pantsColor.length > 0}}">
+              <view class="color-indicator" style="background-color: rgb({{realFeatureData.pantsColor[0]}}, {{realFeatureData.pantsColor[1]}}, {{realFeatureData.pantsColor[2]}})"></view>
+              <text class="color-label">下装</text>
+              <text class="color-rgb">RGB({{realFeatureData.pantsColor[0]}}, {{realFeatureData.pantsColor[1]}}, {{realFeatureData.pantsColor[2]}})</text>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 身体比例数据 -->
+        <view class="feature-ratios" wx:if="{{realFeatureData.bodyRatios.length > 0}}">
+          <text class="ratios-title">身体比例 ({{realFeatureData.bodyRatios.length}}项数据)</text>
+          <view class="ratios-grid">
+            <view class="ratio-item" wx:for="{{realFeatureData.bodyRatios}}" wx:key="index" wx:if="{{index < 8}}">
+              <text class="ratio-label">比例{{index + 1}}</text>
+              <text class="ratio-value">{{utils.toFixed(item, 3)}}</text>
+            </view>
+          </view>
+          <view class="more-ratios" wx:if="{{realFeatureData.bodyRatios.length > 8}}">
+            <text class="more-text">还有 {{realFeatureData.bodyRatios.length - 8}} 项数据...</text>
+          </view>
+        </view>
+        
+        <!-- 结果图片路径 -->
+        <view class="feature-image-path" wx:if="{{realFeatureData.resultImagePath}}">
+          <text class="path-label">结果图片:</text>
+          <text class="path-value">{{realFeatureData.resultImagePath}}</text>
+        </view>
+      </view>
+      
+      <!-- 特征数据空状态 -->
+      <view class="feature-empty-state" wx:else>
+        <view class="empty-icon">🎯</view>
+        <text class="empty-title">暂无特征数据</text>
+        <text class="empty-desc">请上传图片进行特征提取</text>
+      </view>
+      
       <!-- 轨迹列表 -->
       <view class="track-list">
         <view class="track-item {{trackingData.targetTrackId === track.id ? 'is-target' : ''}}" 

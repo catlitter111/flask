@@ -605,6 +605,13 @@ App({
         });
       }
       
+      // 分发到控制页面显示真实特征数据
+      if (this.globalData.controlPage && this.globalData.controlPage.handleRealFeatureData) {
+        wx.nextTick(() => {
+          this.globalData.controlPage.handleRealFeatureData(data);
+        });
+      }
+      
       // 异步保存特征数据
       setTimeout(() => {
         this.saveFeatureData(data);
@@ -616,6 +623,13 @@ App({
       if (this.globalData.featurePage) {
         wx.nextTick(() => {
           this.globalData.featurePage.handleFeatureResult(data);
+        });
+      }
+      
+      // 分发到控制页面显示真实特征数据
+      if (this.globalData.controlPage && this.globalData.controlPage.handleRealFeatureData) {
+        wx.nextTick(() => {
+          this.globalData.controlPage.handleRealFeatureData(data);
         });
       }
       
@@ -1273,30 +1287,46 @@ App({
     
     // 初始化性能优化定时器
     initPerformanceTimers: function() {
-      // 优化：减少定时器执行频率，提高性能
+      // 优化：智能数据处理，避免不必要的操作
       setInterval(() => {
         // 使用 try-catch 确保错误不会影响定时器
         try {
-          // 检查是否有数据需要刷新，避免无意义的调用
-          if (this._featureDataBuffer && this._featureDataBuffer.length > 0) {
+          const startTime = Date.now();
+          let processed = false;
+          
+          // 检查是否有数据需要刷新，限制处理时间
+          if (this._featureDataBuffer && this._featureDataBuffer.length > 0 && Date.now() - startTime < 20) {
             this._flushFeatureData();
+            processed = true;
           }
-          if (this._trackingDataBuffer && this._trackingDataBuffer.length > 0) {
+          
+          if (this._trackingDataBuffer && this._trackingDataBuffer.length > 0 && Date.now() - startTime < 40) {
             this._flushTrackingData();
+            processed = true;
+          }
+          
+          // 如果处理时间过长，记录日志
+          const executionTime = Date.now() - startTime;
+          if (executionTime > 30 && this.globalData.debugMode) {
+            console.log(`⚡ 数据处理耗时: ${executionTime}ms`);
           }
         } catch (error) {
           if (this.globalData.debugMode) {
             console.error('定时器处理错误:', error);
           }
         }
-      }, 2000); // 从5秒减少到2秒，提高数据处理效率
+      }, 3000); // 进一步降低到3秒，减少CPU占用
       
-      // 性能监控定时器（可选）
-      if (this.globalData.performanceMonitor) {
-        setInterval(() => {
+          // 性能监控定时器（可选）
+    if (this.globalData.performanceMonitor) {
+      setInterval(() => {
+        try {
           this.performanceCheck();
-        }, 30000); // 每30秒检查一次性能
-      }
+        } catch (error) {
+          console.error('❌ 性能监控检查错误:', error);
+        }
+      }, 30000); // 每30秒检查一次性能
+    }
     },
 
     // 性能检查方法
@@ -1338,11 +1368,15 @@ App({
 
     // 自动调整视频质量
     adjustVideoQuality: function(quality) {
-      if (this.globalData.videoQuality !== quality) {
-        this.sendVideoQualityCommand(quality);
-        if (this.globalData.debugMode) {
-          console.log('🎥 自动调整视频质量为:', quality);
+      try {
+        if (this.globalData.videoQuality !== quality) {
+          this.requestVideoQuality(quality);
+          if (this.globalData.debugMode) {
+            console.log('🎥 自动调整视频质量为:', quality);
+          }
         }
+      } catch (error) {
+        console.error('❌ 自动调整视频质量失败:', error);
       }
     }
   });

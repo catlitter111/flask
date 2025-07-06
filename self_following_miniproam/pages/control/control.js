@@ -131,6 +131,16 @@ Page({
         lostTracks: 1,
         targetTrackId: 1, // 当前跟踪目标ID
         lastUpdateTime: Date.now()
+      },
+      
+      // 新增：真实特征数据
+      realFeatureData: {
+        bodyRatios: [],           // 身体比例数组
+        shirtColor: [0, 0, 0],    // 上衣颜色RGB
+        pantsColor: [0, 0, 0],    // 下装颜色RGB
+        personCount: 0,           // 人数统计
+        resultImagePath: '',      // 结果图片路径
+        lastUpdate: 0             // 最后更新时间
       }
     },
   
@@ -187,6 +197,14 @@ Page({
     
     // 启动跟踪数据更新定时器
     this.startTrackingDataUpdater();
+    
+    // 启动定期内存清理
+    this.startMemoryCleanup();
+    
+    // 启用性能监控（仅在开发模式）
+    if (wx.getAccountInfoSync().miniProgram.envVersion === 'develop') {
+      this.addPerformanceMonitor();
+    }
     },
   
     onShow: function() {
@@ -236,68 +254,308 @@ Page({
       }
     },
     
+    // 页面卸载时清理资源
+    onUnload: function() {
+      // 清理所有定时器
+      if (this.fpsTimer) {
+        clearInterval(this.fpsTimer);
+        this.fpsTimer = null;
+      }
+      
+      if (this.trackingDataTimer) {
+        clearInterval(this.trackingDataTimer);
+        this.trackingDataTimer = null;
+      }
+      
+      if (this.connectionChecker) {
+        clearInterval(this.connectionChecker);
+        this.connectionChecker = null;
+      }
+      
+      if (this.videoExpireChecker) {
+        clearInterval(this.videoExpireChecker);
+        this.videoExpireChecker = null;
+      }
+      
+      if (this.memoryCleanupTimer) {
+        clearInterval(this.memoryCleanupTimer);
+        this.memoryCleanupTimer = null;
+      }
+      
+      // 清理数据数组
+      this.setData({
+        frameTimestamps: [],
+        'trackingData.tracks': []
+      });
+      
+      // 关闭WebSocket连接
+      if (this.data.websocket) {
+        this.data.websocket.close();
+      }
+      
+      console.log('🧹 页面卸载，资源已清理');
+    },
+    
+    // 页面隐藏时暂停不必要的定时器
+    onHide: function() {
+      // 暂停跟踪数据更新（如果在数据页面）
+      if (this.trackingDataTimer) {
+        clearInterval(this.trackingDataTimer);
+        this.trackingDataTimer = null;
+      }
+      
+      // 暂停FPS计算
+      if (this.fpsTimer) {
+        clearInterval(this.fpsTimer);
+        this.fpsTimer = null;
+      }
+      
+      console.log('⏸️ 页面隐藏，定时器已暂停');
+    },
+    
+    // 页面显示时恢复定时器
+    onShow: function() {
+      // 恢复FPS计算
+      if (this.data.websocket && this.data.websocket.readyState === WebSocket.OPEN) {
+        this.startFpsCalculator();
+      }
+      
+      // 如果在数据页面，恢复数据更新
+      if (this.data.currentTab === 'data') {
+        this.startTrackingDataUpdater();
+      }
+      
+      console.log('▶️ 页面显示，定时器已恢复');
+    },
+    
+    // 添加性能监控方法
+    addPerformanceMonitor: function() {
+      // 监控长时间运行的setTimeout
+      const originalSetTimeout = setTimeout;
+      setTimeout = function(callback, delay) {
+        return originalSetTimeout(function() {
+          const startTime = Date.now();
+          const result = callback.apply(this, arguments);
+          const executionTime = Date.now() - startTime;
+          
+          if (executionTime > 50) {
+            console.warn(`⚠️ setTimeout执行时间过长: ${executionTime}ms`);
+          }
+          
+          return result;
+        }, delay);
+      };
+      
+      console.log('🔍 性能监控已启用');
+    },
+    
+    // 启动定期内存清理
+    startMemoryCleanup: function() {
+      // 清除之前的定时器
+      if (this.memoryCleanupTimer) {
+        clearInterval(this.memoryCleanupTimer);
+      }
+      
+      // 动态调整内存清理频率（根据性能情况）
+      this.memoryCleanupInterval = 60000; // 初始60秒
+      this.memoryCleanupTimer = setInterval(() => {
+        const startTime = Date.now();
+        this.performMemoryCleanup();
+        const executionTime = Date.now() - startTime;
+        
+        // 根据执行时间动态调整间隔
+        if (executionTime > 30) {
+          this.memoryCleanupInterval = Math.min(120000, this.memoryCleanupInterval * 1.2);
+        } else if (executionTime < 10) {
+          this.memoryCleanupInterval = Math.max(30000, this.memoryCleanupInterval * 0.9);
+        }
+        
+        // 重新设置定时器
+        clearInterval(this.memoryCleanupTimer);
+        this.memoryCleanupTimer = setInterval(() => {
+          this.performMemoryCleanup();
+        }, this.memoryCleanupInterval);
+      }, this.memoryCleanupInterval);
+    },
+    
+    // 执行内存清理（异步分片处理）
+    performMemoryCleanup: function() {
+      const now = Date.now();
+      const updates = {};
+      let cleanupCount = 0;
+      
+      // 分片处理，避免阻塞主线程
+      const processCleanup = () => {
+        // 快速检查并清理帧时间戳
+        const frameTimestamps = this.data.frameTimestamps;
+        if (frameTimestamps.length > 5) {
+          updates.frameTimestamps = frameTimestamps.slice(-3);
+          cleanupCount++;
+        }
+        
+        // 快速检查跟踪数据数量
+        const tracks = this.data.trackingData.tracks;
+        if (tracks.length > 10) {
+          updates['trackingData.tracks'] = tracks.slice(0, 8);
+          updates['trackingData.totalTracks'] = 8;
+          cleanupCount++;
+        }
+        
+        // 重置大数值计数器
+        if (this.data.receivedFrames > 10000) {
+          updates.receivedFrames = 0;
+          updates.droppedFrames = 0;
+          updates.fpsCounter = 0;
+          cleanupCount++;
+        }
+        
+        // 清理临时数据
+        if (this.data.pendingImageData) {
+          this.data.pendingImageData = null;
+          cleanupCount++;
+        }
+        
+        // 批量更新，减少渲染次数
+        if (Object.keys(updates).length > 0) {
+          this.setData(updates);
+        }
+        
+        if (cleanupCount > 0) {
+          console.log(`🧹 内存清理完成，清理了 ${cleanupCount} 项数据`);
+        }
+      };
+      
+      // 使用setTimeout异步执行，避免阻塞
+      setTimeout(processCleanup, 0);
+    },
+    
     // Tab切换方法
     switchTab: function(e) {
       const tab = e.currentTarget.dataset.tab;
       this.setData({
         currentTab: tab
       });
+      
+      // 根据Tab状态管理定时器，节省内存
+      if (tab === 'data') {
+        // 切换到数据页面时，启动数据更新定时器
+        this.startTrackingDataUpdater();
+      } else if (tab === 'control') {
+        // 切换到控制页面时，暂停数据更新定时器
+        if (this.trackingDataTimer) {
+          clearInterval(this.trackingDataTimer);
+          this.trackingDataTimer = null;
+        }
+      }
     },
     
     // 启动跟踪数据更新定时器
     startTrackingDataUpdater: function() {
-      // 每500ms更新一次跟踪数据（模拟实时更新）
+      // 清除之前的定时器，防止重复创建
+      if (this.trackingDataTimer) {
+        clearInterval(this.trackingDataTimer);
+      }
+      
+      // 智能调整跟踪数据更新频率
+      this.trackingUpdateInterval = 3000; // 初始3秒
+      
       this.trackingDataTimer = setInterval(() => {
-        this.updateTrackingData();
-      }, 500);
+        if (this.data.currentTab === 'data') {
+          const startTime = Date.now();
+          this.updateTrackingData();
+          const executionTime = Date.now() - startTime;
+          
+          // 根据执行时间调整更新频率
+          if (executionTime > 50) {
+            this.trackingUpdateInterval = Math.min(5000, this.trackingUpdateInterval + 500);
+            console.log(`⚡ 跟踪数据更新耗时${executionTime}ms，调整频率至${this.trackingUpdateInterval}ms`);
+          } else if (executionTime < 20) {
+            this.trackingUpdateInterval = Math.max(2000, this.trackingUpdateInterval - 200);
+          }
+          
+          // 重新设置定时器
+          clearInterval(this.trackingDataTimer);
+          this.trackingDataTimer = setInterval(() => {
+            if (this.data.currentTab === 'data') {
+              this.updateTrackingData();
+            }
+          }, this.trackingUpdateInterval);
+        }
+      }, this.trackingUpdateInterval);
     },
     
-    // 更新跟踪数据（模拟）
+    // 更新跟踪数据（优化性能）
     updateTrackingData: function() {
       const now = Date.now();
       const tracks = this.data.trackingData.tracks;
       
-      // 模拟数据变化
-      const updatedTracks = tracks.map(track => {
-        const timeSinceUpdate = now - track.lastUpdateTime;
+      // 快速限制轨迹数量
+      if (tracks.length > 8) {
+        tracks.length = 6; // 直接截断，避免splice操作
+      }
+      
+      // 分片处理，避免长时间循环
+      const processChunk = (startIndex) => {
+        const chunkSize = 3; // 每次处理3个轨迹
+        const endIndex = Math.min(startIndex + chunkSize, tracks.length);
+        let hasChanges = false;
+        let activeTracks = 0;
+        let lostTracks = 0;
         
-        // 模拟置信度波动
-        let newConfidence = track.confidence + (Math.random() - 0.5) * 0.1;
-        newConfidence = Math.max(0, Math.min(1, newConfidence));
-        
-        // 如果超过10秒未更新，标记为丢失
-        let newStatus = track.status;
-        if (timeSinceUpdate > 10000 && track.status === 'tracking') {
-          newStatus = 'lost';
-        } else if (timeSinceUpdate < 1000 && track.status === 'lost') {
-          newStatus = 'tracking';
+        for (let i = startIndex; i < endIndex; i++) {
+          const track = tracks[i];
+          
+          // 简化状态检查，减少计算
+          const shouldUpdate = Math.random() > 0.7; // 只有30%的概率更新
+          if (!shouldUpdate) {
+            // 只统计状态
+            if (track.status === 'tracking') activeTracks++;
+            else if (track.status === 'lost') lostTracks++;
+            continue;
+          }
+          
+          // 简化置信度计算
+          const confidenceChange = (Math.random() - 0.5) * 0.03;
+          const newConfidence = Math.max(0, Math.min(1, track.confidence + confidenceChange));
+          
+          // 直接修改对象属性，避免创建新对象
+          track.confidence = parseFloat(newConfidence.toFixed(2));
+          
+          // 简化位置更新
+          track.position.x += (Math.random() - 0.5) * 5;
+          track.position.y += (Math.random() - 0.5) * 5;
+          
+          // 随机更新时间
+          if (Math.random() > 0.8) {
+            track.lastUpdateTime = now;
+          }
+          
+          // 统计状态
+          if (track.status === 'tracking') activeTracks++;
+          else if (track.status === 'lost') lostTracks++;
+          
+          hasChanges = true;
         }
         
-        // 模拟位置轻微变化
-        const newPosition = {
-          x: track.position.x + (Math.random() - 0.5) * 20,
-          y: track.position.y + (Math.random() - 0.5) * 20
-        };
-        
-        return {
-          ...track,
-          confidence: parseFloat(newConfidence.toFixed(2)),
-          status: newStatus,
-          position: newPosition,
-          lastUpdateTime: Math.random() > 0.8 ? now : track.lastUpdateTime // 80%的概率更新时间
-        };
-      });
+        // 继续处理下一批
+        if (endIndex < tracks.length) {
+          setTimeout(() => processChunk(endIndex), 0);
+        } else if (hasChanges) {
+          // 所有轨迹处理完成，更新界面
+          this.setData({
+            'trackingData.tracks': tracks,
+            'trackingData.activeTracks': activeTracks,
+            'trackingData.lostTracks': lostTracks,
+            'trackingData.totalTracks': tracks.length,
+            'trackingData.lastUpdateTime': now
+          });
+        }
+      };
       
-      // 计算统计信息
-      const activeTracks = updatedTracks.filter(t => t.status === 'tracking').length;
-      const lostTracks = updatedTracks.filter(t => t.status === 'lost').length;
-      
-      this.setData({
-        'trackingData.tracks': updatedTracks,
-        'trackingData.activeTracks': activeTracks,
-        'trackingData.lostTracks': lostTracks,
-        'trackingData.lastUpdateTime': now
-      });
+      // 开始分片处理
+      if (tracks.length > 0) {
+        processChunk(0);
+      }
     },
     
     // 设置目标跟踪ID
@@ -488,14 +746,26 @@ Page({
     startFpsCalculator: function() {
       const that = this;
       
-      // 每秒计算一次FPS
+      // 清除之前的定时器
+      if (this.fpsTimer) {
+        clearInterval(this.fpsTimer);
+      }
+      
+      // 优化FPS计算，减少处理时间
       this.fpsTimer = setInterval(function() {
-        const fps = that.data.fpsCounter;
-        that.setData({
-          framesPerSecond: fps,
-          fpsCounter: 0
-        });
-      }, 1000);
+        const fps = Math.round(that.data.fpsCounter / 3); // 3秒周期
+        
+        // 批量更新，减少setData调用
+        const updates = { fpsCounter: 0 };
+        if (fps !== that.data.framesPerSecond) {
+          updates.framesPerSecond = fps;
+        }
+        
+        // 异步更新，避免阻塞
+        setTimeout(() => {
+          that.setData(updates);
+        }, 0);
+      }, 3000); // 降低到3秒更新一次
     },
     
     // 处理视频帧
@@ -521,115 +791,93 @@ Page({
         if (!this.data.imageUpdatePending) {
           this.data.imageUpdatePending = true;
           
-          // 延迟更新
+          // 延迟更新（限制执行时间）
+          const delayTime = Math.min(50, this.data.minImageUpdateInterval - timeSinceLastUpdate);
           setTimeout(() => {
-            if (this.data.pendingImageData) {
+            const startTime = Date.now();
+            if (this.data.pendingImageData && Date.now() - startTime < 30) {
               this.updateVideoFrame(this.data.pendingImageData);
               this.data.pendingImageData = null;
             }
             this.data.imageUpdatePending = false;
-          }, this.data.minImageUpdateInterval - timeSinceLastUpdate);
+          }, delayTime);
         }
       }
     },
     
-    // 实际更新视频帧的方法
+    // 实际更新视频帧的方法（优化性能）
     updateVideoFrame: function(data) {
       const now = Date.now();
-      
-      // 计算服务器到客户端延迟
-      if (data.server_timestamp) {
-        const serverToClientDelay = now - data.server_timestamp;
-        this.setData({
-          serverToClientDelay: serverToClientDelay
-        });
-      }
-      
-      // 检查帧序号，计算丢帧
-      if (data.sequence) {
-        if (this.data.expectedSequence > 0 && data.sequence > this.data.expectedSequence) {
-          const dropped = data.sequence - this.data.expectedSequence;
-          this.setData({
-            droppedFrames: this.data.droppedFrames + dropped
-          });
-        }
-        this.setData({
-          frameSequence: data.sequence,
-          expectedSequence: data.sequence + 1
-        });
-      }
-      
-      // 更新视频质量信息
-      if (data.resolution) {
-        this.setData({
-          videoResolution: data.resolution
-        });
-      }
       
       // 批量更新数据，减少渲染次数
       const updateData = {
         videoBase64: `data:image/jpeg;base64,${data.frame_data || data.data}`,
         receivedFrames: this.data.receivedFrames + 1,
-        lastImageUpdateTime: now
+        lastImageUpdateTime: now,
+        fpsCounter: this.data.fpsCounter + 1
       };
       
-      // 计算帧延迟
-      if (data.timestamp) {
-        const frameLatency = now - data.timestamp;
-        
-        // 保存最近10帧的时间戳
-        const timestamps = this.data.frameTimestamps.slice(-9);
-        timestamps.push(data.timestamp);
-        
-        // 计算帧抖动
-        let jitter = 0;
-        if (timestamps.length > 1) {
-          const intervals = [];
-          for (let i = 1; i < timestamps.length; i++) {
-            intervals.push(timestamps[i] - timestamps[i-1]);
-          }
-          
-          const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-          const squaredDiffs = intervals.map(x => Math.pow(x - mean, 2));
-          jitter = Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / intervals.length);
-        }
-        
-        const networkDelay = this.data.serverToClientDelay + (frameLatency - this.data.serverToClientDelay);
-        
-        updateData.frameLatency = frameLatency;
-        updateData.networkDelay = networkDelay;
-        updateData.frameJitter = Math.round(jitter);
-        updateData.lastFrameTimestamp = data.timestamp;
-        updateData.frameTimestamps = timestamps;
+      // 服务器延迟计算（简化）
+      if (data.server_timestamp) {
+        updateData.serverToClientDelay = now - data.server_timestamp;
       }
       
-      // 计算FPS
-      updateData.fpsCounter = this.data.fpsCounter + 1;
+      // 序号检查（简化）
+      if (data.sequence) {
+        if (this.data.expectedSequence > 0 && data.sequence > this.data.expectedSequence) {
+          updateData.droppedFrames = this.data.droppedFrames + (data.sequence - this.data.expectedSequence);
+        }
+        updateData.frameSequence = data.sequence;
+        updateData.expectedSequence = data.sequence + 1;
+      }
       
-      // 计算缓冲健康度
-      const health = this.calculateBufferHealth();
+      // 视频质量信息
+      if (data.resolution) {
+        updateData.videoResolution = data.resolution;
+      }
+      
+      // 帧延迟计算（简化，减少复杂数学运算）
+      if (data.timestamp) {
+        updateData.frameLatency = now - data.timestamp;
+        
+        // 简化时间戳管理，只保留最近3帧
+        const timestamps = this.data.frameTimestamps.slice(-2);
+        timestamps.push(data.timestamp);
+        updateData.frameTimestamps = timestamps;
+        updateData.lastFrameTimestamp = data.timestamp;
+        
+        // 简化抖动计算 - 只计算最近两帧的间隔差异
+        if (timestamps.length >= 2) {
+          const interval1 = timestamps[1] - timestamps[0];
+          const interval2 = timestamps.length > 2 ? timestamps[2] - timestamps[1] : interval1;
+          updateData.frameJitter = Math.abs(interval2 - interval1);
+        }
+      }
+      
+      // 简化缓冲健康度计算
+      const health = Math.min(100, Math.max(0, 100 - (updateData.frameLatency || 0) / 10));
       updateData.bufferHealth = Math.round(health);
+      
+      // 连接状态更新
+      if (!this.data.robotConnected) {
+        updateData.robotConnected = true;
+        updateData.reconnectingRobot = false;
+        updateData.signalStrength = '已连接';
+        updateData.connectionStatusText = '伴侣在线';
+        updateData.lastRobotStatusTime = now;
+      }
       
       // 一次性更新所有数据
       this.setData(updateData);
       
-      // 每5秒发送一次状态更新
+      // 异步处理状态更新，避免阻塞
       if (now - this.data.lastStatusUpdateTime > this.data.statusUpdateInterval) {
-        this.sendStatusUpdate(health);
-        this.setData({
-          lastStatusUpdateTime: now
-        });
-      }
-      
-      // 接收到视频帧表示机器人已连接
-      if (!this.data.robotConnected) {
-        this.setData({
-          robotConnected: true,
-          reconnectingRobot: false,
-          signalStrength: '已连接',
-          connectionStatusText: '伴侣在线',
-          lastRobotStatusTime: now
-        });
+        setTimeout(() => {
+          this.sendStatusUpdate(health);
+          this.setData({
+            lastStatusUpdateTime: now
+          });
+        }, 0);
       }
     },
     
@@ -1246,17 +1494,93 @@ Page({
       });
     },
   
-    // 紧急停止
-    emergencyStop: function() {
-      this.sendCommand('emergencyStop');
-      wx.vibrateLong();
-      wx.showModal({
-        title: '紧急停止',
-        content: '已发送紧急停止命令，伴侣已停止所有动作',
-        showCancel: false
-      });
-      this.setData({
-        autoStatus: '已停止'
+      // 紧急停止
+  emergencyStop: function() {
+    this.sendCommand('emergencyStop');
+    wx.vibrateLong();
+    wx.showModal({
+      title: '紧急停止',
+      content: '已发送紧急停止命令，伴侣已停止所有动作',
+      showCancel: false
+    });
+    this.setData({
+      autoStatus: '已停止'
+    });
+  },
+
+  // 处理真实特征数据
+  handleRealFeatureData: function(data) {
+    console.log('🎯 收到真实特征数据:', data);
+    
+    try {
+      // 检查当前是否在数据页面
+      if (this.data.currentTab !== 'data') {
+        console.log('⚠️ 当前不在数据页面，跳过特征数据处理');
+        return;
+      }
+      
+      // 处理身体比例数据
+      if (data.body_ratios && data.body_ratios.length > 0) {
+        console.log('📊 身体比例数据:', data.body_ratios);
+        
+        // 更新身体比例显示
+        this.setData({
+          'realFeatureData.bodyRatios': data.body_ratios,
+          'realFeatureData.lastUpdate': Date.now()
+        });
+      }
+      
+      // 处理颜色数据
+      if (data.shirt_color && data.pants_color) {
+        console.log('🎨 颜色数据:', {
+          shirt: data.shirt_color,
+          pants: data.pants_color
+        });
+        
+        // 更新颜色显示
+        this.setData({
+          'realFeatureData.shirtColor': data.shirt_color,
+          'realFeatureData.pantsColor': data.pants_color,
+          'realFeatureData.lastUpdate': Date.now()
+        });
+      }
+      
+      // 处理其他特征数据
+      if (data.person_count !== undefined) {
+        console.log('👥 人数统计:', data.person_count);
+        
+        this.setData({
+          'realFeatureData.personCount': data.person_count,
+          'realFeatureData.lastUpdate': Date.now()
+        });
+      }
+      
+      // 处理文件路径
+      if (data.result_image_path) {
+        console.log('📸 结果图片路径:', data.result_image_path);
+        
+        this.setData({
+          'realFeatureData.resultImagePath': data.result_image_path,
+          'realFeatureData.lastUpdate': Date.now()
+        });
+      }
+      
+      // 如果有完整的特征数据，显示成功提示
+      if (data.status === 'success') {
+        wx.showToast({
+          title: '特征数据已更新',
+          icon: 'success',
+          duration: 1500
+        });
+      }
+      
+    } catch (error) {
+      console.error('❌ 处理真实特征数据失败:', error);
+      wx.showToast({
+        title: '特征数据处理失败',
+        icon: 'none',
+        duration: 2000
       });
     }
-  });
+  }
+});
