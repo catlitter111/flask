@@ -27,7 +27,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import String, Float32, Bool, Int32
 from geometry_msgs.msg import Point, Twist
-from custom_msgs.msg import TrackingResult, RobotStatus
+from custom_msgs.msg import TrackingResult, RobotStatus, TrackedPersonArray
 from custom_msgs.srv import FeatureExtraction
 import cv2
 from cv_bridge import CvBridge
@@ -194,20 +194,47 @@ class WebSocketBridgeNode(Node):
         
     def setup_ros_components(self):
         """设置ROS2组件"""
-        # 订阅者
-        self.image_subscription = self.create_subscription(
-            Image,
-            '/bytetracker/visualization',
-            self.image_callback,
+        # 导入TrackedPersonArray消息类型
+        from custom_msgs.msg import TrackedPersonArray
+        
+        # 订阅者 - 简化为只订阅跟踪结果
+        self.tracking_array_subscription = self.create_subscription(
+            TrackedPersonArray,
+            '/bytetracker/tracked_persons',
+            self.tracking_array_callback,
             10
         )
         
-        self.tracking_subscription = self.create_subscription(
-            TrackingResult,
-            '/bytetracker/tracking_result',
-            self.tracking_callback,
+        # 可选：如果需要图像流，保留这个订阅
+        if self.enable_image_stream:
+            self.image_subscription = self.create_subscription(
+                Image,
+                '/bytetracker/visualization',
+                self.image_callback,
+                10
+            )
+        
+        # 发布者 - 用于接收来自微信小程序的控制命令
+        self.command_publisher = self.create_publisher(
+            String,
+            '/robot_control/command',
             10
         )
+        
+        self.mode_publisher = self.create_publisher(
+            String,
+            '/bytetracker/set_mode',
+            10
+        )
+        
+        self.target_publisher = self.create_publisher(
+            String,
+            '/bytetracker/set_target',
+            10
+        )
+        
+        self.get_logger().info('📡 ROS2组件初始化完成')
+        self.get_logger().info('📊 订阅跟踪数据主题: /bytetracker/tracked_persons')
         
         # 机器人状态订阅（如果有其他节点发布状态）
         self.status_subscription = self.create_subscription(
@@ -225,40 +252,12 @@ class WebSocketBridgeNode(Node):
             10
         )
         
-        # 详细跟踪数据订阅（来自ByteTracker节点）
-        self.detailed_tracking_subscription = self.create_subscription(
-            String,
-            '/bytetracker/detailed_tracking_data',
-            self.detailed_tracking_callback,
-            10
-        )
-        
-        # 发布者
-        self.command_publisher = self.create_publisher(
-            String,
-            '/robot_control/command',
-            10
-        )
-        
-        self.mode_publisher = self.create_publisher(
-            String,
-            '/bytetracker/mode',
-            10
-        )
-        
-        self.target_publisher = self.create_publisher(
-            Point,
-            '/bytetracker/target_position',
-            10
-        )
-        
         # 服务客户端
         self.feature_extraction_client = self.create_client(
             FeatureExtraction,
             '/features/extract_features'
         )
         
-        self.get_logger().info('📡 ROS2组件初始化完成')
         self.get_logger().info('🔧 等待特征提取服务...')
         
         # 等待特征提取服务可用（非阻塞）
@@ -446,29 +445,111 @@ class WebSocketBridgeNode(Node):
         except Exception as e:
             self.get_logger().error(f'❌ 图像处理失败: {e}')
             
-    def tracking_callback(self, msg):
-        """处理跟踪结果"""
-        self.tracking_result = msg
-        
-        # 提取目标跟踪信息
-        if hasattr(msg, 'target_detected') and msg.target_detected:
-            self.target_track = {
-                'id': getattr(msg, 'target_id', -1),
-                'position': {
-                    'x': getattr(msg, 'target_x', 0),
-                    'y': getattr(msg, 'target_y', 0)
-                },
-                'confidence': getattr(msg, 'confidence', 0.0),
-                'distance': getattr(msg, 'distance', 0.0)
-            }
-        else:
-            self.target_track = None
+    def tracking_array_callback(self, msg):
+        """处理TrackedPersonArray跟踪结果"""
+        if not self.ws_connected:
+            return
             
-        # 更新机器人状态
-        self.robot_status['following_target'] = self.target_track
-        self.robot_status['mode'] = 'tracking' if self.target_track else 'idle'
-        self.robot_status['last_update'] = time.time()
-        
+        try:
+            # 转换TrackedPersonArray为微信小程序可用的格式
+            tracking_data = {
+                'type': 'tracking_data',
+                'robot_id': self.robot_id,
+                'timestamp': int(time.time() * 1000),
+                'data': {
+                    'display_data': {
+                        'summary': {
+                            'mode': 'tracking' if any(p.is_target for p in msg.persons) else 'multi_target',
+                            'status': '跟踪中' if len(msg.persons) > 0 else '搜索中',
+                            'total_persons': len(msg.persons),  # 匹配微信小程序期望的字段名
+                            'active_tracks': len([p for p in msg.persons if p.confidence > 0.3]),
+                            'timestamp': int(time.time() * 1000)
+                        },
+                        'target_info': None,
+                        'persons_list': [],
+                        'system_status': {
+                            'fps': 15.0,  # 默认帧率
+                            'memory_usage': 0.0,
+                            'camera_status': '正常'
+                        }
+                    }
+                }
+            }
+            
+            # 处理每个跟踪到的人员
+            for person in msg.persons:
+                # 计算边界框中心点
+                center_x = person.bbox.x_offset + person.bbox.width / 2
+                center_y = person.bbox.y_offset + person.bbox.height / 2
+                
+                # 转换颜色格式 (BGR -> RGB)
+                upper_color_rgb = [person.upper_color[2], person.upper_color[1], person.upper_color[0]] if len(person.upper_color) >= 3 else [128, 128, 128]
+                lower_color_rgb = [person.lower_color[2], person.lower_color[1], person.lower_color[0]] if len(person.lower_color) >= 3 else [128, 128, 128]
+                
+                # 格式化颜色为十六进制
+                upper_color_hex = f"#{upper_color_rgb[0]:02x}{upper_color_rgb[1]:02x}{upper_color_rgb[2]:02x}"
+                lower_color_hex = f"#{lower_color_rgb[0]:02x}{lower_color_rgb[1]:02x}{lower_color_rgb[2]:02x}"
+                
+                person_data = {
+                    'id': person.track_id,
+                    'status': '跟踪中',
+                    'confidence': f"{person.confidence:.1%}",  # 格式化为百分比字符串
+                    'distance': '未知',  # 如果需要距离，可以从其他传感器获取
+                    'is_target': person.is_target,  # 匹配微信小程序期望的字段名
+                    'position': {
+                        'x': float(center_x),
+                        'y': float(center_y),
+                        'width': float(person.bbox.width),
+                        'height': float(person.bbox.height),
+                        'bbox': {
+                            'x': person.bbox.x_offset,
+                            'y': person.bbox.y_offset,
+                            'width': person.bbox.width,
+                            'height': person.bbox.height
+                        }
+                    },
+                    'colors': {
+                        'upper': {
+                            'name': self.get_color_name(upper_color_rgb),
+                            'hex': upper_color_hex,
+                            'rgb': upper_color_rgb
+                        },
+                        'lower': {
+                            'name': self.get_color_name(lower_color_rgb),
+                            'hex': lower_color_hex,
+                            'rgb': lower_color_rgb
+                        }
+                    },
+                    'body_ratios': list(person.body_ratios) if person.body_ratios else [],
+                    'body_features': len(person.body_ratios) if person.body_ratios else 0,
+                    'last_seen': int(time.time() * 1000)
+                }
+                
+                tracking_data['data']['display_data']['persons_list'].append(person_data)
+                
+                # 如果是目标，设置target_info
+                if person.is_target:
+                    # 为目标信息添加额外字段
+                    target_data = person_data.copy()
+                    target_data.update({
+                        'quality': f"{int(person.confidence * 100)}分",
+                        'velocity': {'x': 0.0, 'y': 0.0}  # 默认速度，如果有速度信息可以更新
+                    })
+                    tracking_data['data']['display_data']['target_info'] = target_data
+            
+            # 发送跟踪数据到微信小程序
+            success = self.send_ws_message(tracking_data)
+            
+            if success:
+                self.get_logger().debug(f'📊 转发跟踪数据: {len(msg.persons)}个人员, 目标: {any(p.is_target for p in msg.persons)}')
+            else:
+                self.get_logger().warn('⚠️ 跟踪数据发送失败')
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ 处理跟踪数据失败: {e}')
+            import traceback
+            self.get_logger().error(f'详细错误: {traceback.format_exc()}')
+    
     def status_callback(self, msg):
         """处理机器人状态更新"""
         if hasattr(msg, 'battery_level'):
@@ -503,184 +584,6 @@ class WebSocketBridgeNode(Node):
         except Exception as e:
             self.get_logger().error(f"❌ 处理特征提取结果失败: {e}")
     
-    def detailed_tracking_callback(self, msg):
-        """处理详细跟踪数据"""
-        try:
-            # 解析JSON消息
-            tracking_data = json.loads(msg.data)
-            
-            # 转发给WebSocket客户端（微信小程序）
-            self.forward_tracking_data_to_clients(tracking_data)
-            
-        except json.JSONDecodeError as e:
-            self.get_logger().error(f"❌ 解析详细跟踪数据失败: {e}")
-        except Exception as e:
-            self.get_logger().error(f"❌ 处理详细跟踪数据失败: {e}")
-    
-    def forward_tracking_data_to_clients(self, tracking_data):
-        """转发跟踪数据给WebSocket客户端"""
-        try:
-            # 构建发送给微信小程序的数据格式
-            client_message = {
-                'type': 'tracking_data',
-                'robot_id': self.robot_id,
-                'timestamp': tracking_data.get('timestamp', int(time.time() * 1000)),
-                'data': {
-                    # 基本跟踪信息
-                    'tracking_mode': tracking_data.get('tracking_mode', 'multi_target'),
-                    'target_detected': tracking_data.get('target_detected', False),
-                    'total_tracks': tracking_data.get('total_tracks', 0),
-                    
-                    # 统计信息
-                    'statistics': tracking_data.get('statistics', {}),
-                    
-                    # 目标轨迹信息
-                    'target_track': tracking_data.get('target_track'),
-                    
-                    # 所有轨迹信息
-                    'tracks': tracking_data.get('tracks', []),
-                    
-                    # 系统性能信息
-                    'system_info': tracking_data.get('system_info', {}),
-                    
-                    # 为微信小程序添加额外的显示数据
-                    'display_data': self.format_tracking_data_for_display(tracking_data)
-                }
-            }
-            
-            # 发送给WebSocket服务器
-            if self.send_ws_message(client_message):
-                self.get_logger().debug(f'📤 转发跟踪数据 - 目标检测: {tracking_data.get("target_detected")}, '
-                                       f'轨迹数: {tracking_data.get("total_tracks")}')
-            else:
-                self.get_logger().warning(f'⚠️ 转发跟踪数据失败: WebSocket未连接')
-                
-        except Exception as e:
-            self.get_logger().error(f'❌ 转发跟踪数据失败: {e}')
-    
-    def format_tracking_data_for_display(self, tracking_data):
-        """格式化跟踪数据供微信小程序显示"""
-        try:
-            display_data = {
-                'summary': {
-                    'mode': tracking_data.get('tracking_mode', 'unknown'),
-                    'status': '跟踪中' if tracking_data.get('target_detected') else '搜索中',
-                    'total_persons': tracking_data.get('total_tracks', 0),
-                    'active_tracks': tracking_data.get('statistics', {}).get('active_tracks', 0)
-                },
-                'target_info': None,
-                'persons_list': [],
-                'system_status': {
-                    'fps': tracking_data.get('system_info', {}).get('fps', 0.0),
-                    'memory_usage': tracking_data.get('system_info', {}).get('memory_usage_mb', 0.0),
-                    'camera_status': '已连接' if tracking_data.get('system_info', {}).get('camera_connected') else '未连接'
-                }
-            }
-            
-            # 处理目标信息
-            target_track = tracking_data.get('target_track')
-            if target_track:
-                display_data['target_info'] = {
-                    'id': target_track.get('id', -1),
-                    'distance': f"{target_track.get('distance', 0.0):.2f}米",
-                    'confidence': f"{target_track.get('confidence', 0.0):.1%}",
-                    'quality': f"{target_track.get('tracking_quality', 0.0):.0f}分",
-                    'position': target_track.get('position', {}),
-                    'colors': {
-                        'upper': self.format_color_display(target_track.get('colors', {}).get('upper', [0, 0, 0])),
-                        'lower': self.format_color_display(target_track.get('colors', {}).get('lower', [0, 0, 0]))
-                    },
-                    'body_features': len(target_track.get('body_ratios', [])),
-                    'velocity': target_track.get('velocity', {'x': 0.0, 'y': 0.0})
-                }
-            
-            # 处理所有人员列表
-            tracks = tracking_data.get('tracks', [])
-            for track in tracks:
-                person_info = {
-                    'id': track.get('id', -1),
-                    'status': track.get('status', 'unknown'),
-                    'distance': f"{track.get('distance', 0.0):.2f}米",
-                    'confidence': f"{track.get('confidence', 0.0):.1%}",
-                    'is_target': track.get('is_target', False),
-                    'position': track.get('position', {}),
-                    'colors': {
-                        'upper': self.format_color_display(track.get('colors', {}).get('upper', [0, 0, 0])),
-                        'lower': self.format_color_display(track.get('colors', {}).get('lower', [0, 0, 0]))
-                    }
-                }
-                display_data['persons_list'].append(person_info)
-            
-            return display_data
-            
-        except Exception as e:
-            self.get_logger().error(f'❌ 格式化显示数据失败: {e}')
-            return {
-                'summary': {'mode': 'error', 'status': '数据处理错误', 'total_persons': 0, 'active_tracks': 0},
-                'target_info': None,
-                'persons_list': [],
-                'system_status': {'fps': 0.0, 'memory_usage': 0.0, 'camera_status': '未知'}
-            }
-    
-    def format_color_display(self, bgr_color):
-        """格式化颜色显示"""
-        try:
-            if not bgr_color or len(bgr_color) < 3:
-                return {'name': '未知', 'hex': '#000000', 'rgb': [0, 0, 0]}
-            
-            # BGR转RGB
-            r, g, b = int(bgr_color[2]), int(bgr_color[1]), int(bgr_color[0])
-            
-            # 转换为十六进制
-            hex_color = f"#{r:02x}{g:02x}{b:02x}"
-            
-            # 获取颜色名称
-            color_name = self.get_color_name([r, g, b])
-            
-            return {
-                'name': color_name,
-                'hex': hex_color,
-                'rgb': [r, g, b]
-            }
-            
-        except Exception:
-            return {'name': '未知', 'hex': '#000000', 'rgb': [0, 0, 0]}
-    
-    def get_color_name(self, rgb_color):
-        """根据RGB值获取颜色名称"""
-        try:
-            r, g, b = rgb_color
-            
-            # 检查基本颜色
-            if r < 50 and g < 50 and b < 50:
-                return '黑色'
-            elif r > 200 and g > 200 and b > 200:
-                return '白色'
-            elif r > 150 and g < 100 and b < 100:
-                return '红色'
-            elif g > 150 and r < 100 and b < 100:
-                return '绿色'
-            elif b > 150 and r < 100 and g < 100:
-                return '蓝色'
-            elif r > 150 and g > 150 and b < 100:
-                return '黄色'
-            elif r > 200 and 100 < g < 200 and b < 100:
-                return '橙色'
-            elif r > 100 and b > 100 and g < 100:
-                return '紫色'
-            elif r > 150 and g < 150 and b > 100:
-                return '粉色'
-            elif r > 100 and 50 < g < 150 and b < 100:
-                return '棕色'
-            elif abs(r - g) < 30 and abs(g - b) < 30 and abs(r - b) < 30 and 50 <= r <= 200:
-                return '灰色'
-            else:
-                # 默认返回RGB描述
-                return f'RGB({r},{g},{b})'
-            
-        except Exception:
-            return '未知'
-     
     def forward_processed_image(self, result_data, image_path):
         """转发处理后的图片给客户端"""
         try:
@@ -1596,6 +1499,41 @@ class WebSocketBridgeNode(Node):
             self.get_logger().error(f'❌ 特征提取错误已发送 - 客户端: {client_id}, 错误: {error_message}')
         else:
             self.get_logger().error(f'❌ 特征提取错误发送失败 - 客户端: {client_id}, 错误: {error_message}')
+    
+    def get_color_name(self, rgb_color):
+        """根据RGB值获取颜色名称"""
+        try:
+            r, g, b = rgb_color
+            
+            # 检查基本颜色
+            if r < 50 and g < 50 and b < 50:
+                return '黑色'
+            elif r > 200 and g > 200 and b > 200:
+                return '白色'
+            elif r > 150 and g < 100 and b < 100:
+                return '红色'
+            elif g > 150 and r < 100 and b < 100:
+                return '绿色'
+            elif b > 150 and r < 100 and g < 100:
+                return '蓝色'
+            elif r > 150 and g > 150 and b < 100:
+                return '黄色'
+            elif r > 200 and 100 < g < 200 and b < 100:
+                return '橙色'
+            elif r > 100 and b > 100 and g < 100:
+                return '紫色'
+            elif r > 150 and g < 150 and b > 100:
+                return '粉色'
+            elif r > 100 and 50 < g < 150 and b < 100:
+                return '棕色'
+            elif abs(r - g) < 30 and abs(g - b) < 30 and abs(r - b) < 30 and 50 <= r <= 200:
+                return '灰色'
+            else:
+                # 默认返回RGB描述
+                return f'RGB({r},{g},{b})'
+                
+        except Exception:
+            return '未知'
     
     def destroy_node(self):
         """节点销毁时的清理工作"""

@@ -114,20 +114,8 @@ Page({
         },
         lastUpdateTime: 0,            // 最后更新时间
         
-        // 保留一些模拟数据作为备用
-        tracks: [
-          {
-            id: 1,
-            confidence: 0.85,
-            status: 'tracking',
-            clothingColors: {
-              top: { name: '蓝色', color: '#2196F3' },
-              bottom: { name: '黑色', color: '#424242' }
-            },
-            position: { x: 320, y: 240 },
-            lastUpdateTime: Date.now()
-          }
-        ],
+        // 删除默认的模拟数据
+        tracks: [],                   // 清空默认轨迹数据
         totalTracks: 0,
         lostTracks: 0,
         targetTrackId: -1 // 当前跟踪目标ID
@@ -1497,12 +1485,14 @@ Page({
 
   // 处理实时跟踪数据
   handleTrackingData: function(data) {
-    console.log('📊 收到跟踪数据:', data);
+    // 删除频繁的日志打印
+    // console.log('📊 收到跟踪数据:', data);
     
     try {
       // 检查当前是否在数据页面
       if (this.data.currentTab !== 'data') {
-        console.log('⚠️ 当前不在数据页面，跳过跟踪数据处理');
+        // 只在调试模式下记录
+        // console.log('⚠️ 当前不在数据页面，跳过跟踪数据处理');
         return;
       }
       
@@ -1513,12 +1503,13 @@ Page({
       const personsList = displayData.persons_list || [];
       const systemStatus = displayData.system_status || {};
       
-      console.log('📈 跟踪数据详情:', {
-        mode: summary.mode,
-        status: summary.status,
-        totalPersons: summary.total_persons,
-        hasTarget: !!targetInfo
-      });
+      // 删除频繁的详情日志
+      // console.log('📈 跟踪数据详情:', {
+      //   mode: summary.mode,
+      //   status: summary.status,
+      //   totalPersons: summary.total_persons,
+      //   hasTarget: !!targetInfo
+      // });
       
       // 更新跟踪状态摘要
       this.setData({
@@ -1531,7 +1522,10 @@ Page({
       
       // 处理目标信息
       if (targetInfo) {
-        console.log('🎯 目标信息:', targetInfo);
+        // 只有目标变化时才记录日志
+        if (this.data.trackingData.targetInfo?.id !== targetInfo.id) {
+          console.log('🎯 目标信息变化:', targetInfo);
+        }
         
         this.setData({
           'trackingData.targetInfo': {
@@ -1554,7 +1548,10 @@ Page({
       
       // 处理人员列表
       if (personsList.length > 0) {
-        console.log('👥 检测到人员:', personsList.length);
+        // 只有人员数量变化时才记录日志
+        if (this.data.trackingData.persons.length !== personsList.length) {
+          console.log('👥 检测到人员数量变化:', personsList.length);
+        }
         
         // 限制显示数量，避免界面过于拥挤
         const limitedPersons = personsList.slice(0, 8);
@@ -1607,18 +1604,23 @@ Page({
 
   // 处理真实特征数据
   handleRealFeatureData: function(data) {
-    console.log('🎯 收到真实特征数据:', data);
+    // 减少频繁的日志打印
+    // console.log('🎯 收到真实特征数据:', data);
     
     try {
       // 检查当前是否在数据页面
       if (this.data.currentTab !== 'data') {
-        console.log('⚠️ 当前不在数据页面，跳过特征数据处理');
+        // 只在调试模式下记录
+        // console.log('⚠️ 当前不在数据页面，跳过特征数据处理');
         return;
       }
       
       // 处理身体比例数据
       if (data.body_ratios && data.body_ratios.length > 0) {
-        console.log('📊 身体比例数据:', data.body_ratios);
+        // 只有数据有变化时才记录日志
+        if (this.data.realFeatureData.bodyRatios.length !== data.body_ratios.length) {
+          console.log('📊 身体比例数据更新:', data.body_ratios.length, '项');
+        }
         
         // 更新身体比例显示
         this.setData({
@@ -1629,10 +1631,16 @@ Page({
       
       // 处理颜色数据
       if (data.shirt_color && data.pants_color) {
-        console.log('🎨 颜色数据:', {
-          shirt: data.shirt_color,
-          pants: data.pants_color
-        });
+        // 只有颜色变化时才记录日志
+        const currentShirt = this.data.realFeatureData.shirtColor;
+        const currentPants = this.data.realFeatureData.pantsColor;
+        if (JSON.stringify(currentShirt) !== JSON.stringify(data.shirt_color) || 
+            JSON.stringify(currentPants) !== JSON.stringify(data.pants_color)) {
+          console.log('🎨 颜色数据更新:', {
+            shirt: data.shirt_color,
+            pants: data.pants_color
+          });
+        }
         
         // 更新颜色显示
         this.setData({
@@ -1644,7 +1652,10 @@ Page({
       
       // 处理其他特征数据
       if (data.person_count !== undefined) {
-        console.log('👥 人数统计:', data.person_count);
+        // 只有人数变化时才记录日志
+        if (this.data.realFeatureData.personCount !== data.person_count) {
+          console.log('👥 人数统计更新:', data.person_count);
+        }
         
         this.setData({
           'realFeatureData.personCount': data.person_count,
@@ -1658,7 +1669,7 @@ Page({
         const base64Data = data.result_image_base64 || data.resultImageBase64;
         const imageSize = data.result_image_size_kb || 0;
         
-        console.log('📸 收到结果图片base64数据，大小:', imageSize.toFixed(2) + 'KB');
+        console.log('📸 收到结果图片数据，大小:', imageSize.toFixed(2) + 'KB');
         
         this.setData({
           'realFeatureData.resultImagePath': data.result_image_path || '',
@@ -1668,7 +1679,7 @@ Page({
         });
       } else if (data.result_image_path) {
         // 兼容旧格式，只有路径
-        console.log('📸 结果图片路径:', data.result_image_path);
+        // console.log('📸 结果图片路径:', data.result_image_path);
         
         this.setData({
           'realFeatureData.resultImagePath': data.result_image_path,

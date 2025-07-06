@@ -375,34 +375,8 @@
             </view>
           </view>
         </view>
-        
-        <!-- 系统状态 -->
-        <view class="system-status" wx:if="{{trackingData.systemStatus}}">
-          <text class="system-title">⚙️ 系统状态</text>
-          <view class="system-items">
-            <view class="system-item">
-              <text class="system-label">帧率</text>
-              <text class="system-value">{{utils.toFixed(trackingData.systemStatus.fps, 1)}} FPS</text>
-            </view>
-            <view class="system-item">
-              <text class="system-label">内存使用</text>
-              <text class="system-value">{{utils.toFixed(trackingData.systemStatus.memoryUsage, 1)}} MB</text>
-            </view>
-            <view class="system-item">
-              <text class="system-label">摄像头</text>
-              <text class="system-value">{{trackingData.systemStatus.cameraStatus}}</text>
-            </view>
-          </view>
-        </view>
       </view>
       
-      <!-- 跟踪数据空状态 -->
-      <view class="tracking-empty-state" wx:else-if="{{trackingData.lastUpdateTime === 0 && realFeatureData.lastUpdate === 0}}">
-        <view class="empty-icon">📊</view>
-        <text class="empty-title">暂无跟踪数据</text>
-        <text class="empty-desc">请确保ByteTracker节点正在运行</text>
-      </view>
-
       <!-- 真实特征数据区域 -->
       <view class="real-feature-data" wx:if="{{realFeatureData.lastUpdate > 0}}">
         <view class="feature-section-header">
@@ -479,15 +453,8 @@
         </view>
       </view>
       
-      <!-- 特征数据空状态 -->
-      <view class="feature-empty-state" wx:else>
-        <view class="empty-icon">🎯</view>
-        <text class="empty-title">暂无特征数据</text>
-        <text class="empty-desc">请上传图片进行特征提取</text>
-      </view>
-      
       <!-- 轨迹列表 -->
-      <view class="track-list">
+      <view class="track-list" wx:if="{{trackingData.tracks.length > 0}}">
         <view class="track-item {{trackingData.targetTrackId === track.id ? 'is-target' : ''}}" 
               wx:for="{{trackingData.tracks}}" 
               wx:key="id"
@@ -539,13 +506,6 @@
            </view>
           
         </view>
-      </view>
-      
-      <!-- 空状态 -->
-      <view class="empty-state" wx:if="{{trackingData.tracks.length === 0}}">
-        <view class="empty-icon">📊</view>
-        <text class="empty-title">暂无跟踪数据</text>
-        <text class="empty-desc">请确保机器人已连接并开始检测</text>
       </view>
       
              <!-- 数据更新信息 -->
