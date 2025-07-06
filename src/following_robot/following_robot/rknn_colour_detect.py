@@ -70,9 +70,9 @@ class PerformanceMonitor:
         """将所有操作的统计信息记录到日志"""
         for name in self.timings:
             stats = self.get_stats(name)
-            if stats:
-                logger.info(
-                    f"性能统计 - {name}: 最小={stats['min']:.2f}ms, 最大={stats['max']:.2f}ms, 平均={stats['avg']:.2f}ms, 样本数={stats['samples']}")
+            # if stats:
+            #     logger.info(
+            #         f"性能统计 - {name}: 最小={stats['min']:.2f}ms, 最大={stats['max']:.2f}ms, 平均={stats['avg']:.2f}ms, 样本数={stats['samples']}")
 
 
 # 创建全局性能监控实例

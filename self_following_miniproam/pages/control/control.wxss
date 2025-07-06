@@ -1673,3 +1673,259 @@
   color: #6c757d;
   display: block;
 }
+
+/* 详细跟踪数据区域样式 */
+.detailed-tracking-data {
+  margin-top: 20rpx;
+  padding: 0 20rpx;
+}
+
+.detail-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.08);
+  margin-bottom: 20rpx;
+  overflow: hidden;
+  border: 1rpx solid #e2e8f0;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24rpx;
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  border-bottom: 1rpx solid #e2e8f0;
+}
+
+.card-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.quality-badge {
+  padding: 8rpx 16rpx;
+  border-radius: 20rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: white;
+}
+
+.quality-badge.high {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.quality-badge.medium {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.quality-badge.low {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.card-content {
+  padding: 24rpx;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #f1f5f9;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.info-label {
+  font-size: 28rpx;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.info-value {
+  font-size: 28rpx;
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.color-info {
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid #f1f5f9;
+}
+
+.color-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16rpx;
+  gap: 16rpx;
+}
+
+.color-label {
+  font-size: 26rpx;
+  color: #64748b;
+  min-width: 80rpx;
+}
+
+.color-preview {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 8rpx;
+  border: 2rpx solid #e2e8f0;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
+}
+
+.color-rgb {
+  font-size: 24rpx;
+  color: #94a3b8;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+.body-ratios {
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid #f1f5f9;
+}
+
+.ratios-label {
+  font-size: 28rpx;
+  color: #64748b;
+  font-weight: 500;
+  display: block;
+  margin-bottom: 12rpx;
+}
+
+.ratios-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+
+.ratio-item {
+  background: #f1f5f9;
+  padding: 6rpx 12rpx;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+  color: #475569;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+/* 系统性能信息样式 */
+.camera-status {
+  padding: 8rpx 16rpx;
+  border-radius: 20rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.camera-status.connected {
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  color: #166534;
+}
+
+.camera-status.disconnected {
+  background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%);
+  color: #991b1b;
+}
+
+.performance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20rpx;
+}
+
+.perf-item {
+  text-align: center;
+  padding: 16rpx;
+  background: #f8fafc;
+  border-radius: 12rpx;
+}
+
+.perf-label {
+  font-size: 24rpx;
+  color: #64748b;
+  display: block;
+  margin-bottom: 8rpx;
+}
+
+.perf-value {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #1e293b;
+  display: block;
+}
+
+/* 跟踪统计信息样式 */
+.mode-badge {
+  padding: 8rpx 16rpx;
+  border-radius: 20rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  color: #1e40af;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20rpx;
+}
+
+.stat-cell {
+  text-align: center;
+  padding: 20rpx;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 12rpx;
+  border: 1rpx solid #e2e8f0;
+}
+
+.stat-number {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #1e293b;
+  display: block;
+  margin-bottom: 8rpx;
+}
+
+.stat-desc {
+  font-size: 24rpx;
+  color: #64748b;
+  display: block;
+}
+
+/* 动画效果 */
+.detail-card {
+  animation: slideInUp 0.3s ease-out;
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 响应式设计 */
+@media (max-width: 750rpx) {
+  .performance-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .ratios-list {
+    justify-content: center;
+  }
+}

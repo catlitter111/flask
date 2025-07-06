@@ -274,6 +274,19 @@
             <text class="stat-value">{{trackingData.lostTracks}}</text>
             <text class="stat-label">丢失</text>
           </view>
+          <!-- 新增：系统状态指标 -->
+          <view class="stat-item" wx:if="{{trackingData.systemInfo}}">
+            <text class="stat-value">{{trackingData.systemInfo.fps || 0}}</text>
+            <text class="stat-label">FPS</text>
+          </view>
+          <view class="stat-item" wx:if="{{trackingData.systemInfo}}">
+            <text class="stat-value">{{utils.formatNumber(trackingData.systemInfo.memory_usage_mb || 0, 1)}}MB</text>
+            <text class="stat-label">内存</text>
+          </view>
+          <view class="stat-item" wx:if="{{trackingData.frameId}}">
+            <text class="stat-value">{{trackingData.frameId}}</text>
+            <text class="stat-label">帧号</text>
+          </view>
         </view>
       </view>
       
@@ -505,6 +518,129 @@
              <text class="update-time">{{utils.formatTimeAgo(item.lastUpdateTime)}}</text>
            </view>
           
+        </view>
+      </view>
+      
+      <!-- 详细跟踪数据区域 -->
+      <view class="detailed-tracking-data" wx:if="{{trackingData.targetTrack || trackingData.tracks.length > 0}}">
+        <view class="tracking-section-header">
+          <text class="section-title">🎯 详细跟踪信息</text>
+          <text class="update-time">{{utils.formatTimeAgo(trackingData.timestamp || Date.now())}}</text>
+        </view>
+        
+        <!-- 目标轨迹详细信息 -->
+        <view class="target-track-detail" wx:if="{{trackingData.targetTrack}}">
+          <view class="detail-card">
+            <view class="card-header">
+              <text class="card-title">🎯 目标轨迹 #{{trackingData.targetTrack.id}}</text>
+              <view class="quality-badge {{trackingData.targetTrack.tracking_quality >= 80 ? 'high' : trackingData.targetTrack.tracking_quality >= 60 ? 'medium' : 'low'}}">
+                {{utils.toFixed(trackingData.targetTrack.tracking_quality || 0, 1)}}%
+              </view>
+            </view>
+            
+            <view class="card-content">
+              <view class="info-row">
+                <text class="info-label">距离:</text>
+                <text class="info-value">{{utils.toFixed(trackingData.targetTrack.distance || 0, 2)}}m</text>
+              </view>
+              <view class="info-row">
+                <text class="info-label">置信度:</text>
+                <text class="info-value">{{utils.toFixed(trackingData.targetTrack.confidence || 0, 2)}}</text>
+              </view>
+              <view class="info-row">
+                <text class="info-label">位置:</text>
+                <text class="info-value">X:{{utils.toFixed(trackingData.targetTrack.position.x || 0, 0)}}, Y:{{utils.toFixed(trackingData.targetTrack.position.y || 0, 0)}}</text>
+              </view>
+              <view class="info-row" wx:if="{{trackingData.targetTrack.velocity}}">
+                <text class="info-label">速度:</text>
+                <text class="info-value">X:{{utils.toFixed(trackingData.targetTrack.velocity.x || 0, 2)}}, Y:{{utils.toFixed(trackingData.targetTrack.velocity.y || 0, 2)}}</text>
+              </view>
+              
+              <!-- 颜色信息 -->
+              <view class="color-info" wx:if="{{trackingData.targetTrack.colors}}">
+                <view class="color-item">
+                  <text class="color-label">上装:</text>
+                  <view class="color-preview" style="background-color: rgb({{trackingData.targetTrack.colors.upper.join(',')}});"></view>
+                  <text class="color-rgb">{{trackingData.targetTrack.colors.upper.join(',')}}</text>
+                </view>
+                <view class="color-item">
+                  <text class="color-label">下装:</text>
+                  <view class="color-preview" style="background-color: rgb({{trackingData.targetTrack.colors.lower.join(',')}});"></view>
+                  <text class="color-rgb">{{trackingData.targetTrack.colors.lower.join(',')}}</text>
+                </view>
+              </view>
+              
+              <!-- 身体比例信息 -->
+              <view class="body-ratios" wx:if="{{trackingData.targetTrack.body_ratios && trackingData.targetTrack.body_ratios.length > 0}}">
+                <text class="ratios-label">身体比例:</text>
+                <view class="ratios-list">
+                  <text class="ratio-item" wx:for="{{trackingData.targetTrack.body_ratios}}" wx:key="index">
+                    {{utils.toFixed(item, 3)}}
+                  </text>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 系统性能信息 -->
+        <view class="system-performance" wx:if="{{trackingData.systemInfo}}">
+          <view class="detail-card">
+            <view class="card-header">
+              <text class="card-title">⚡ 系统性能</text>
+              <view class="camera-status {{trackingData.systemInfo.camera_connected ? 'connected' : 'disconnected'}}">
+                {{trackingData.systemInfo.camera_connected ? '摄像头正常' : '摄像头断开'}}
+              </view>
+            </view>
+            
+            <view class="card-content">
+              <view class="performance-grid">
+                <view class="perf-item">
+                  <text class="perf-label">帧率</text>
+                  <text class="perf-value">{{utils.toFixed(trackingData.systemInfo.fps || 0, 1)}} FPS</text>
+                </view>
+                <view class="perf-item">
+                  <text class="perf-label">处理时间</text>
+                  <text class="perf-value">{{utils.toFixed(trackingData.systemInfo.processing_time_ms || 0, 1)}} ms</text>
+                </view>
+                <view class="perf-item">
+                  <text class="perf-label">内存使用</text>
+                  <text class="perf-value">{{utils.toFixed(trackingData.systemInfo.memory_usage_mb || 0, 1)}} MB</text>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 跟踪统计信息 -->
+        <view class="tracking-statistics" wx:if="{{trackingData.statistics}}">
+          <view class="detail-card">
+            <view class="card-header">
+              <text class="card-title">📊 跟踪统计</text>
+              <text class="mode-badge">{{trackingData.mode || '未知模式'}}</text>
+            </view>
+            
+            <view class="card-content">
+              <view class="stats-grid">
+                <view class="stat-cell">
+                  <text class="stat-number">{{trackingData.statistics.active_tracks || 0}}</text>
+                  <text class="stat-desc">活跃轨迹</text>
+                </view>
+                <view class="stat-cell">
+                  <text class="stat-number">{{trackingData.statistics.lost_tracks || 0}}</text>
+                  <text class="stat-desc">丢失轨迹</text>
+                </view>
+                <view class="stat-cell">
+                  <text class="stat-number">{{trackingData.statistics.new_tracks || 0}}</text>
+                  <text class="stat-desc">新轨迹</text>
+                </view>
+                <view class="stat-cell">
+                  <text class="stat-number">{{trackingData.targetDetected ? '是' : '否'}}</text>
+                  <text class="stat-desc">目标检测</text>
+                </view>
+              </view>
+            </view>
+          </view>
         </view>
       </view>
       

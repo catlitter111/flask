@@ -452,6 +452,11 @@ App({
             this.handleTrackingDataAsync(data);
             break;
             
+          case 'detailed_tracking_data':
+            // 详细跟踪数据更新 - 异步处理
+            this.handleDetailedTrackingDataAsync(data);
+            break;
+            
           case 'file_upload_success':
             // 文件上传成功
             if (this.globalData.featurePage) {
@@ -653,6 +658,30 @@ App({
         this.saveTrackingData(data);
       }, 0);
     },
+    
+    // 详细跟踪数据异步处理
+    handleDetailedTrackingDataAsync: function(data) {
+      console.log('📈 收到详细跟踪数据:', data);
+      
+      // 异步分发到控制页面
+      if (this.globalData.controlPage) {
+        wx.nextTick(() => {
+          this.globalData.controlPage.handleDetailedTrackingData(data);
+        });
+      }
+      
+      // 异步分发到历史页面
+      if (this.globalData.historyPage) {
+        wx.nextTick(() => {
+          this.globalData.historyPage.handleDetailedTrackingData(data);
+        });
+      }
+      
+      // 异步保存详细跟踪数据
+      setTimeout(() => {
+        this.saveDetailedTrackingData(data);
+      }, 0);
+    },
 
     // 特征提取异步处理
     handleFeatureExtractionAsync: function(data) {
@@ -814,6 +843,33 @@ App({
         this._flushTrackingData();
       }
     },
+    
+    // 保存详细跟踪数据 - 高性能优化版本
+    saveDetailedTrackingData: function(data) {
+      // 节流：只每10条记录保存一次，减少处理频率
+      if (!this._detailedTrackingDataBuffer) {
+        this._detailedTrackingDataBuffer = [];
+      }
+      
+      const detailedData = data.data || {};
+      const detailedTrackingEntry = {
+        timestamp: Date.now(),
+        frame_id: detailedData.frame_id,
+        tracking_mode: detailedData.tracking_mode,
+        target_detected: detailedData.target_detected,
+        total_tracks: detailedData.total_tracks,
+        target_track: detailedData.target_track,
+        tracks_count: detailedData.tracks ? detailedData.tracks.length : 0,
+        system_info: detailedData.system_info
+      };
+      
+      this._detailedTrackingDataBuffer.push(detailedTrackingEntry);
+      
+      // 批量处理：每10条数据处理一次，减少IO操作
+      if (this._detailedTrackingDataBuffer.length >= 10) {
+        this._flushDetailedTrackingData();
+      }
+    },
 
     // 批量刷新跟踪数据 - 优化版本
     _flushTrackingData: function() {
@@ -847,6 +903,47 @@ App({
       } catch (error) {
         if (this.globalData.debugMode) {
           console.error('刷新跟踪数据失败:', error);
+        }
+      }
+    },
+    
+    // 批量刷新详细跟踪数据 - 优化版本
+    _flushDetailedTrackingData: function() {
+      if (!this._detailedTrackingDataBuffer || this._detailedTrackingDataBuffer.length === 0) {
+        return;
+      }
+      
+      try {
+        // 添加到全局数据
+        if (!this.globalData.detailedTrackingHistory) {
+          this.globalData.detailedTrackingHistory = [];
+        }
+        
+        this.globalData.detailedTrackingHistory.push(...this._detailedTrackingDataBuffer);
+        this._detailedTrackingDataBuffer = [];
+        
+        // 限制历史记录数量（详细数据通常更大，保留较少记录）
+        if (this.globalData.detailedTrackingHistory.length > 500) {
+          this.globalData.detailedTrackingHistory = this.globalData.detailedTrackingHistory.slice(-300);
+        }
+        
+        // 异步保存到本地存储，使用防抖机制
+        if (this._detailedTrackingDataSaveTimer) {
+          clearTimeout(this._detailedTrackingDataSaveTimer);
+        }
+        
+        this._detailedTrackingDataSaveTimer = setTimeout(() => {
+          try {
+            wx.setStorageSync('companionDetailedHistory', this.globalData.detailedTrackingHistory);
+          } catch (error) {
+            if (this.globalData.debugMode) {
+              console.error('保存详细跟踪数据失败:', error);
+            }
+          }
+        }, 1000);
+      } catch (error) {
+        if (this.globalData.debugMode) {
+          console.error('刷新详细跟踪数据失败:', error);
         }
       }
     },

@@ -702,6 +702,12 @@ class CompanionServer:
             await self.forward_to_companions(robot_id, data)
             logger.debug(f"📊 转发跟踪数据 - 机器人: {robot_id}, 目标检测: {data.get('data', {}).get('target_detected', False)}")
             
+        elif message_type == 'detailed_tracking_data':
+            # 转发详细跟踪数据到所有客户端
+            await self.forward_to_companions(robot_id, data)
+            logger.info(f"📈 转发详细跟踪数据 - 机器人: {robot_id}, 数据: {json.dumps(data, indent=2)}")
+            logger.debug(f"📊 详细跟踪数据 - 机器人: {robot_id}, 轨迹数: {data.get('data', {}).get('total_tracks', 0)}, 目标检测: {data.get('data', {}).get('target_detected', False)}")
+            
         elif message_type == 'heartbeat':
             # 机器人心跳
             connection.last_heartbeat = time.time()

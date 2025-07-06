@@ -1722,5 +1722,93 @@ Page({
       icon: 'none',
       duration: 2000
     });
+  },
+  
+  // 处理详细跟踪数据
+  handleDetailedTrackingData: function(data) {
+    console.log('📈 控制页面收到详细跟踪数据:', data);
+    
+    try {
+      // 检查当前是否在数据页面
+      if (this.data.currentTab !== 'data') {
+        return;
+      }
+      
+      // 解析详细跟踪数据
+      const detailedData = data.data || {};
+      
+      // 更新详细跟踪数据显示
+      const updateData = {};
+      
+      // 处理基本统计信息
+      if (detailedData.statistics) {
+        updateData['trackingData.statistics'] = detailedData.statistics;
+      }
+      
+      // 处理所有轨迹
+      if (detailedData.tracks && Array.isArray(detailedData.tracks)) {
+        updateData['trackingData.tracks'] = detailedData.tracks.map(track => ({
+          id: track.id,
+          status: track.status,
+          position: track.position,
+          confidence: track.confidence,
+          age: track.age,
+          colors: track.colors,
+          body_ratios: track.body_ratios,
+          distance: track.distance,
+          is_target: track.is_target,
+          tracking_quality: track.tracking_quality
+        }));
+        updateData['trackingData.totalTracks'] = detailedData.tracks.length;
+      }
+      
+      // 处理目标轨迹
+      if (detailedData.target_track) {
+        updateData['trackingData.targetTrack'] = {
+          id: detailedData.target_track.id,
+          position: detailedData.target_track.position,
+          confidence: detailedData.target_track.confidence,
+          distance: detailedData.target_track.distance,
+          colors: detailedData.target_track.colors,
+          body_ratios: detailedData.target_track.body_ratios,
+          tracking_quality: detailedData.target_track.tracking_quality,
+          velocity: detailedData.target_track.velocity
+        };
+        updateData['trackingData.targetTrackId'] = detailedData.target_track.id;
+      }
+      
+      // 处理系统信息
+      if (detailedData.system_info) {
+        updateData['trackingData.systemInfo'] = {
+          fps: detailedData.system_info.fps,
+          processing_time_ms: detailedData.system_info.processing_time_ms,
+          memory_usage_mb: detailedData.system_info.memory_usage_mb,
+          camera_connected: detailedData.system_info.camera_connected
+        };
+      }
+      
+      // 更新跟踪模式和状态
+      updateData['trackingData.mode'] = detailedData.tracking_mode || '未知';
+      updateData['trackingData.targetDetected'] = detailedData.target_detected || false;
+      updateData['trackingData.totalTracks'] = detailedData.total_tracks || 0;
+      updateData['trackingData.frameId'] = detailedData.frame_id || 0;
+      updateData['trackingData.timestamp'] = detailedData.timestamp || Date.now();
+      updateData['trackingData.lastUpdateTime'] = Date.now();
+      
+      // 批量更新数据
+      this.setData(updateData);
+      
+      // 显示更新提示（降低频率）
+      if (!this.lastDetailedDataNotification) {
+        this.lastDetailedDataNotification = 0;
+      }
+      if (Date.now() - this.lastDetailedDataNotification > 5000) {
+        this.lastDetailedDataNotification = Date.now();
+        console.log('📊 详细跟踪数据已更新');
+      }
+      
+    } catch (error) {
+      console.error('❌ 处理详细跟踪数据失败:', error);
+    }
   }
 });

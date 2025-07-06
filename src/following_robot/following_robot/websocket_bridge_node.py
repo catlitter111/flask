@@ -205,6 +205,14 @@ class WebSocketBridgeNode(Node):
             10
         )
         
+        # 新增：订阅详细跟踪数据
+        self.detailed_tracking_subscription = self.create_subscription(
+            String,
+            '/bytetracker/detailed_tracking_data',
+            self.detailed_tracking_callback,
+            10
+        )
+        
         # 可选：如果需要图像流，保留这个订阅
         if self.enable_image_stream:
             self.image_subscription = self.create_subscription(
@@ -1500,6 +1508,35 @@ class WebSocketBridgeNode(Node):
         else:
             self.get_logger().error(f'❌ 特征提取错误发送失败 - 客户端: {client_id}, 错误: {error_message}')
     
+    def detailed_tracking_callback(self, msg):
+        """处理详细跟踪数据"""
+        if not self.ws_connected:
+            return
+            
+        try:
+            # 解析JSON数据
+            detailed_data = json.loads(msg.data)
+            
+            # 调试输出：打印接收到的数据
+            self.get_logger().info(f'🔄 接收到详细跟踪数据: {json.dumps(detailed_data, indent=2)}')
+            
+            # 构造发送给WebSocket服务器的数据
+            websocket_message = {
+                'type': 'detailed_tracking_data',
+                'robot_id': self.robot_id,
+                'timestamp': int(time.time() * 1000),
+                'data': detailed_data
+            }
+            
+            # 发送到WebSocket
+            if self.ws:
+                self.ws.send(json.dumps(websocket_message))
+                self.get_logger().info(f'📤 发送详细跟踪数据到WebSocket服务器')
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ 处理详细跟踪数据时发生错误: {str(e)}')
+            self.get_logger().error(f'❌ 详细错误: {traceback.format_exc()}')
+            
     def get_color_name(self, rgb_color):
         """根据RGB值获取颜色名称"""
         try:

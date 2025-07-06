@@ -2919,11 +2919,11 @@ class ByteTrackerNode(Node):
             self.publish_detailed_tracking_data(tracks, target_track, mode)
             
             # 每10帧输出一次性能信息
-            if self.frame_count % 10 == 0:
-                self.get_logger().info(f"📊 性能统计 (第{self.frame_count}帧): "
-                                     f"总耗时={total_time:.3f}s, FPS={self.current_fps:.1f}, "
-                                     f"检测={detection_time:.3f}s, 跟踪={tracking_time:.3f}s, "
-                                     f"发布={publish_time:.3f}s")
+            # if self.frame_count % 10 == 0:
+            #     self.get_logger().info(f"📊 性能统计 (第{self.frame_count}帧): "
+            #                          f"总耗时={total_time:.3f}s, FPS={self.current_fps:.1f}, "
+            #                          f"检测={detection_time:.3f}s, 跟踪={tracking_time:.3f}s, "
+            #                          f"发布={publish_time:.3f}s")
 
         except Exception as e:
             self.get_logger().error(f"❌ 处理第{self.frame_count}帧时发生错误: {e}")
@@ -3606,6 +3606,9 @@ class ByteTrackerNode(Node):
             json_msg = String()
             json_msg.data = json.dumps(detailed_data)
             self.detailed_tracking_pub.publish(json_msg)
+            
+            # 调试输出：打印发布的数据
+            self.get_logger().info(f'📈 发布详细跟踪数据到 /bytetracker/detailed_tracking_data: {json.dumps(detailed_data, indent=2)}')
             
             # 调试日志（降低频率）
             if self.frame_count % 60 == 0:  # 每60帧记录一次（约2秒）
