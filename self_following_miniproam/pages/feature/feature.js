@@ -671,11 +671,22 @@ Page({
         const featureDataPath = data.feature_data_path || data.featureDataPath || resultData.feature_data_path;
         
         // 保存处理后的图片数据（用于历史记录）
-        const processedImageData = data.processed_image || data.result_image || '';
+        // 优先使用base64编码的结果图片
+        let processedImageData = '';
+        if (data.result_image_base64 || data.resultImageBase64) {
+          processedImageData = `data:image/jpeg;base64,${data.result_image_base64 || data.resultImageBase64}`;
+          console.log('🖼️ [图片数据保存] 使用base64结果图片，大小:', (data.result_image_size_kb || 0).toFixed(2) + 'KB');
+        } else {
+          // 兼容旧格式
+          processedImageData = data.processed_image || data.result_image || '';
+          console.log('🖼️ [图片数据保存] 使用传统格式图片');
+        }
+        
         const originalImageData = data.original_image || data.image_data || this.data.previewImage || '';
         
         console.log('🖼️ [图片数据保存] processedImageData存在:', !!processedImageData);
         console.log('🖼️ [图片数据保存] originalImageData存在:', !!originalImageData);
+        console.log('🖼️ [图片数据保存] processedImageData类型:', processedImageData.startsWith('data:image') ? 'base64' : 'url');
         
         this.setData({
           extracting: false,

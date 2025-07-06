@@ -111,6 +111,9 @@ App({
       // 暂停视频流处理
       this.globalData.videoStreamActive = false;
       
+      // 清理性能定时器，释放资源
+      this.clearPerformanceTimers();
+      
       // 刷新所有缓冲数据
       this.flushAllBuffers();
     },
@@ -124,6 +127,25 @@ App({
       // 检查连接状态
       if (!this.globalData.connected && !this.globalData.connecting) {
         this.connectWebSocket();
+      }
+      
+      // 重新启动性能定时器
+      this.initPerformanceTimers();
+    },
+
+    // 应用卸载时的处理
+    onUnload: function() {
+      if (this.globalData.debugMode) {
+        console.log('🔄 应用正在卸载，清理所有资源');
+      }
+      
+      // 清理所有定时器
+      this.clearPerformanceTimers();
+      this.stopHeartbeat();
+      
+      // 关闭WebSocket连接
+      if (this.globalData.socketTask) {
+        this.globalData.socketTask.close();
       }
     },
 
@@ -1287,83 +1309,101 @@ App({
     
     // 初始化性能优化定时器
     initPerformanceTimers: function() {
-      // 优化：智能数据处理，避免不必要的操作
-      setInterval(() => {
-        // 使用 try-catch 确保错误不会影响定时器
+      // 数据缓冲处理定时器 - 进一步优化
+      this.globalData.dataProcessingTimer = setInterval(() => {
+        // 限制执行时间不超过10ms
+        const maxExecutionTime = 10;
+        const startTime = Date.now();
+        
         try {
-          const startTime = Date.now();
-          let processed = false;
-          
-          // 检查是否有数据需要刷新，限制处理时间
-          if (this._featureDataBuffer && this._featureDataBuffer.length > 0 && Date.now() - startTime < 20) {
-            this._flushFeatureData();
-            processed = true;
+          // 轻量级检查，避免复杂操作
+          if (this._featureDataBuffer && this._featureDataBuffer.length > 0) {
+            // 延迟处理，避免阻塞
+            setTimeout(() => {
+              try {
+                this._flushFeatureData && this._flushFeatureData();
+              } catch (e) {
+                // 静默处理错误
+              }
+            }, 0);
           }
           
-          if (this._trackingDataBuffer && this._trackingDataBuffer.length > 0 && Date.now() - startTime < 40) {
-            this._flushTrackingData();
-            processed = true;
-          }
-          
-          // 如果处理时间过长，记录日志
-          const executionTime = Date.now() - startTime;
-          if (executionTime > 30 && this.globalData.debugMode) {
-            console.log(`⚡ 数据处理耗时: ${executionTime}ms`);
+          if (this._trackingDataBuffer && this._trackingDataBuffer.length > 0 && (Date.now() - startTime) < maxExecutionTime) {
+            // 延迟处理，避免阻塞
+            setTimeout(() => {
+              try {
+                this._flushTrackingData && this._flushTrackingData();
+              } catch (e) {
+                // 静默处理错误
+              }
+            }, 0);
           }
         } catch (error) {
-          if (this.globalData.debugMode) {
-            console.error('定时器处理错误:', error);
-          }
+          // 静默处理，避免日志过多
         }
-      }, 3000); // 进一步降低到3秒，减少CPU占用
+      }, 5000); // 延长到5秒，进一步减少CPU占用
       
-          // 性能监控定时器（可选）
-    if (this.globalData.performanceMonitor) {
-      setInterval(() => {
-        try {
-          this.performanceCheck();
-        } catch (error) {
-          console.error('❌ 性能监控检查错误:', error);
-        }
-      }, 30000); // 每30秒检查一次性能
-    }
+      // 性能监控定时器 - 大幅简化
+      if (this.globalData.performanceMonitor) {
+        this.globalData.performanceTimer = setInterval(() => {
+          // 异步执行性能检查，避免阻塞主线程
+          setTimeout(() => {
+            try {
+              this.performanceCheckLightweight();
+            } catch (error) {
+              // 静默处理错误
+            }
+          }, 0);
+        }, 60000); // 延长到60秒，减少频率
+      }
     },
 
-    // 性能检查方法
-    performanceCheck: function() {
+    // 轻量级性能检查方法
+    performanceCheckLightweight: function() {
       try {
-        // 使用新的API获取设备信息
-        const deviceInfo = this.globalData.deviceInfo || wx.getDeviceInfo();
-        const appBaseInfo = this.globalData.appBaseInfo || wx.getAppBaseInfo();
-        const windowInfo = wx.getWindowInfo();
-        const videoStats = this.globalData.videoStats;
+        const videoStats = this.globalData.videoStats || {};
         
-        // 简化的性能日志
+        // 只记录核心性能指标，避免复杂计算
         if (this.globalData.debugMode) {
-          console.log('📊 性能监控:', {
-            appVersion: appBaseInfo.version,
-            platform: deviceInfo.platform,
-            screenWidth: windowInfo.screenWidth,
-            screenHeight: windowInfo.screenHeight,
-            videoFrames: videoStats.receivedFrames,
-            droppedFrames: videoStats.droppedFrames,
-            connected: this.globalData.connected
+          console.log('📊 轻量性能监控:', {
+            connected: this.globalData.connected,
+            videoFrames: videoStats.receivedFrames || 0,
+            droppedFrames: videoStats.droppedFrames || 0
           });
         }
         
-        // 性能优化：如果丢帧率过高，自动降低视频质量
-        if (videoStats.receivedFrames > 0) {
-          const dropRate = videoStats.droppedFrames / videoStats.receivedFrames;
-          if (dropRate > 0.2 && this.globalData.videoQuality !== 'low') {
-            this.adjustVideoQuality('low');
+        // 简化的视频质量自动调整
+        if (videoStats.receivedFrames > 50) {
+          const dropRate = (videoStats.droppedFrames || 0) / videoStats.receivedFrames;
+          if (dropRate > 0.3 && this.globalData.videoQuality !== 'low') {
+            // 异步调整，避免阻塞
+            setTimeout(() => {
+              this.adjustVideoQuality('low');
+            }, 100);
           }
         }
       } catch (error) {
-        // 静默处理性能检查错误
-        if (this.globalData.debugMode) {
-          console.error('性能检查错误:', error);
-        }
+        // 完全静默处理错误
       }
+    },
+    
+    // 清理性能定时器
+    clearPerformanceTimers: function() {
+      if (this.globalData.dataProcessingTimer) {
+        clearInterval(this.globalData.dataProcessingTimer);
+        this.globalData.dataProcessingTimer = null;
+      }
+      
+      if (this.globalData.performanceTimer) {
+        clearInterval(this.globalData.performanceTimer);
+        this.globalData.performanceTimer = null;
+      }
+    },
+
+    // 性能检查方法（保留用于兼容性）
+    performanceCheck: function() {
+      // 重定向到轻量级版本
+      this.performanceCheckLightweight();
     },
 
     // 自动调整视频质量
