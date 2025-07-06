@@ -140,6 +140,8 @@ Page({
         pantsColor: [0, 0, 0],    // 下装颜色RGB
         personCount: 0,           // 人数统计
         resultImagePath: '',      // 结果图片路径
+        resultImageBase64: '',    // 结果图片base64编码
+        resultImageSize: 0,       // 结果图片大小(KB)
         lastUpdate: 0             // 最后更新时间
       }
     },
@@ -1555,12 +1557,28 @@ Page({
         });
       }
       
-      // 处理文件路径
-      if (data.result_image_path) {
+      // 处理结果图片数据
+      if (data.result_image_base64 || data.resultImageBase64) {
+        // 优先使用base64编码的图片数据
+        const base64Data = data.result_image_base64 || data.resultImageBase64;
+        const imageSize = data.result_image_size_kb || 0;
+        
+        console.log('📸 收到结果图片base64数据，大小:', imageSize.toFixed(2) + 'KB');
+        
+        this.setData({
+          'realFeatureData.resultImagePath': data.result_image_path || '',
+          'realFeatureData.resultImageBase64': base64Data,
+          'realFeatureData.resultImageSize': imageSize,
+          'realFeatureData.lastUpdate': Date.now()
+        });
+      } else if (data.result_image_path) {
+        // 兼容旧格式，只有路径
         console.log('📸 结果图片路径:', data.result_image_path);
         
         this.setData({
           'realFeatureData.resultImagePath': data.result_image_path,
+          'realFeatureData.resultImageBase64': '',
+          'realFeatureData.resultImageSize': 0,
           'realFeatureData.lastUpdate': Date.now()
         });
       }
@@ -1582,5 +1600,21 @@ Page({
         duration: 2000
       });
     }
+  },
+
+  // 结果图片加载成功
+  onResultImageLoad: function(e) {
+    console.log('✅ 特征结果图片加载成功');
+    wx.hideLoading();
+  },
+
+  // 结果图片加载失败
+  onResultImageError: function(e) {
+    console.error('❌ 特征结果图片加载失败:', e);
+    wx.showToast({
+      title: '图片加载失败',
+      icon: 'none',
+      duration: 2000
+    });
   }
 });

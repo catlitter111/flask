@@ -915,7 +915,11 @@ class CompanionServer:
             'resultImagePath': ros_data.get('result_image_path', ''),  # 兼容字段
             'featureDataPath': ros_data.get('feature_data_path', ''),  # 兼容字段
             'processing_info': ros_data.get('processing_info', {}),
-            'result_video_path': ros_data.get('result_video_path', '')
+            'result_video_path': ros_data.get('result_video_path', ''),
+            # 新增：结果图片base64编码
+            'result_image_base64': ros_data.get('result_image_base64', ''),
+            'result_image_size_kb': ros_data.get('result_image_size_kb', 0),
+            'resultImageBase64': ros_data.get('result_image_base64', ''),  # 兼容字段
         }
         
         # 调试日志

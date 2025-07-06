@@ -324,10 +324,32 @@
           </view>
         </view>
         
-        <!-- 结果图片路径 -->
-        <view class="feature-image-path" wx:if="{{realFeatureData.resultImagePath}}">
-          <text class="path-label">结果图片:</text>
-          <text class="path-value">{{realFeatureData.resultImagePath}}</text>
+        <!-- 结果图片 -->
+        <view class="feature-image-section" wx:if="{{realFeatureData.resultImageBase64 || realFeatureData.resultImagePath}}">
+          <text class="image-section-title">📸 特征提取结果</text>
+          
+          <!-- 显示base64编码的图片 -->
+          <view class="feature-image-container" wx:if="{{realFeatureData.resultImageBase64}}">
+            <image 
+              class="feature-result-image" 
+              src="data:image/jpeg;base64,{{realFeatureData.resultImageBase64}}" 
+              mode="aspectFit"
+              show-menu-by-longpress="{{true}}"
+              lazy-load="{{true}}"
+              bind:load="onResultImageLoad"
+              bind:error="onResultImageError"
+            />
+            <view class="image-info">
+              <text class="image-size">大小: {{realFeatureData.resultImageSize}}KB</text>
+              <text class="image-hint">长按图片可保存</text>
+            </view>
+          </view>
+          
+          <!-- 备用显示路径 -->
+          <view class="feature-image-path" wx:else>
+            <text class="path-label">结果图片路径:</text>
+            <text class="path-value">{{realFeatureData.resultImagePath}}</text>
+          </view>
         </view>
       </view>
       

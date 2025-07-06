@@ -1222,6 +1222,60 @@
     font-style: italic;
   }
 
+  /* 图片显示样式 */
+  .feature-image-section {
+    margin: 24rpx 0;
+    padding: 24rpx;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 16rpx;
+    border: 2rpx solid #dee2e6;
+    box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.05);
+  }
+  
+  .image-section-title {
+    font-size: 28rpx;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 16rpx;
+    display: block;
+  }
+  
+  .feature-image-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16rpx;
+  }
+  
+  .feature-result-image {
+    width: 100%;
+    max-width: 500rpx;
+    height: 300rpx;
+    border-radius: 12rpx;
+    border: 2rpx solid #dee2e6;
+    box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
+  }
+  
+  .image-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8rpx;
+    margin-top: 12rpx;
+  }
+  
+  .image-size {
+    font-size: 24rpx;
+    color: #6c757d;
+    font-weight: 500;
+  }
+  
+  .image-hint {
+    font-size: 22rpx;
+    color: #adb5bd;
+    font-style: italic;
+  }
+
   /* 图片路径样式 */
   .feature-image-path {
     margin: 24rpx 0;

@@ -1387,6 +1387,32 @@ class WebSocketBridgeNode(Node):
     
     def send_feature_extraction_result(self, client_id, file_id, result_data):
         """发送特征提取结果给客户端"""
+        
+        # 尝试将结果图片转换为base64编码
+        result_image_base64 = None
+        if result_data.get('result_image_path'):
+            try:
+                result_image_path = result_data['result_image_path']
+                if Path(result_image_path).exists():
+                    import base64
+                    with open(result_image_path, 'rb') as img_file:
+                        img_data = img_file.read()
+                        result_image_base64 = base64.b64encode(img_data).decode('utf-8')
+                        
+                        # 获取文件大小信息
+                        img_size_kb = len(img_data) / 1024
+                        self.get_logger().info(f'📸 结果图片转换为base64 - 大小: {img_size_kb:.2f}KB')
+                        
+                        # 添加base64数据到结果中
+                        result_data['result_image_base64'] = result_image_base64
+                        result_data['result_image_size_kb'] = img_size_kb
+                        
+                else:
+                    self.get_logger().warning(f'⚠️ 结果图片文件不存在: {result_image_path}')
+                    
+            except Exception as e:
+                self.get_logger().error(f'❌ 转换结果图片为base64失败: {e}')
+        
         message = {
             'type': 'feature_extraction_result',
             'file_id': file_id,
