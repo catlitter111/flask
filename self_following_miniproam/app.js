@@ -195,7 +195,7 @@ App({
         that.globalData.reconnectAttempts = 0;
         that.globalData.lastPongTime = Date.now();
         
-        // 发送初始化消息
+        // 发送初始化消息 - 修复 webrtcSupported 上下文问题
         that.sendSocketMessage({
           type: 'client_init',
           robot_id: that.globalData.robotId,
@@ -208,7 +208,7 @@ App({
             command_send: true,
             feature_extraction: true,
             voice_interaction: true,
-            webrtc_support: this.globalData.webrtcSupported
+            webrtc_support: that.globalData.webrtcSupported // 修复：使用 that 而不是 this
           }
         });
         
@@ -289,156 +289,177 @@ App({
       // 视频流将自动开始传输
     },
     
-    // 消息分发到对应页面 - 优化版本
+    // 消息分发到对应页面 - 优化版本，防止阻塞
     distributeMessage: function(data) {
-      // 使用异步处理防止阻塞主线程
-      wx.nextTick(() => {
-        this._distributeMessageSync(data);
-      });
+      // 使用异步处理防止阻塞主线程，并增加超时处理
+      setTimeout(() => {
+        try {
+          this._distributeMessageSync(data);
+        } catch (error) {
+          console.error('❌ 消息分发处理错误:', error);
+        }
+      }, 0);
     },
     
-    // 同步消息分发处理
+    // 同步消息分发处理 - 优化版本
     _distributeMessageSync: function(data) {
-      switch (data.type) {
-        case 'robot_status_update':
-          // 机器人状态更新
-          this.handleRobotStatusUpdate(data);
-          break;
-          
-        case 'video_frame':
-          // 视频帧数据
-          this.handleVideoFrame(data);
-          break;
-          
-        case 'command_response':
-          // 命令执行响应
-          this.handleCommandResponse(data);
-          break;
-          
-        case 'companion_status_update':
-          // 伴侣状态更新
-          this.handleCompanionStatusUpdate(data);
-          break;
-          
-        case 'tracking_data':
-          // 跟踪数据更新
-          if (this.globalData.historyPage) {
-            this.globalData.historyPage.handleTrackingData(data);
-          }
-          this.saveTrackingData(data);
-          break;
-          
-        case 'file_upload_success':
-          // 文件上传成功
-          if (this.globalData.featurePage) {
-            this.globalData.featurePage.handleFileUploadSuccess(data);
-          }
-          break;
+      if (!data || !data.type) {
+        console.warn('⚠️ 收到无效消息数据');
+        return;
+      }
 
-        case 'file_save_result':
-          // 文件保存结果
-          if (this.globalData.featurePage) {
-            this.globalData.featurePage.handleFileSaveResult(data);
-          }
-          break;
+      const messageType = data.type;
+      const startTime = Date.now();
+      
+      try {
+        switch (messageType) {
+          case 'robot_status_update':
+            this.handleRobotStatusUpdate(data);
+            break;
+            
+          case 'video_frame':
+            // 视频帧数据 - 最高优先级，快速处理
+            this.handleVideoFrame(data);
+            break;
+            
+          case 'command_response':
+            this.handleCommandResponse(data);
+            break;
+            
+          case 'companion_status_update':
+            this.handleCompanionStatusUpdate(data);
+            break;
+            
+          case 'tracking_data':
+            // 跟踪数据更新 - 异步处理以避免阻塞
+            setTimeout(() => {
+              if (this.globalData.historyPage) {
+                this.globalData.historyPage.handleTrackingData(data);
+              }
+              this.saveTrackingData(data);
+            }, 0);
+            break;
+            
+          case 'file_upload_success':
+            if (this.globalData.featurePage) {
+              this.globalData.featurePage.handleFileUploadSuccess(data);
+            }
+            break;
 
-        case 'feature_extraction_result':
-          // 特征提取结果（旧格式，保留兼容性）
-          if (this.globalData.featurePage) {
-            this.globalData.featurePage.handleFeatureResult(data);
-          }
-          this.saveFeatureData(data);
-          break;
+          case 'file_save_result':
+            if (this.globalData.featurePage) {
+              this.globalData.featurePage.handleFileSaveResult(data);
+            }
+            break;
 
-        case 'feature_extraction_complete':
-          // 特征提取完成（新格式）
-          if (this.globalData.featurePage) {
-            this.globalData.featurePage.handleFeatureResult(data);
-          }
-          if (data.status === 'success') {
-            this.saveFeatureData(data);
-          }
-          break;
+          case 'feature_extraction_result':
+            // 特征提取结果（旧格式，保留兼容性）
+            if (this.globalData.featurePage) {
+              this.globalData.featurePage.handleFeatureResult(data);
+            }
+            // 异步保存数据以避免阻塞
+            setTimeout(() => {
+              this.saveFeatureData(data);
+            }, 0);
+            break;
 
-        case 'feature_extraction_error':
-          // 特征提取错误
-          if (this.globalData.featurePage) {
-            this.globalData.featurePage.handleFeatureError(data);
-          }
-          break;
+          case 'feature_extraction_complete':
+            // 特征提取完成（新格式）
+            if (this.globalData.featurePage) {
+              this.globalData.featurePage.handleFeatureResult(data);
+            }
+            if (data.status === 'success') {
+              setTimeout(() => {
+                this.saveFeatureData(data);
+              }, 0);
+            }
+            break;
 
-        case 'processed_image_notification':
-          // 处理后图片通知
-          if (this.globalData.featurePage) {
-            this.globalData.featurePage.handleProcessedImageNotification(data);
-          }
-          this.saveProcessedImageData(data);
-          break;
-          
-        case 'ai_response':
-          // AI助手回复
-          if (this.globalData.aiAssistantPage) {
-            this.globalData.aiAssistantPage.handleAIResponse(data);
-          }
-          break;
-          
-        case 'position_update':
-          // 位置更新
-          this.handlePositionUpdate(data);
-          break;
-          
-        case 'interaction_event':
-          // 交互事件
-          this.handleInteractionEvent(data);
-          break;
-          
-        case 'robot_connection_status':
-          // 机器人连接状态更新
-          this.handleRobotConnectionStatus(data);
-          break;
-          
-        case 'video_quality_update':
-          // 视频质量更新
-          this.handleVideoQualityUpdate(data);
-          break;
-          
-        case 'quality_request_received':
-          // 质量调整请求已接收
-          this.handleQualityRequestReceived(data);
-          break;
-          
+          case 'feature_extraction_error':
+            if (this.globalData.featurePage) {
+              this.globalData.featurePage.handleFeatureError(data);
+            }
+            break;
 
-          
-        case 'companion_disconnected':
-          // 伴侣机器人断开连接
-          this.handleCompanionDisconnected(data);
-          break;
-          
-        case 'error':
-          // 错误消息
-          this.handleError(data);
-          break;
-          
-        case 'webrtc_available':
-          // WebRTC可用通知
-          this.handleWebRTCAvailable(data);
-          break;
-          
-        case 'webrtc_answer':
-          // WebRTC答案
-          this.handleWebRTCAnswer(data);
-          break;
-          
-        case 'webrtc_error':
-          // WebRTC错误
-          this.handleWebRTCError(data);
-          break;
-          
-        default:
-          // 减少日志输出
-          if (data.type !== 'ping' && data.type !== 'pong') {
-            console.log('🔍 未知消息类型:', data.type);
-          }
+          case 'processed_image_notification':
+            // 处理后图片通知
+            if (this.globalData.featurePage) {
+              this.globalData.featurePage.handleProcessedImageNotification(data);
+            }
+            // 异步保存数据
+            setTimeout(() => {
+              this.saveProcessedImageData(data);
+            }, 0);
+            break;
+            
+          case 'ai_response':
+            if (this.globalData.aiAssistantPage) {
+              this.globalData.aiAssistantPage.handleAIResponse(data);
+            }
+            break;
+            
+          case 'position_update':
+            this.handlePositionUpdate(data);
+            break;
+            
+          case 'interaction_event':
+            this.handleInteractionEvent(data);
+            break;
+            
+          case 'robot_connection_status':
+            this.handleRobotConnectionStatus(data);
+            break;
+            
+          case 'webrtc_available':
+            this.handleWebRTCAvailable(data);
+            break;
+            
+          case 'webrtc_answer':
+            this.handleWebRTCAnswer(data);
+            break;
+            
+          case 'webrtc_error':
+            this.handleWebRTCError(data);
+            break;
+            
+          case 'video_quality_update':
+            this.handleVideoQualityUpdate(data);
+            break;
+            
+          case 'quality_request_received':
+            this.handleQualityRequestReceived(data);
+            break;
+            
+          case 'server_welcome':
+            console.log('🎉 服务器欢迎消息，版本:', data.server_version);
+            break;
+            
+          case 'companion_connected':
+            this.handleCompanionConnected(data);
+            break;
+            
+          case 'companion_disconnected':
+            this.handleCompanionDisconnected(data);
+            break;
+            
+          case 'error':
+            this.handleError(data);
+            break;
+            
+          default:
+            // 减少日志输出
+            if (data.type !== 'ping' && data.type !== 'pong') {
+              console.log('🔍 未知消息类型:', data.type);
+            }
+        }
+      } catch (error) {
+        console.error('❌ 消息处理错误:', error);
+      }
+      
+      // 记录处理时间，警告耗时过长的操作
+      const processingTime = Date.now() - startTime;
+      if (processingTime > 50) {
+        console.warn(`⚠️ 消息处理耗时过长: ${processingTime}ms, 类型: ${messageType}`);
       }
     },
     
@@ -503,59 +524,120 @@ App({
       }
     },
     
-    // 处理伴侣状态更新
-    handleCompanionStatusUpdate: function(data) {
-      this.globalData.followingMode = data.following_mode || this.globalData.followingMode;
-      this.globalData.emotionState = data.emotion_state || this.globalData.emotionState;
-      this.globalData.interactionMode = data.interaction_mode !== undefined ? 
-        data.interaction_mode : this.globalData.interactionMode;
-      
-      if (this.globalData.controlPage) {
-        this.globalData.controlPage.handleCompanionStatusUpdate(data);
+    // WebRTC功能检测
+    detectWebRTCSupport: function() {
+      // 微信小程序环境中，WebRTC支持有限
+      // 这里我们检测是否有相关API可用
+      try {
+        if (typeof wx.createLivePlayerContext !== 'undefined') {
+          this.globalData.webrtcSupported = true;
+          console.log('📡 检测到WebRTC相关功能支持');
+        } else {
+          this.globalData.webrtcSupported = false;
+          console.log('⚠️ 当前环境不支持WebRTC功能');
+        }
+      } catch (e) {
+        this.globalData.webrtcSupported = false;
+        console.log('⚠️ WebRTC功能检测失败:', e);
       }
     },
     
-    // 处理位置更新
-    handlePositionUpdate: function(data) {
-      this.globalData.robotPosition = data.robot_position || this.globalData.robotPosition;
-      this.globalData.targetPosition = data.target_position || this.globalData.targetPosition;
+    // 启动命令队列处理器
+    startCommandProcessor: function() {
+      setInterval(() => {
+        this.processNextCommand();
+      }, 100);
+    },
+    
+    // 处理下一个命令
+    processNextCommand: function() {
+      if (this.globalData.commandSending || this.globalData.commandQueue.length === 0) {
+        return;
+      }
       
-      if (this.globalData.historyPage) {
-        this.globalData.historyPage.handlePositionUpdate(data);
+      const now = Date.now();
+      if (now - this.globalData.lastCommandTime < this.globalData.commandCooldown) {
+        return;
+      }
+      
+      const command = this.globalData.commandQueue.shift();
+      this.globalData.commandSending = true;
+      this.globalData.lastCommandTime = now;
+      
+      this.sendSocketMessage(command);
+    },
+    
+    // 发送WebSocket消息
+    sendSocketMessage: function(message) {
+      if (!this.globalData.connected || !this.globalData.socketTask) {
+        console.warn('⚠️ WebSocket未连接，消息发送失败');
+        return false;
+      }
+      
+      try {
+        this.globalData.socketTask.send({
+          data: JSON.stringify(message)
+        });
+        return true;
+      } catch (error) {
+        console.error('❌ 消息发送失败:', error);
+        return false;
       }
     },
     
-    // 处理交互事件
-    handleInteractionEvent: function(data) {
-      // 根据交互类型处理
-      switch (data.event_type) {
-        case 'gesture_detected':
-          console.log('🤝 检测到手势');
-          break;
-        case 'voice_command':
-          console.log('🤝 收到语音命令');
-          break;
-        case 'emotion_change':
-          console.log('🤝 情绪变化:', data.emotion);
-          this.globalData.emotionState = data.emotion;
-          break;
-        default:
-          console.log('🤝 交互事件:', data.event_type);
-      }
+    // 启动心跳
+    startHeartbeat: function() {
+      this.stopHeartbeat(); // 先停止现有的心跳
       
-      if (this.globalData.controlPage) {
-        this.globalData.controlPage.handleInteractionEvent(data);
+      this.globalData.heartbeatTimer = setInterval(() => {
+        if (this.globalData.connected) {
+          this.sendSocketMessage({
+            type: 'ping',
+            timestamp: Date.now()
+          });
+        }
+      }, 18000); // 18秒发送一次心跳，与服务器协调
+    },
+    
+    // 停止心跳
+    stopHeartbeat: function() {
+      if (this.globalData.heartbeatTimer) {
+        clearInterval(this.globalData.heartbeatTimer);
+        this.globalData.heartbeatTimer = null;
       }
     },
     
-    // 处理错误
-    handleError: function(data) {
-      console.error('🚨 服务器错误:', data);
-      wx.showToast({
-        title: data.message || '发生错误',
-        icon: 'none',
-        duration: 3000
-      });
+    // 安排重连
+    scheduleReconnect: function() {
+      if (this.globalData.closedByUser) {
+        return;
+      }
+      
+      this.globalData.reconnectAttempts++;
+      const delay = Math.min(
+        this.globalData.reconnectDelay * Math.pow(2, this.globalData.reconnectAttempts - 1),
+        this.globalData.maxReconnectDelay
+      );
+      
+      console.log(`🔄 将在 ${delay}ms 后尝试重连 (第${this.globalData.reconnectAttempts}次)`);
+      
+      this.globalData.reconnectTimer = setTimeout(() => {
+        this.connectWebSocket();
+      }, delay);
+    },
+    
+    // 初始化性能优化定时器
+    initPerformanceTimers: function() {
+      // 定期刷新缓冲数据（每5秒，减少频率）
+      setInterval(() => {
+        // 检查是否有数据需要刷新，避免无意义的调用
+        if (this._featureDataBuffer && this._featureDataBuffer.length > 0) {
+          this._flushFeatureData();
+        }
+        if (this._trackingDataBuffer && this._trackingDataBuffer.length > 0) {
+          this._flushTrackingData();
+        }
+      }, 5000);
     },
     
     // 保存跟踪数据 - 优化版本
@@ -634,9 +716,9 @@ App({
       this.globalData.extractedFeatures.push(...this._featureDataBuffer);
       this._featureDataBuffer = [];
       
-      // 限制特征数据数量
-      if (this.globalData.extractedFeatures.length > 100) {
-        this.globalData.extractedFeatures = this.globalData.extractedFeatures.slice(-80);
+      // 限制数据量
+      if (this.globalData.extractedFeatures.length > 500) {
+        this.globalData.extractedFeatures = this.globalData.extractedFeatures.slice(-400);
       }
       
       // 异步保存到本地存储
@@ -644,347 +726,134 @@ App({
         wx.setStorageSync('extractedFeatures', this.globalData.extractedFeatures);
       });
     },
-
-    // 保存处理后图片数据 - 优化版本
-    saveProcessedImageData: function(data) {
-      // 移除大部分调试日志，只保留关键信息
-      console.log('📷 接收到处理后图片数据');
-      
-      // 提取图片数据
-      const originalImage = data.original_image || data.image_data?.data_base64 || '';
-      const processedImage = data.processed_image || data.image_data?.data_base64 || '';
-      const resultImage = data.result_image || data.image_data?.data_base64 || '';
-      
-      // 确保图片数据格式正确
-      const formatImage = (imageData) => {
-        if (!imageData) return '';
-        if (imageData.startsWith('data:image/')) return imageData;
-        return `data:image/jpeg;base64,${imageData}`;
-      };
-      
-      // 提取特征数据
-      const features = data.features || {};
-      const bodyRatios = features.body_ratios || new Array(16).fill(0.0);
-      const clothingColors = features.clothing_colors || data.colors || {};
-      const bodyProportions = features.body_proportions || data.proportions || {};
-      const detailedProportions = features.detailed_proportions || data.detailed_proportions || [];
-      
-      // 移除详细调试日志以提升性能
-      
-      // 格式化时间戳
-      const formatTimestamp = (ts) => {
-        try {
-          const date = new Date(ts);
-          if (isNaN(date.getTime())) {
-            return new Date().toLocaleString();
-          }
-          const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          const hour = String(date.getHours()).padStart(2, '0');
-          const minute = String(date.getMinutes()).padStart(2, '0');
-          return `${year}-${month}-${day} ${hour}:${minute}`;
-        } catch (e) {
-          return new Date().toLocaleString();
-        }
-      };
-
-      const processedImageEntry = {
-        id: data.extraction_id || Date.now(),
-        timestamp: formatTimestamp(data.timestamp || Date.now()),
-        name: data.person_name || `处理结果_${new Date().getTime()}`,
-        
-        // 图片数据
-        image_data: formatImage(originalImage),
-        processed_image: formatImage(processedImage),
-        result_image: formatImage(resultImage),
-        previewImage: formatImage(resultImage), // 兼容字段
-        
-        // 特征数据
-        features: {
-          body_ratios: bodyRatios,
-          clothing_colors: clothingColors,
-          body_proportions: bodyProportions,
-          detailed_proportions: detailedProportions
-        },
-        
-        // 兼容的顶层字段
-        body_proportions: bodyProportions,
-        detailed_proportions: detailedProportions,
-        clothing_colors: clothingColors,
-        
-        // 颜色信息（兼容现有格式）
-        topColor: data.topColor || clothingColors.top?.color || '#000000',
-        bottomColor: data.bottomColor || clothingColors.bottom?.color || '#000000',
-        topColorName: data.topColorName || clothingColors.top?.name || '黑色',
-        bottomColorName: data.bottomColorName || clothingColors.bottom?.name || '黑色',
-        
-        // 状态信息
-        status: 'success',
-        extraction_type: 'processed_image',
-        confidence: 95, // 默认置信度
-        
-        // 处理信息
-        processing_info: data.processing_info || {}
-      };
-      
-      // 添加到全局特征数据中（复用现有的存储）
-      this.globalData.extractedFeatures = this.globalData.extractedFeatures || [];
-      this.globalData.extractedFeatures.push(processedImageEntry);
-      
-      // 限制特征数据数量
-      if (this.globalData.extractedFeatures.length > 100) {
-        this.globalData.extractedFeatures = this.globalData.extractedFeatures.slice(-80);
-      }
-      
-      // 保存到本地存储
-      wx.setStorageSync('extractedFeatures', this.globalData.extractedFeatures);
-      
-      // 简化日志输出
-      console.log('💾 保存处理后图片数据完成:', processedImageEntry.id);
+    
+    // 添加命令到队列
+    addCommand: function(command) {
+      this.globalData.commandQueue.push(command);
     },
     
-    // 启动命令处理器
-    startCommandProcessor: function() {
-      const that = this;
+    // 处理其他消息类型的空方法（避免报错）
+    handleCompanionStatusUpdate: function(data) {
+      this.globalData.followingMode = data.following_mode || this.globalData.followingMode;
+      this.globalData.emotionState = data.emotion_state || this.globalData.emotionState;
+      this.globalData.interactionMode = data.interaction_mode !== undefined ? 
+        data.interaction_mode : this.globalData.interactionMode;
       
-      // 每200ms检查一次命令队列
-      setInterval(() => {
-        if (!that.globalData.commandSending && that.globalData.commandQueue.length > 0) {
-          that.processNextCommand();
-        }
-      }, 200);
-    },
-    
-    // 处理下一个命令
-    processNextCommand: function() {
-      if (this.globalData.commandQueue.length === 0 || this.globalData.commandSending) {
-        return;
-      }
-      
-      const command = this.globalData.commandQueue.shift();
-      const now = Date.now();
-      
-      // 检查命令冷却时间
-      if (now - this.globalData.lastCommandTime < this.globalData.commandCooldown) {
-        // 重新加入队列
-        this.globalData.commandQueue.unshift(command);
-        return;
-      }
-      
-      this.globalData.commandSending = true;
-      this.globalData.lastCommandTime = now;
-      
-      // 发送命令
-      this.sendSocketMessage(command);
-    },
-    
-    // 发送控制命令
-    sendCompanionCommand: function(command, params = {}) {
-      const commandMessage = {
-        type: 'companion_command',
-        robot_id: this.globalData.robotId,
-        command: command,
-        params: params,
-        timestamp: Date.now(),
-        client_id: this.globalData.clientId
-      };
-      
-      // 加入命令队列
-      this.globalData.commandQueue.push(commandMessage);
-    },
-    
-    // 请求视频流质量调整
-    requestVideoQuality: function(quality) {
-      this.sendSocketMessage({
-        type: 'client_quality_request',
-        robot_id: this.globalData.robotId,
-        preset: quality,
-        timestamp: Date.now()
-      });
-      
-      this.globalData.videoQuality = quality;
-    },
-    
-    // 启动心跳机制
-    startHeartbeat: function() {
-      const that = this;
-      
-      if (this.globalData.heartbeatTimer) {
-        clearInterval(this.globalData.heartbeatTimer);
-      }
-      
-      this.globalData.lastPongTime = Date.now();
-      
-      this.globalData.heartbeatTimer = setInterval(() => {
-        if (that.globalData.connected) {
-          const now = Date.now();
-          if (now - that.globalData.lastPongTime > 30000) {
-            console.warn('💔 心跳超时，连接可能已断开');
-            that.globalData.connected = false;
-            that.globalData.videoStreamActive = false;
-            
-            if (that.globalData.socketTask) {
-              try {
-                that.globalData.socketTask.close({
-                  code: 1000,
-                  reason: '心跳超时'
-                });
-              } catch (e) {
-                console.error('❌ 关闭超时连接失败:', e);
-              }
-            }
-            
-            that.stopHeartbeat();
-            that.scheduleReconnect();
-            return;
-          }
-          
-          that.sendSocketMessage({
-            type: 'ping',
-            timestamp: now,
-            client_stats: {
-              video_frames_received: that.globalData.videoStats.receivedFrames,
-              video_frames_dropped: that.globalData.videoStats.droppedFrames,
-              network_latency: that.globalData.networkLatency
-            }
-          });
-        }
-      }, 15000);
-    },
-    
-    // 停止心跳
-    stopHeartbeat: function() {
-      if (this.globalData.heartbeatTimer) {
-        clearInterval(this.globalData.heartbeatTimer);
-        this.globalData.heartbeatTimer = null;
+      if (this.globalData.controlPage) {
+        this.globalData.controlPage.handleCompanionStatusUpdate(data);
       }
     },
     
-    // 安排重连
-    scheduleReconnect: function() {
-      const that = this;
+    handlePositionUpdate: function(data) {
+      this.globalData.robotPosition = data.robot_position || this.globalData.robotPosition;
+      this.globalData.targetPosition = data.target_position || this.globalData.targetPosition;
       
-      if (this.globalData.reconnectTimer) {
-        clearTimeout(this.globalData.reconnectTimer);
-      }
-      
-      const attempts = this.globalData.reconnectAttempts;
-      const delay = Math.min(
-        this.globalData.maxReconnectDelay,
-        this.globalData.reconnectDelay * Math.pow(1.5, attempts)
-      );
-      
-      console.log(`🔄 安排第 ${attempts + 1} 次重连，延迟 ${delay}ms`);
-      
-      this.globalData.reconnectTimer = setTimeout(function() {
-        that.globalData.reconnectAttempts++;
-        that.connectWebSocket();
-      }, delay);
-    },
-    
-    // 发送WebSocket消息
-    sendSocketMessage: function(msg) {
-      if (this.globalData.socketTask && this.globalData.connected) {
-        if (typeof msg === 'object') {
-          msg.client_timestamp = Date.now();
-        }
-        
-        this.globalData.socketTask.send({
-          data: JSON.stringify(msg),
-          success: function() {
-            // 成功发送
-          },
-          fail: function(error) {
-            console.error('❌ 消息发送失败:', error);
-            // 如果是命令消息，标记发送完成以便处理下一个
-            if (msg.type === 'companion_command') {
-              this.globalData.commandSending = false;
-            }
-          }
-        });
-      } else {
-        console.warn('⚠️ WebSocket未连接，无法发送消息');
-        if (!this.globalData.connected && !this.globalData.connecting) {
-          this.connectWebSocket();
-        }
+      if (this.globalData.historyPage) {
+        this.globalData.historyPage.handlePositionUpdate(data);
       }
     },
     
-    // 处理机器人连接状态更新
+    handleInteractionEvent: function(data) {
+      // 根据交互类型处理
+      switch (data.event_type) {
+        case 'gesture_detected':
+          console.log('🤝 检测到手势');
+          break;
+        case 'voice_command':
+          console.log('🤝 收到语音命令');
+          break;
+        case 'emotion_change':
+          console.log('🤝 情绪变化:', data.emotion);
+          this.globalData.emotionState = data.emotion;
+          break;
+        default:
+          console.log('🤝 交互事件:', data.event_type);
+      }
+      
+      if (this.globalData.controlPage) {
+        this.globalData.controlPage.handleInteractionEvent(data);
+      }
+    },
+    
     handleRobotConnectionStatus: function(data) {
-      const isConnected = data.connected;
-      const robotId = data.robot_id;
+      console.log('🔗 机器人连接状态:', data.connected ? '已连接' : '已断开');
       
-      // 更新全局状态
-      if (robotId === this.globalData.robotId) {
-        // 检查状态是否真的发生了变化
-        const currentConnectionState = this.globalData.robotConnected || false;
-        
-        if (currentConnectionState !== isConnected) {
-          // 状态改变时才输出日志
-          console.log(`🔗 机器人连接状态变更: ${isConnected ? '已连接' : '已断开'}`);
-          
-          this.globalData.robotConnected = isConnected;
-        }
-        
-        // 更新连接状态相关的UI显示
-        if (isConnected) {
-          this.globalData.signalStrength = '良好';
-          
-          // 如果之前断开连接，现在重新连接了，请求初始状态
-          if (!this.globalData.videoStreamActive) {
-            this.requestInitialStatus();
-          }
-        } else {
-          this.globalData.signalStrength = '未连接';
-          this.globalData.videoStreamActive = false;
-          this.globalData.batteryLevel = 0;
-        }
-        
-        // 通知相关页面更新状态
-        if (this.globalData.controlPage) {
-          this.globalData.controlPage.updateConnectionStatus(isConnected, robotId);
-        }
-        
-        if (this.globalData.historyPage) {
-          this.globalData.historyPage.updateConnectionStatus(isConnected, robotId);
-        }
-        
-        if (this.globalData.featurePage) {
-          this.globalData.featurePage.updateConnectionStatus(isConnected, robotId);
-        }
+      if (this.globalData.controlPage) {
+        this.globalData.controlPage.handleRobotConnectionStatus(data);
       }
     },
     
-    // 处理视频质量更新
+    handleWebRTCAvailable: function(data) {
+      console.log('📡 收到WebRTC可用通知:', data.robot_id);
+      console.log('📡 视频流地址:', data.video_stream_url);
+      
+      if (this.globalData.webrtcSupported && !this.globalData.webrtcConnected) {
+        // 尝试建立WebRTC连接
+        this.initWebRTCConnection(data.robot_id, data.video_stream_url);
+      }
+    },
+    
+    initWebRTCConnection: function(robotId, videoStreamUrl) {
+      console.log('📡 正在初始化WebRTC连接...');
+      console.log('📡 使用视频流地址:', videoStreamUrl);
+      
+      // 存储视频流地址
+      this.globalData.webrtcStreamUrl = videoStreamUrl;
+      
+      // 在微信小程序中，我们直接使用视频流地址
+      // 标记WebRTC为已连接状态
+      this.globalData.webrtcConnected = true;
+      this.globalData.useWebRTC = true;
+      
+      // 通知控制页面切换到WebRTC模式
+      if (this.globalData.controlPage) {
+        this.globalData.controlPage.switchToWebRTC({
+          video_stream_url: videoStreamUrl,
+          robot_id: robotId
+        });
+      }
+      
+      console.log('✅ WebRTC连接已建立');
+    },
+    
+    handleWebRTCAnswer: function(data) {
+      console.log('📡 收到WebRTC答案');
+      
+      // 在微信小程序中，我们标记WebRTC为可用状态
+      this.globalData.webrtcConnected = true;
+      this.globalData.useWebRTC = true;
+      
+      // 通知控制页面切换到WebRTC模式
+      if (this.globalData.controlPage) {
+        this.globalData.controlPage.switchToWebRTC(data);
+      }
+      
+      console.log('✅ WebRTC连接已建立');
+    },
+    
+    handleWebRTCError: function(data) {
+      console.error('❌ WebRTC错误:', data.error);
+      
+      this.globalData.webrtcConnected = false;
+      this.globalData.useWebRTC = false;
+      
+      // 降级到WebSocket视频传输
+      if (this.globalData.controlPage) {
+        this.globalData.controlPage.fallbackToWebSocket();
+      }
+    },
+    
     handleVideoQualityUpdate: function(data) {
       this.globalData.videoQuality = data.preset || this.globalData.videoQuality;
-      
-      // 解析分辨率字符串 (如 "640x480")
-      if (data.resolution) {
-        const resParts = data.resolution.split('x');
-        if (resParts.length === 2) {
-          this.globalData.videoResolution = {
-            width: parseInt(resParts[0]),
-            height: parseInt(resParts[1])
-          };
-        }
-      }
-      
-      if (data.fps) {
-        this.globalData.frameRate = data.fps;
-      }
-      
-      // 通知控制页面更新视频质量显示
-      if (this.globalData.controlPage) {
-        this.globalData.controlPage.updateVideoQuality(data);
-      }
+      this.globalData.videoResolution = {
+        width: parseInt(data.resolution.split('x')[0]) || this.globalData.videoResolution.width,
+        height: parseInt(data.resolution.split('x')[1]) || this.globalData.videoResolution.height
+      };
+      this.globalData.frameRate = data.fps || this.globalData.frameRate;
       
       console.log('📹 视频质量调整为:', this.globalData.videoQuality);
     },
     
-    // 处理质量调整请求已接收
     handleQualityRequestReceived: function(data) {
       // 显示请求已接收的提示
       if (this.globalData.controlPage) {
@@ -992,9 +861,15 @@ App({
       }
     },
     
-
+    handleCompanionConnected: function(data) {
+      console.log('💝 伴侣机器人已连接:', data.companion_id);
+      
+      // 通知所有页面更新状态
+      if (this.globalData.controlPage) {
+        this.globalData.controlPage.handleCompanionConnected(data);
+      }
+    },
     
-    // 处理伴侣机器人断开连接
     handleCompanionDisconnected: function(data) {
       console.log('💔 伴侣机器人断开连接:', data.companion_id);
       
@@ -1015,16 +890,22 @@ App({
       if (this.globalData.controlPage) {
         this.globalData.controlPage.handleCompanionDisconnected(data);
       }
-      
-      if (this.globalData.historyPage) {
-        this.globalData.historyPage.handleCompanionDisconnected(data);
-      }
-      
-      if (this.globalData.featurePage) {
-        this.globalData.featurePage.handleCompanionDisconnected(data);
-      }
     },
-
+    
+    handleError: function(data) {
+      console.error('🚨 服务器错误:', data);
+      wx.showToast({
+        title: data.message || '发生错误',
+        icon: 'none',
+        duration: 3000
+      });
+    },
+    
+    saveProcessedImageData: function(data) {
+      // 保存处理后的图片数据
+      console.log('📷 保存处理后图片数据:', data.extraction_id);
+    },
+    
     // 主动关闭连接
     closeConnection: function() {
       this.globalData.closedByUser = true;
@@ -1074,109 +955,5 @@ App({
         interactionMode: this.globalData.interactionMode,
         position: this.globalData.robotPosition
       };
-    },
-    
-    // 初始化性能优化定时器
-    initPerformanceTimers: function() {
-      // 定期刷新缓冲数据（每5秒，减少频率）
-      setInterval(() => {
-        // 检查是否有数据需要刷新，避免无意义的调用
-        if (this._featureDataBuffer && this._featureDataBuffer.length > 0) {
-          this._flushFeatureData();
-        }
-        if (this._trackingDataBuffer && this._trackingDataBuffer.length > 0) {
-          this._flushTrackingData();
-        }
-      }, 5000);
-    },
-    
-    // WebRTC功能检测
-    detectWebRTCSupport: function() {
-      // 微信小程序环境中，WebRTC支持有限
-      // 这里我们检测是否有相关API可用
-      try {
-        if (typeof wx.createLivePlayerContext !== 'undefined') {
-          this.globalData.webrtcSupported = true;
-          console.log('📡 检测到WebRTC相关功能支持');
-        } else {
-          this.globalData.webrtcSupported = false;
-          console.log('⚠️ 当前环境不支持WebRTC功能');
-        }
-      } catch (e) {
-        this.globalData.webrtcSupported = false;
-        console.log('⚠️ WebRTC功能检测失败:', e);
-      }
-    },
-    
-    // 处理WebRTC可用通知
-    handleWebRTCAvailable: function(data) {
-      console.log('📡 收到WebRTC可用通知:', data.robot_id);
-      console.log('📡 视频流地址:', data.video_stream_url);
-      
-      if (this.globalData.webrtcSupported && !this.globalData.webrtcConnected) {
-        // 尝试建立WebRTC连接
-        this.initWebRTCConnection(data.robot_id, data.video_stream_url);
-      }
-    },
-    
-    // 初始化WebRTC连接
-    initWebRTCConnection: function(robotId, videoStreamUrl) {
-      console.log('📡 正在初始化WebRTC连接...');
-      console.log('📡 使用视频流地址:', videoStreamUrl);
-      
-      // 存储视频流地址
-      this.globalData.webrtcStreamUrl = videoStreamUrl;
-      
-      // 在微信小程序中，我们直接使用视频流地址
-      // 标记WebRTC为已连接状态
-      this.globalData.webrtcConnected = true;
-      this.globalData.useWebRTC = true;
-      
-      // 通知控制页面切换到WebRTC模式
-      if (this.globalData.controlPage) {
-        this.globalData.controlPage.switchToWebRTC({
-          video_stream_url: videoStreamUrl,
-          robot_id: robotId
-        });
-      }
-      
-      console.log('✅ WebRTC连接已建立');
-    },
-    
-    // 处理WebRTC答案
-    handleWebRTCAnswer: function(data) {
-      console.log('📡 收到WebRTC答案');
-      
-      // 在微信小程序中，我们标记WebRTC为可用状态
-      this.globalData.webrtcConnected = true;
-      this.globalData.useWebRTC = true;
-      
-      // 通知控制页面切换到WebRTC模式
-      if (this.globalData.controlPage) {
-        this.globalData.controlPage.switchToWebRTC(data);
-      }
-      
-      console.log('✅ WebRTC连接已建立');
-    },
-    
-    // 处理WebRTC错误
-    handleWebRTCError: function(data) {
-      console.error('❌ WebRTC错误:', data.error);
-      
-      this.globalData.webrtcConnected = false;
-      this.globalData.useWebRTC = false;
-      
-      // 降级到WebSocket视频传输
-      if (this.globalData.controlPage) {
-        this.globalData.controlPage.fallbackToWebSocket();
-      }
-    },
-    
-    // 发送WebRTC ICE候选（如果需要）
-    sendWebRTCIce: function(candidate) {
-      this.sendSocketMessage({
-        type: 'webrtc_ice',
-        ice: candidate
-      });
     }
-  });
+  }); 

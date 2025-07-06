@@ -47,18 +47,12 @@
         }
       ]
     },
+    "requiredPrivateInfos": [
+      "getLocation"
+    ],
     "permission": {
       "scope.userLocation": {
         "desc": "需要获取您的地理位置以记录机器人伴侣的陪伴轨迹"
-      },
-      "scope.camera": {
-        "desc": "需要使用相机进行人脸识别和伴侣交互功能"
-      },
-      "scope.writePhotosAlbum": {
-        "desc": "需要访问相册保存陪伴记录和互动照片"
-      },
-      "scope.record": {
-        "desc": "需要录音权限以进行语音交互和陪伴对话"
       }
     },
     "networkTimeout": {
