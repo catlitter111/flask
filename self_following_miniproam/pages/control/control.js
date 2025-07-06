@@ -102,7 +102,10 @@ Page({
       webrtcEnabled: true, // WebRTC功能是否启用
       webrtcConnected: false, // WebRTC连接状态
       fallbackToWebSocket: true, // 允许降级到WebSocket
-      livePlayerContext: null // live-player上下文
+      livePlayerContext: null, // live-player上下文
+      webrtcRetryCount: 0, // WebRTC重试计数
+      maxWebrtcRetries: 3, // 最大WebRTC重试次数
+      webrtcFallbackCompleted: false // 是否已完成降级到WebSocket
     },
   
     onLoad: function(options) {
@@ -1215,12 +1218,50 @@ Page({
     
     // WebRTC相关方法
     
+    // 检查live-player权限
+    checkLivePlayerPermission: function() {
+      return new Promise((resolve) => {
+        // 检查是否支持live-player
+        if (!wx.createLivePlayerContext) {
+          console.warn('⚠️ 当前环境不支持live-player组件');
+          resolve(false);
+          return;
+        }
+        
+        // 尝试创建live-player上下文来检查权限
+        try {
+          const context = wx.createLivePlayerContext('webrtcLivePlayer', this);
+          if (context) {
+            console.log('✅ live-player权限检查通过');
+            resolve(true);
+          } else {
+            console.warn('⚠️ 无法创建live-player上下文');
+            resolve(false);
+          }
+        } catch (error) {
+          console.error('❌ live-player权限检查失败:', error);
+          resolve(false);
+        }
+      });
+    },
+
     // 新增：初始化WebRTC连接
-    initializeWebRTC: function() {
+    initializeWebRTC: async function() {
       console.log('📡 正在初始化WebRTC连接...');
       
       if (!this.data.webrtcEnabled) {
         console.warn('⚠️ WebRTC功能未启用');
+        return;
+      }
+      
+      // 检查live-player权限
+      const hasPermission = await this.checkLivePlayerPermission();
+      if (!hasPermission) {
+        console.warn('⚠️ 没有live-player权限，直接使用WebSocket模式');
+        this.setData({
+          webrtcEnabled: false,
+          useWebRTC: false
+        });
         return;
       }
       
@@ -1230,7 +1271,8 @@ Page({
       this.setData({
         useWebRTC: true,
         webrtcStreamUrl: streamUrl,
-        webrtcConnected: false
+        webrtcConnected: false,
+        webrtcRetryCount: 0  // 重置重试计数
       });
       
       // 延迟初始化live-player，给服务器一些时间准备
@@ -1250,7 +1292,10 @@ Page({
       
       this.setData({
         useWebRTC: true,
-        webrtcStreamUrl: streamUrl
+        webrtcStreamUrl: streamUrl,
+        webrtcRetryCount: 0, // 重置重试计数
+        webrtcFallbackCompleted: false, // 重置降级状态
+        webrtcEnabled: true // 重新启用WebRTC
       });
       
       // 初始化live-player
@@ -1265,17 +1310,29 @@ Page({
     
     // 降级到WebSocket模式
     fallbackToWebSocket: function() {
+      // 防止重复降级
+      if (this.data.webrtcFallbackCompleted) {
+        console.log('📡 已完成WebSocket降级，跳过重复操作');
+        return;
+      }
+      
       console.log('📡 降级到WebSocket视频传输模式');
       
       this.setData({
         useWebRTC: false,
         webrtcStreamUrl: '',
-        webrtcConnected: false
+        webrtcConnected: false,
+        webrtcFallbackCompleted: true, // 标记降级已完成
+        webrtcEnabled: false // 禁用WebRTC功能
       });
       
       // 停止live-player
       if (this.data.livePlayerContext) {
-        this.data.livePlayerContext.stop();
+        try {
+          this.data.livePlayerContext.stop();
+        } catch (error) {
+          console.warn('⚠️ 停止live-player失败:', error);
+        }
         this.setData({
           livePlayerContext: null
         });
@@ -1300,7 +1357,14 @@ Page({
     
     // 初始化live-player
     initLivePlayer: function() {
-      if (!this.data.useWebRTC) {
+      if (!this.data.useWebRTC || this.data.webrtcFallbackCompleted) {
+        return;
+      }
+      
+      // 检查重试次数
+      if (this.data.webrtcRetryCount >= this.data.maxWebrtcRetries) {
+        console.warn('⚠️ WebRTC重试次数已达上限，执行降级');
+        this.fallbackToWebSocket();
         return;
       }
       
@@ -1316,7 +1380,8 @@ Page({
           success: () => {
             console.log('📡 WebRTC live-player开始播放');
             this.setData({
-              webrtcConnected: true
+              webrtcConnected: true,
+              webrtcRetryCount: 0 // 成功后重置重试计数
             });
             wx.showToast({
               title: 'WebRTC连接成功',
@@ -1326,22 +1391,51 @@ Page({
           },
           fail: (error) => {
             console.error('❌ WebRTC live-player播放失败:', error);
+            
+            // 增加重试计数
+            const newRetryCount = this.data.webrtcRetryCount + 1;
             this.setData({
-              webrtcConnected: false
+              webrtcConnected: false,
+              webrtcRetryCount: newRetryCount
             });
-            if (this.data.fallbackToWebSocket) {
+            
+            // 检查是否应该降级
+            if (newRetryCount >= this.data.maxWebrtcRetries) {
+              console.log('📡 WebRTC重试次数已达上限，执行降级到WebSocket');
               this.fallbackToWebSocket();
+            } else {
+              console.log(`📡 WebRTC重试 ${newRetryCount}/${this.data.maxWebrtcRetries}`);
+              // 短暂延迟后重试
+              setTimeout(() => {
+                if (!this.data.webrtcFallbackCompleted) {
+                  this.initLivePlayer();
+                }
+              }, 2000);
             }
           }
         });
         
       } catch (error) {
         console.error('❌ 初始化live-player失败:', error);
+        
+        // 增加重试计数
+        const newRetryCount = this.data.webrtcRetryCount + 1;
         this.setData({
-          webrtcConnected: false
+          webrtcConnected: false,
+          webrtcRetryCount: newRetryCount
         });
-        if (this.data.fallbackToWebSocket) {
+        
+        // 检查是否应该降级
+        if (newRetryCount >= this.data.maxWebrtcRetries) {
           this.fallbackToWebSocket();
+        } else {
+          console.log(`📡 WebRTC重试 ${newRetryCount}/${this.data.maxWebrtcRetries}`);
+          // 短暂延迟后重试
+          setTimeout(() => {
+            if (!this.data.webrtcFallbackCompleted) {
+              this.initLivePlayer();
+            }
+          }, 2000);
         }
       }
     },
@@ -1356,23 +1450,62 @@ Page({
       switch (code) {
         case 2001: // 连接成功
           console.log('✅ WebRTC连接成功');
+          this.setData({
+            webrtcConnected: true,
+            webrtcRetryCount: 0 // 成功后重置重试计数
+          });
           break;
         case 2002: // 开始播放
           console.log('▶️ WebRTC开始播放');
           break;
         case -2301: // 网络断连，且经多次重连亦不能恢复
         case -2302: // 获取加速拉流地址失败
-          console.error('❌ WebRTC连接失败，降级到WebSocket');
-          this.fallbackToWebSocket();
+          console.error('❌ WebRTC连接失败');
+          this.handleWebRTCError('网络连接失败');
           break;
         default:
           console.log(`📡 live-player状态: ${code}`);
       }
     },
     
+    // 处理WebRTC错误的统一方法
+    handleWebRTCError: function(errorType) {
+      if (this.data.webrtcFallbackCompleted) {
+        return; // 已经降级，不再处理
+      }
+      
+      const newRetryCount = this.data.webrtcRetryCount + 1;
+      this.setData({
+        webrtcRetryCount: newRetryCount,
+        webrtcConnected: false
+      });
+      
+      console.log(`❌ WebRTC错误 (${errorType}): 重试 ${newRetryCount}/${this.data.maxWebrtcRetries}`);
+      
+      if (newRetryCount >= this.data.maxWebrtcRetries) {
+        console.log('📡 WebRTC重试次数已达上限，执行降级到WebSocket');
+        this.fallbackToWebSocket();
+      } else {
+        // 短暂延迟后重试
+        setTimeout(() => {
+          if (!this.data.webrtcFallbackCompleted) {
+            this.initLivePlayer();
+          }
+        }, 2000);
+      }
+    },
+    
     // 处理live-player错误
     onLivePlayerError: function(e) {
       console.error('❌ live-player错误:', e.detail);
-      this.fallbackToWebSocket();
+      const errorMsg = e.detail.errMsg || 'unknown error';
+      
+      // 检查是否是权限问题
+      if (errorMsg.includes('no permission')) {
+        console.error('❌ live-player权限不足，直接降级到WebSocket');
+        this.fallbackToWebSocket();
+      } else {
+        this.handleWebRTCError('播放器错误');
+      }
     }
   });

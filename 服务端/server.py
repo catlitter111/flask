@@ -542,17 +542,10 @@ class CompanionServer:
             logger.error("❌ WebSocket库未正确安装")
             return
 
-        # 对于新版本，使用process_request来获取路径信息
-        async def process_request(connection, request):
-            """处理请求并提取路径信息"""
-            # 将路径信息存储在连接对象上
-            connection._custom_path = request.path
-            return None  # 继续正常的握手过程
-
         # 创建处理函数包装器
         async def handler(websocket):
-            # 从连接对象获取路径
-            path = getattr(websocket, '_custom_path', getattr(websocket, 'path', '/'))
+            # 直接从websocket对象获取路径（新版本支持）
+            path = getattr(websocket, 'path', '/')
             await self.handle_connection(websocket, path)
 
         # 使用新版本的服务器，优化心跳参数与客户端协调
@@ -560,7 +553,6 @@ class CompanionServer:
                 handler,
                 self.host,
                 self.port,
-                process_request=process_request,
                 ping_interval=22,  # 稍大于客户端的18秒，避免冲突
                 ping_timeout=12    # 给予更多时间处理
         ):
