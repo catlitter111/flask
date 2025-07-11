@@ -31,6 +31,7 @@ setup(
             'dlrobot_robot_node = dlrobot_robot_python.dlrobot_robot_node:main',
             'cmd_vel_to_ackermann = dlrobot_robot_python.cmd_vel_to_ackermann:main',
             'parameter_node = dlrobot_robot_python.parameter_node:main',
+            'person_following_controller = dlrobot_robot_python.person_following_controller:main',
         ],
     },
 )

@@ -1,0 +1,43 @@
+# 人体跟随控制器参数配置文件
+# =================================
+
+person_following_controller:
+  ros__parameters:
+    # 跟随控制参数
+    target_distance: 1.0        # 目标跟随距离(m)
+    distance_tolerance: 0.2     # 距离容忍度(m)
+    max_linear_speed: 0.3       # 最大线速度(m/s)
+    max_angular_speed: 0.5      # 最大角速度(rad/s)
+    min_distance: 0.5           # 最小安全距离(m)
+    max_distance: 3.0           # 最大跟随距离(m)
+    
+    # 图像相关参数
+    image_width: 640            # 图像宽度
+    image_height: 480           # 图像高度
+    camera_fov: 60.0            # 相机视场角(度)
+    
+    # 超时参数
+    detection_timeout: 2.0      # 检测超时时间(s)
+    
+    # 话题名称
+    person_positions_topic: "/person_detection/person_positions"
+    cmd_vel_topic: "/cmd_vel"
+    
+    # 调试参数
+    debug_mode: true
+
+# DLRobot驱动器参数
+dlrobot_robot_node:
+  ros__parameters:
+    # 串口参数
+    serial_baud_rate: 115200
+    usart_port_name: "/dev/dlrobot_controller"
+    
+    # 话题参数
+    cmd_vel: "cmd_vel"
+    akm_cmd_vel: "none"
+    
+    # 坐标系参数
+    odom_frame_id: "odom_combined"
+    robot_frame_id: "base_footprint"
+    gyro_frame_id: "gyro_link"
