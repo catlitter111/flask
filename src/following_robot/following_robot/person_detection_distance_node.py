@@ -79,13 +79,20 @@ class PersonDetectionDistanceNode(Node):
         # 存储人体检测结果和距离信息
         self.person_positions = []
         self.distance_queries = {}  # 存储待查询的距离信息
+        self.person_distances = {}  # 持久化存储人体距离信息
         
         # 图像显示相关
         self.display_image = None
         self.display_lock = threading.Lock()
         
-        # 定时器处理图像
-        self.timer = self.create_timer(0.1, self.process_image)  # 10 FPS
+        # 帧率计算
+        self.frame_count = 0
+        self.fps = 0.0
+        self.last_fps_time = time.time()
+        self.fps_frame_count = 0
+        
+        # 定时器处理图像 - 改为更高频率以获得真实FPS
+        self.timer = self.create_timer(0.033, self.process_image)  # 约30 FPS
         
         # 启动图像显示线程
         self.display_thread = threading.Thread(target=self.display_loop, daemon=True)
@@ -108,13 +115,30 @@ class PersonDetectionDistanceNode(Node):
             result = json.loads(msg.data)
             query_id = f"{result['x']}_{result['y']}"
             
+            # 更新对应人体的距离信息
             if query_id in self.distance_queries:
-                # 更新距离信息
-                self.distance_queries[query_id]['distance'] = result.get('depth_m', None)
-                self.distance_queries[query_id]['valid'] = result.get('valid', False)
+                person_id = self.distance_queries[query_id]['person_id']
                 
-                # 在图像上标注距离信息
-                self.annotate_distance_on_image(query_id, result)
+                # 持久化存储距离信息
+                if result.get('valid', False) and result.get('depth_m') is not None:
+                    self.person_distances[person_id] = {
+                        'distance': result.get('depth_m'),
+                        'valid': True,
+                        'timestamp': time.time(),
+                        'x': result['x'],
+                        'y': result['y']
+                    }
+                
+                # 同时更新当前帧的人体信息
+                for person in self.person_positions:
+                    if person['id'] == person_id:
+                        person['distance'] = result.get('depth_m', None)
+                        person['valid_distance'] = result.get('valid', False)
+                        break
+                
+                # 清理已处理的查询
+                del self.distance_queries[query_id]
+                
         except Exception as e:
             self.get_logger().error(f'Error processing depth result: {e}')
     
@@ -124,6 +148,13 @@ class PersonDetectionDistanceNode(Node):
             return
             
         try:
+            # 计算帧率
+            self.fps_frame_count += 1
+            current_time = time.time()
+            if current_time - self.last_fps_time >= 1.0:  # 每秒更新一次FPS
+                self.fps = self.fps_frame_count / (current_time - self.last_fps_time)
+                self.fps_frame_count = 0
+                self.last_fps_time = current_time
             # 复制图像用于处理
             img = self.latest_image.copy()
             
@@ -172,16 +203,28 @@ class PersonDetectionDistanceNode(Node):
                                 'distance': None,
                                 'valid_distance': False
                             }
+                            
+                            # 如果有历史距离数据，先使用历史数据
+                            if person_id in self.person_distances:
+                                cached_data = self.person_distances[person_id]
+                                # 如果缓存数据不超过2秒，使用缓存数据
+                                if time.time() - cached_data['timestamp'] < 2.0:
+                                    person_info['distance'] = cached_data['distance']
+                                    person_info['valid_distance'] = cached_data['valid']
+                                else:
+                                    # 清理过期数据
+                                    del self.person_distances[person_id]
+                            
                             self.person_positions.append(person_info)
                             
                             # 查询距离信息
                             self.query_distance(center_x, center_y, person_id)
             
-            # 发布带标注的图像
-            self.publish_annotated_image(img)
-            
             # 发布人体位置信息
             self.publish_person_positions()
+            
+            # 发布带标注的图像（延后，让距离数据有时间更新）
+            self.publish_annotated_image(img)
             
         except Exception as e:
             self.get_logger().error(f'Error processing image: {e}')
@@ -190,6 +233,10 @@ class PersonDetectionDistanceNode(Node):
         """查询指定像素点的距离信息"""
         try:
             query_id = f"{x}_{y}"
+            
+            # 如果已经有相同坐标的查询正在进行，跳过
+            if query_id in self.distance_queries:
+                return
             
             # 存储查询信息
             self.distance_queries[query_id] = {
@@ -206,38 +253,60 @@ class PersonDetectionDistanceNode(Node):
             query_msg.data = json.dumps({'x': x, 'y': y})
             self.depth_query_pub.publish(query_msg)
             
+            
         except Exception as e:
             self.get_logger().error(f'Error querying distance: {e}')
     
-    def annotate_distance_on_image(self, query_id, result):
-        """在图像上标注距离信息"""
-        try:
-            if query_id in self.distance_queries:
-                query_info = self.distance_queries[query_id]
-                person_id = query_info['person_id']
-                
-                # 更新人体位置信息中的距离
-                for person in self.person_positions:
-                    if person['id'] == person_id:
-                        person['distance'] = result.get('depth_m', None)
-                        person['valid_distance'] = result.get('valid', False)
-                        break
-                
-        except Exception as e:
-            self.get_logger().error(f'Error annotating distance: {e}')
     
     def publish_annotated_image(self, img):
         """发布带标注的图像"""
         try:
-            # 在图像上添加距离信息
+            # 在图像上添加系统信息
+            height, width = img.shape[:2]
+            
+            # 添加帧率信息
+            fps_text = f"FPS: {self.fps:.1f}"
+            cv2.putText(img, fps_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            # 添加检测到的人数
+            person_count_text = f"Persons: {len(self.person_positions)}"
+            cv2.putText(img, person_count_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            # 在图像上添加每个人的距离信息
             for person in self.person_positions:
-                if person['valid_distance'] and person['distance'] is not None:
-                    center_x, center_y = person['center']
-                    distance_text = f"{person['distance']:.2f}m"
-                    
-                    # 在中心点附近显示距离
-                    cv2.putText(img, distance_text, (center_x + 10, center_y),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+                center_x, center_y = person['center']
+                
+                # 显示人员ID
+                person_id_text = f"ID: {person['id']}"
+                cv2.putText(img, person_id_text, (center_x - 30, center_y - 30),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+                
+                # 显示距离信息 - 改进逻辑，优先使用有效的距离数据
+                distance_text = "Distance: N/A"
+                color = (0, 0, 255)  # 红色表示无效距离
+                
+                # 优先使用当前帧的距离数据
+                if person.get('valid_distance', False) and person.get('distance') is not None:
+                    distance_text = f"Distance: {person['distance']:.3f}m"
+                    color = (0, 255, 0)  # 绿色表示有效距离
+                # 如果当前帧没有有效数据，尝试使用缓存数据
+                elif person['id'] in self.person_distances:
+                    cached_data = self.person_distances[person['id']]
+                    if time.time() - cached_data['timestamp'] < 2.0:  # 2秒内的缓存数据
+                        distance_text = f"Distance: {cached_data['distance']:.3f}m"
+                        color = (0, 255, 255)  # 黄色表示缓存数据
+                
+                cv2.putText(img, distance_text, (center_x - 30, center_y - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+                
+                # 显示坐标信息
+                coord_text = f"({center_x}, {center_y})"
+                cv2.putText(img, coord_text, (center_x - 30, center_y + 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            
+            # 添加操作提示
+            cv2.putText(img, "Press 'q' to quit", (10, height - 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             
             # 更新显示图像
             with self.display_lock:
@@ -261,6 +330,14 @@ class PersonDetectionDistanceNode(Node):
             ]
             for query_id in expired_queries:
                 del self.distance_queries[query_id]
+                
+            # 清理过期的缓存距离数据
+            expired_distances = [
+                person_id for person_id, info in self.person_distances.items()
+                if current_time - info['timestamp'] > 5.0  # 5秒超时
+            ]
+            for person_id in expired_distances:
+                del self.person_distances[person_id]
             
             # 准备发布的数据
             positions_data = {
@@ -296,23 +373,14 @@ class PersonDetectionDistanceNode(Node):
                 try:
                     with self.display_lock:
                         if self.display_image is not None:
-                            # 添加状态信息
-                            display_img = self.display_image.copy()
-                            
-                            # 在图像上添加帧率和状态信息
-                            cv2.putText(display_img, f"Persons: {len(self.person_positions)}", 
-                                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                            
-                            # 添加说明文字
-                            cv2.putText(display_img, "Press 'q' to quit", 
-                                       (10, display_img.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                            
-                            cv2.imshow('Person Detection', display_img)
+                            cv2.imshow('Person Detection', self.display_image)
                         else:
                             # 显示等待图像
                             waiting_img = np.zeros((480, 640, 3), dtype=np.uint8)
                             cv2.putText(waiting_img, "Waiting for camera images...", 
-                                       (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                                       (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                            cv2.putText(waiting_img, "Press 'q' to quit", 
+                                       (250, 280), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                             cv2.imshow('Person Detection', waiting_img)
                     
                     # 检查按键
