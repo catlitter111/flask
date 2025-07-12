@@ -14,6 +14,7 @@ App({
       historyPage: null,
       featurePage: null,
       aiAssistantPage: null,
+      rfidPage: null,
       
       // 连接管理
       lastPongTime: 0,
@@ -528,6 +529,34 @@ App({
           case 'companion_disconnected':
             // 伴侣机器人断开连接
             this.handleCompanionDisconnected(data);
+            break;
+
+          case 'rfid_tags_data':
+            // RFID标签数据
+            if (this.globalData.rfidPage) {
+              this.globalData.rfidPage.handleRfidTagsData(data);
+            }
+            break;
+
+          case 'rfid_status_update':
+            // RFID状态更新
+            if (this.globalData.rfidPage) {
+              this.globalData.rfidPage.handleRfidStatusUpdate(data);
+            }
+            break;
+
+          case 'rfid_tag_detected':
+            // RFID单标签检测
+            if (this.globalData.rfidPage) {
+              this.globalData.rfidPage.handleRfidTagDetected(data);
+            }
+            break;
+
+          case 'rfid_command_response':
+            // RFID命令响应
+            if (this.globalData.rfidPage) {
+              this.globalData.rfidPage.handleRfidCommandResponse(data);
+            }
             break;
             
           case 'error':
@@ -1316,6 +1345,10 @@ App({
         
         if (this.globalData.featurePage) {
           this.globalData.featurePage.updateConnectionStatus(isConnected, robotId);
+        }
+        
+        if (this.globalData.rfidPage) {
+          this.globalData.rfidPage.updateConnectionStatus(isConnected, robotId);
         }
       }
     },

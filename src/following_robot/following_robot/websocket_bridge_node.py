@@ -29,6 +29,14 @@ from std_msgs.msg import String, Float32, Bool, Int32
 from geometry_msgs.msg import Point, Twist
 from custom_msgs.msg import TrackingResult, RobotStatus, TrackedPersonArray
 from custom_msgs.srv import FeatureExtraction
+# 添加RFID消息类型
+try:
+    from rfid_reader.msg import RfidTag, RfidTagArray, RfidReaderStatus
+    from rfid_reader.srv import RfidCommand
+    RFID_AVAILABLE = True
+except ImportError:
+    RFID_AVAILABLE = False
+    print("警告: RFID消息类型未找到，RFID功能将不可用")
 import cv2
 from cv_bridge import CvBridge
 import json
@@ -192,6 +200,21 @@ class WebSocketBridgeNode(Node):
         # 特征提取服务状态
         self.feature_service_available = False
         
+        # RFID状态管理
+        self.rfid_available = RFID_AVAILABLE
+        self.rfid_service_available = False
+        self.rfid_status = {
+            'connected': False,
+            'inventory_active': False,
+            'reader_ip': '',
+            'reader_port': 0,
+            'antenna_id': 1,
+            'session_duration': 0.0,
+            'total_tags': 0,
+            'total_reads': 0,
+            'last_update': 0
+        }
+        
     def setup_ros_components(self):
         """设置ROS2组件"""
         # 导入TrackedPersonArray消息类型
@@ -270,6 +293,12 @@ class WebSocketBridgeNode(Node):
         
         # 等待特征提取服务可用（非阻塞）
         self.check_feature_service_timer = self.create_timer(2.0, self.check_feature_service)
+        
+        # 添加RFID相关订阅和服务客户端
+        if self.rfid_available:
+            self.setup_rfid_components()
+        else:
+            self.get_logger().warn('⚠️ RFID功能不可用')
         
     def setup_websocket(self):
         """设置WebSocket连接"""
@@ -893,6 +922,23 @@ class WebSocketBridgeNode(Node):
                 self.command_publisher.publish(cmd_msg)
                 self.get_logger().info(f'🔄 切换控制类型: {control_type}')
                 
+            # 添加RFID控制命令处理
+            elif command == 'start_inventory':
+                # 开始RFID盘存
+                self.handle_rfid_command('start_inventory', params)
+                
+            elif command == 'stop_inventory':
+                # 停止RFID盘存
+                self.handle_rfid_command('stop_inventory', params)
+                
+            elif command == 'set_antenna':
+                # 设置RFID天线
+                self.handle_rfid_command('set_antenna', params)
+                
+            elif command == 'get_rfid_status':
+                # 获取RFID状态
+                self.handle_rfid_command('get_status', params)
+                
             else:
                 # 未知命令，记录日志但不报错
                 self.get_logger().warning(f'⚠️ 未知命令: {command}')
@@ -956,9 +1002,260 @@ class WebSocketBridgeNode(Node):
             self.get_logger().error(f'❌ 手动控制命令处理失败: {e}')
             raise
     
+    def handle_rfid_command(self, command, params):
+        """处理RFID控制命令"""
+        try:
+            if not self.rfid_available:
+                self.get_logger().error('❌ RFID功能不可用')
+                return False
+                
+            if not self.rfid_service_available:
+                self.get_logger().error('❌ RFID服务不可用')
+                return False
+            
+            # 构建RFID服务请求
+            request = RfidCommand.Request()
+            request.command = command
+            
+            # 根据命令类型设置参数
+            if command == 'set_antenna':
+                request.antenna_id = params.get('antenna_id', 1)
+            elif command in ['start_inventory', 'stop_inventory']:
+                # 可以添加IP和端口参数，如果需要的话
+                pass
+            
+            self.get_logger().info(f'📡🔥 [RFID命令] 发送命令: {command}, 参数: {params}')
+            
+            # 异步调用RFID服务
+            future = self.rfid_command_client.call_async(request)
+            future.add_done_callback(
+                lambda fut: self.handle_rfid_command_response(fut, command, params)
+            )
+            
+            return True
+            
+        except Exception as e:
+            self.get_logger().error(f'❌ RFID命令处理失败: {e}')
+            return False
+    
+    def handle_rfid_command_response(self, future, command, params):
+        """处理RFID命令服务响应"""
+        try:
+            response = future.result()
+            
+            if response.success:
+                self.get_logger().info(f'✅🔥 [RFID命令成功] {command}: {response.message}')
+                
+                # 发送成功响应给微信小程序
+                success_response = {
+                    'type': 'rfid_command_response', 
+                    'command': command,
+                    'status': 'success',
+                    'message': response.message,
+                    'rfid_status': {
+                        'connected': response.status.connected,
+                        'reader_ip': response.status.reader_ip,
+                        'reader_port': response.status.reader_port,
+                        'antenna_id': response.status.antenna_id,
+                        'session_duration': response.status.session_duration
+                    },
+                    'timestamp': int(time.time() * 1000)
+                }
+                
+                self.send_ws_message(success_response)
+                
+            else:
+                self.get_logger().error(f'❌🔥 [RFID命令失败] {command}: {response.message}')
+                
+                # 发送失败响应给微信小程序
+                error_response = {
+                    'type': 'rfid_command_response',
+                    'command': command, 
+                    'status': 'error',
+                    'error': response.message,
+                    'timestamp': int(time.time() * 1000)
+                }
+                
+                self.send_ws_message(error_response)
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ RFID命令服务调用失败: {e}')
+            
+            # 发送服务调用失败响应
+            error_response = {
+                'type': 'rfid_command_response',
+                'command': command,
+                'status': 'error', 
+                'error': f'服务调用失败: {str(e)}',
+                'timestamp': int(time.time() * 1000)
+            }
+            
+            self.send_ws_message(error_response)
+
     def handle_heartbeat_ack(self, data):
         """处理心跳确认"""
         pass  # 目前不需要特殊处理
+    
+    def rfid_tags_callback(self, msg):
+        """处理RFID标签数组消息"""
+        if not self.ws_connected:
+            return
+            
+        try:
+            # 转换RFID标签数组为微信小程序可用的格式
+            rfid_data = {
+                'type': 'rfid_tags_data',
+                'robot_id': self.robot_id,
+                'timestamp': int(time.time() * 1000),
+                'data': {
+                    'total_tags': msg.total_tags,
+                    'total_reads': msg.total_reads,
+                    'tags': [],
+                    'status': '检测中' if msg.total_tags > 0 else '等待中',
+                    'last_update': int(time.time() * 1000)
+                }
+            }
+            
+            # 处理每个标签
+            for tag in msg.tags:
+                tag_data = {
+                    'epc': tag.epc,
+                    'rssi_dbm': tag.rssi_dbm,
+                    'rssi_raw': tag.rssi_raw,
+                    'antenna_id': tag.antenna_id,
+                    'freq_param': tag.freq_param,
+                    'read_count': tag.read_count,
+                    'first_seen': {
+                        'sec': tag.first_seen.sec,
+                        'nanosec': tag.first_seen.nanosec
+                    },
+                    'last_seen': {
+                        'sec': tag.last_seen.sec, 
+                        'nanosec': tag.last_seen.nanosec
+                    },
+                    'signal_quality': self.get_signal_quality(tag.rssi_dbm)
+                }
+                rfid_data['data']['tags'].append(tag_data)
+            
+            # 发送RFID数据到微信小程序
+            success = self.send_ws_message(rfid_data)
+            
+            if success:
+                self.get_logger().debug(f'📡 转发RFID数据: {msg.total_tags}个标签, 总读取: {msg.total_reads}次')
+            else:
+                self.get_logger().warn('⚠️ RFID数据发送失败')
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ 处理RFID标签数据失败: {e}')
+            import traceback
+            self.get_logger().error(f'详细错误: {traceback.format_exc()}')
+    
+    def rfid_status_callback(self, msg):
+        """处理RFID状态消息"""
+        if not self.ws_connected:
+            return
+            
+        try:
+            # 更新本地RFID状态
+            self.rfid_status.update({
+                'connected': msg.connected,
+                'inventory_active': msg.connected,  # 连接即表示盘存活跃
+                'reader_ip': msg.reader_ip,
+                'reader_port': msg.reader_port,
+                'antenna_id': msg.antenna_id,
+                'session_duration': msg.session_duration,
+                'total_reads': msg.total_read,
+                'last_update': time.time()
+            })
+            
+            # 构建状态消息
+            status_data = {
+                'type': 'rfid_status_update',
+                'robot_id': self.robot_id,
+                'timestamp': int(time.time() * 1000),
+                'data': {
+                    'connected': msg.connected,
+                    'inventory_active': msg.connected,
+                    'reader_info': {
+                        'ip': msg.reader_ip,
+                        'port': msg.reader_port,
+                        'antenna_id': msg.antenna_id
+                    },
+                    'session_info': {
+                        'duration': msg.session_duration,
+                        'start_time': {
+                            'sec': msg.session_start_time.sec,
+                            'nanosec': msg.session_start_time.nanosec
+                        }
+                    },
+                    'statistics': {
+                        'read_rate': msg.read_rate,
+                        'total_reads': msg.total_read
+                    },
+                    'status_text': '盘存中' if msg.connected else '已停止'
+                }
+            }
+            
+            # 发送状态更新
+            success = self.send_ws_message(status_data)
+            
+            if success:
+                self.get_logger().debug(f'📊 转发RFID状态: 连接={msg.connected}, 读取率={msg.read_rate}')
+            else:
+                self.get_logger().warn('⚠️ RFID状态发送失败')
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ 处理RFID状态失败: {e}')
+    
+    def rfid_tag_callback(self, msg):
+        """处理单个RFID标签检测消息"""
+        if not self.ws_connected:
+            return
+            
+        try:
+            # 构建单个标签检测消息
+            tag_detection = {
+                'type': 'rfid_tag_detected',
+                'robot_id': self.robot_id,
+                'timestamp': int(time.time() * 1000),
+                'data': {
+                    'epc': msg.epc,
+                    'rssi_dbm': msg.rssi_dbm,
+                    'rssi_raw': msg.rssi_raw,
+                    'antenna_id': msg.antenna_id,
+                    'freq_param': msg.freq_param,
+                    'read_count': msg.read_count,
+                    'signal_quality': self.get_signal_quality(msg.rssi_dbm),
+                    'detection_time': {
+                        'sec': msg.last_seen.sec,
+                        'nanosec': msg.last_seen.nanosec
+                    }
+                }
+            }
+            
+            # 发送新标签检测通知
+            success = self.send_ws_message(tag_detection)
+            
+            if success:
+                self.get_logger().info(f'🆕 转发新标签检测: EPC={msg.epc}, RSSI={msg.rssi_dbm}dBm')
+            else:
+                self.get_logger().warn('⚠️ 新标签检测发送失败')
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ 处理新标签检测失败: {e}')
+    
+    def get_signal_quality(self, rssi_dbm):
+        """根据RSSI值获取信号质量描述"""
+        if rssi_dbm >= -40:
+            return '极强'
+        elif rssi_dbm >= -55:
+            return '强'
+        elif rssi_dbm >= -70:
+            return '中等'
+        elif rssi_dbm >= -85:
+            return '弱'
+        else:
+            return '极弱'
         
     def check_feature_service(self):
         """检查特征提取服务是否可用"""
@@ -972,6 +1269,62 @@ class WebSocketBridgeNode(Node):
             if self.feature_service_available:
                 self.feature_service_available = False
                 self.get_logger().warn('⚠️ 特征提取服务不可用')
+    
+    def setup_rfid_components(self):
+        """设置RFID相关组件"""
+        try:
+            # 订阅RFID标签数组
+            self.rfid_tags_subscription = self.create_subscription(
+                RfidTagArray,
+                '/rfid/tags',
+                self.rfid_tags_callback,
+                10
+            )
+            
+            # 订阅RFID状态
+            self.rfid_status_subscription = self.create_subscription(
+                RfidReaderStatus,
+                '/rfid/status',
+                self.rfid_status_callback,
+                10
+            )
+            
+            # 订阅单个标签检测
+            self.rfid_tag_subscription = self.create_subscription(
+                RfidTag,
+                '/rfid/tag_detected',
+                self.rfid_tag_callback,
+                10
+            )
+            
+            # RFID服务客户端
+            self.rfid_command_client = self.create_client(
+                RfidCommand,
+                '/rfid/command'
+            )
+            
+            # 等待RFID服务可用（非阻塞）
+            self.check_rfid_service_timer = self.create_timer(3.0, self.check_rfid_service)
+            
+            self.get_logger().info('✅ RFID组件已设置')
+            self.get_logger().info('📡 订阅RFID主题: /rfid/tags, /rfid/status, /rfid/tag_detected')
+            
+        except Exception as e:
+            self.get_logger().error(f'❌ RFID组件设置失败: {e}')
+            self.rfid_available = False
+    
+    def check_rfid_service(self):
+        """检查RFID服务是否可用"""
+        if self.rfid_command_client.service_is_ready():
+            if not self.rfid_service_available:
+                self.rfid_service_available = True
+                self.get_logger().info('✅ RFID命令服务已就绪')
+                # 取消定时检查
+                self.check_rfid_service_timer.cancel()
+        else:
+            if self.rfid_service_available:
+                self.rfid_service_available = False
+                self.get_logger().warn('⚠️ RFID命令服务不可用')
 
     def setup_timers(self):
         """设置定时器"""
@@ -1597,6 +1950,10 @@ class WebSocketBridgeNode(Node):
         # 取消特征服务检查定时器
         if hasattr(self, 'check_feature_service_timer'):
             self.check_feature_service_timer.cancel()
+            
+        # 取消RFID服务检查定时器
+        if hasattr(self, 'check_rfid_service_timer'):
+            self.check_rfid_service_timer.cancel()
             
         super().destroy_node()
         self.get_logger().info('✅ WebSocket桥接节点已关闭')

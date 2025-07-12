@@ -599,6 +599,26 @@ class CompanionServer:
         elif message_type == 'processed_image_result':
             # 处理后图片结果
             await self.handle_processed_image_result(connection, data)
+            
+        elif message_type == 'rfid_command':
+            # RFID控制命令（开始/停止盘存等）
+            robot_id = data.get('robot_id') or connection.robot_id
+            if robot_id:
+                # 转发RFID命令到机器人
+                command = data.get('command', '')
+                params = data.get('params', {})
+                logger.info(f"📡🔥 收到RFID命令 - 客户端: {connection.client_id}, 机器人: {robot_id}, 命令: {command}")
+                
+                # 构建转发给机器人的命令消息
+                robot_command = {
+                    'type': 'companion_command',
+                    'command': command,
+                    'params': params,
+                    'client_id': connection.client_id,
+                    'timestamp': data.get('timestamp', int(time.time() * 1000))
+                }
+                
+                await self.forward_to_robot(robot_id, robot_command)
 
     async def handle_ros2_bridge(self, connection: ClientConnection, robot_id: str):
         """处理ROS2桥接节点连接"""
@@ -707,6 +727,36 @@ class CompanionServer:
             await self.forward_to_companions(robot_id, data)
             logger.info(f"📈 转发详细跟踪数据 - 机器人: {robot_id}, 数据: {json.dumps(data, indent=2)}")
             logger.debug(f"📊 详细跟踪数据 - 机器人: {robot_id}, 轨迹数: {data.get('data', {}).get('total_tracks', 0)}, 目标检测: {data.get('data', {}).get('target_detected', False)}")
+            
+        elif message_type == 'rfid_tags_data':
+            # 转发RFID标签数据到所有客户端
+            await self.forward_to_companions(robot_id, data)
+            tags_count = data.get('data', {}).get('total_tags', 0)
+            reads_count = data.get('data', {}).get('total_reads', 0)
+            logger.info(f"📡 转发RFID标签数据 - 机器人: {robot_id}, 标签数: {tags_count}, 读取次数: {reads_count}")
+            
+        elif message_type == 'rfid_status_update':
+            # 转发RFID状态更新到所有客户端
+            await self.forward_to_companions(robot_id, data)
+            status_data = data.get('data', {})
+            connected = status_data.get('connected', False)
+            inventory_active = status_data.get('inventory_active', False)
+            logger.info(f"📊 转发RFID状态更新 - 机器人: {robot_id}, 连接: {connected}, 盘存活跃: {inventory_active}")
+            
+        elif message_type == 'rfid_tag_detected':
+            # 转发单个RFID标签检测到所有客户端
+            await self.forward_to_companions(robot_id, data)
+            tag_data = data.get('data', {})
+            epc = tag_data.get('epc', 'unknown')
+            rssi = tag_data.get('rssi_dbm', 0)
+            logger.info(f"🆕 转发新RFID标签检测 - 机器人: {robot_id}, EPC: {epc}, RSSI: {rssi}dBm")
+            
+        elif message_type == 'rfid_command_response':
+            # 转发RFID命令响应到所有客户端
+            await self.forward_to_companions(robot_id, data)
+            command = data.get('command', 'unknown')
+            status = data.get('status', 'unknown')
+            logger.info(f"⚡ 转发RFID命令响应 - 机器人: {robot_id}, 命令: {command}, 状态: {status}")
             
         elif message_type == 'heartbeat':
             # 机器人心跳

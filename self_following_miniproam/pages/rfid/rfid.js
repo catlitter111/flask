@@ -1,8 +1,11 @@
 // pages/rfid/rfid.js - RFID实时监控页面
+const app = getApp();
+
 Page({
     data: {
       // 连接状态
       connected: false,
+      robotConnected: false,
       readerAddress: '192.168.0.178:4001',
       
       // 扫描状态
@@ -25,61 +28,134 @@ Page({
       
       // 定时器
       runningTimer: null,
-      startTime: null
+      startTime: null,
+      
+      // RFID状态
+      rfidStatus: {
+        connected: false,
+        inventory_active: false,
+        session_duration: 0.0,
+        last_update: 0
+      },
+      
+      // 消息处理
+      lastMessageTime: 0,
+      messageCount: 0
     },
   
     onLoad: function(options) {
-      console.log('RFID页面加载');
+      console.log('📡 RFID页面加载');
       
-      // TODO: 初始化RFID连接
+      // 注册页面到全局app，用于接收WebSocket消息
+      app.globalData.rfidPage = this;
+      
+      // 初始化WebSocket连接
       this.initRFIDConnection();
       
-      // TODO: 恢复上次的配置
+      // 恢复上次的配置
       this.loadSettings();
+      
+      // 检查连接状态
+      this.checkConnectionStatus();
     },
   
     onUnload: function() {
+      console.log('📡 RFID页面卸载');
+      
       // 清理定时器
       if (this.data.runningTimer) {
         clearInterval(this.data.runningTimer);
       }
       
-      // TODO: 断开RFID连接
-      this.disconnectRFID();
+      // 停止盘存（如果正在运行）
+      if (this.data.isScanning) {
+        this.sendRfidCommand('stop_inventory');
+      }
+      
+      // 从全局app中移除页面引用
+      if (app.globalData.rfidPage === this) {
+        app.globalData.rfidPage = null;
+      }
     },
   
+    // 检查连接状态
+    checkConnectionStatus: function() {
+      const connectionStatus = app.getConnectionStatus();
+      const robotStatus = app.getRobotStatus();
+      
+      this.setData({
+        connected: connectionStatus.connected,
+        robotConnected: connectionStatus.connected
+      });
+      
+      console.log('📡 RFID页面连接状态:', {
+        websocket: connectionStatus.connected,
+        robot: connectionStatus.connected
+      });
+    },
+    
     // 初始化RFID连接
     initRFIDConnection: function() {
-      // TODO: 实现RFID读写器连接逻辑
-      console.log('初始化RFID连接...');
+      console.log('📡 初始化RFID WebSocket连接...');
       
-      // 模拟连接成功
-      setTimeout(() => {
+      // 检查WebSocket连接状态
+      if (!app.globalData.connected) {
+        console.log('⚠️ WebSocket未连接，尝试重新连接...');
+        app.connectWebSocket();
+        
+        // 等待连接建立后再检查状态
+        setTimeout(() => {
+          this.checkConnectionStatus();
+        }, 2000);
+      } else {
+        // 已连接，更新状态
         this.setData({
-          connected: true
+          connected: true,
+          robotConnected: true
         });
-        wx.showToast({
-          title: '读写器连接成功',
-          icon: 'success'
-        });
-      }, 1000);
+        
+        // 请求RFID初始状态
+        this.requestRfidStatus();
+      }
     },
   
-    // 断开RFID连接
-    disconnectRFID: function() {
-      // TODO: 实现断开连接逻辑
-      console.log('断开RFID连接');
+    // 请求RFID状态
+    requestRfidStatus: function() {
+      this.sendRfidCommand('get_rfid_status');
+    },
+    
+    // 发送RFID命令
+    sendRfidCommand: function(command, params = {}) {
+      if (!app.globalData.connected) {
+        wx.showToast({
+          title: '请先连接到机器人',
+          icon: 'none',
+          duration: 2000
+        });
+        return;
+      }
+      
+      const rfidCommand = {
+        type: 'rfid_command',
+        robot_id: app.globalData.robotId,
+        command: command,
+        params: params,
+        timestamp: Date.now()
+      };
+      
+      console.log('📡🔥 发送RFID命令:', command, params);
+      app.sendSocketMessage(rfidCommand);
     },
   
     // 加载设置
     loadSettings: function() {
-      // TODO: 从本地存储加载用户设置
       const settings = wx.getStorageSync('rfidSettings') || {};
       if (settings.selectedAntenna) {
         this.setData({
           selectedAntenna: settings.selectedAntenna
         });
       }
+      console.log('📡 加载RFID设置:', settings);
     },
   
     // 切换扫描状态
@@ -95,38 +171,38 @@ Page({
     startScanning: function() {
       if (!this.data.connected) {
         wx.showToast({
-          title: '请先连接读写器',
+          title: '请先连接到机器人',
           icon: 'none'
         });
         return;
       }
   
-      console.log('开始RFID扫描');
+      console.log('📡🔥 开始RFID盘存');
       
-      // TODO: 发送开始扫描指令到读写器
+      // 发送开始盘存命令
+      this.sendRfidCommand('start_inventory');
       
       this.setData({
         isScanning: true,
-        startTime: Date.now()
+        startTime: Date.now(),
+        newTagsCount: 0  // 重置新标签计数
       });
   
       // 启动计时器
       this.startRunningTimer();
   
-      // TODO: 模拟数据更新（实际应该接收读写器数据）
-      this.simulateDataUpdate();
-  
       wx.showToast({
-        title: '开始扫描',
+        title: '开始RFID盘存',
         icon: 'success'
       });
     },
   
     // 停止扫描
     stopScanning: function() {
-      console.log('停止RFID扫描');
+      console.log('📡🔥 停止RFID盘存');
       
-      // TODO: 发送停止扫描指令到读写器
+      // 发送停止盘存命令
+      this.sendRfidCommand('stop_inventory');
       
       this.setData({
         isScanning: false
@@ -139,7 +215,7 @@ Page({
       }
   
       wx.showToast({
-        title: '已停止扫描',
+        title: '已停止RFID盘存',
         icon: 'none'
       });
     },
@@ -158,63 +234,248 @@ Page({
       }, 1000);
     },
   
-    // 模拟数据更新（实际项目中应该接收真实数据）
-    simulateDataUpdate: function() {
-      // TODO: 这里应该接收来自读写器的实时数据
+    // ==== WebSocket消息处理方法 ====
+    
+    // 处理RFID标签数据
+    handleRfidTagsData: function(data) {
+      console.log('📡 收到RFID标签数据:', data);
       
-      // 模拟添加标签
-      const mockTags = [
-        {
-          epc: 'E200 3412 0123 4567 8901 2345',
-          rssi: -45,
-          readCount: 12,
-          antenna: 1,
-          lastSeen: '10:23:45',
-          isActive: true
-        },
-        {
-          epc: 'E200 3412 0123 4567 8901 2346',
-          rssi: -52,
-          readCount: 8,
-          antenna: 1,
-          lastSeen: '10:23:44',
-          isActive: true
-        }
-      ];
-  
-      // 模拟数据更新
-      let readCount = 0;
-      const updateInterval = setInterval(() => {
-        if (!this.data.isScanning) {
-          clearInterval(updateInterval);
-          return;
-        }
-  
-        readCount++;
+      const rfidData = data.data || {};
+      const tags = rfidData.tags || [];
+      
+      // 更新统计数据
+      this.setData({
+        totalTags: rfidData.total_tags || 0,
+        totalReads: rfidData.total_reads || 0,
+        avgReadsPerTag: rfidData.total_tags > 0 ? 
+          (rfidData.total_reads / rfidData.total_tags).toFixed(1) : '0.0'
+      });
+      
+      // 处理标签列表
+      const formattedTags = tags.map(tag => ({
+        epc: tag.epc || 'Unknown',
+        rssi: tag.rssi_dbm || -99,
+        readCount: tag.read_count || 0,
+        antenna: tag.antenna_id || 1,
+        lastSeen: this.formatTime(tag.last_seen),
+        isActive: true,
+        signalQuality: tag.signal_quality || '未知'
+      }));
+      
+      // 检查新标签
+      const currentEpcs = this.data.tagList.map(tag => tag.epc);
+      const newTags = formattedTags.filter(tag => !currentEpcs.includes(tag.epc));
+      
+      if (newTags.length > 0) {
         this.setData({
-          readRate: Math.floor(Math.random() * 50) + 75,
-          totalReads: this.data.totalReads + 1,
-          avgReadsPerTag: ((this.data.totalReads + 1) / Math.max(1, this.data.totalTags)).toFixed(1)
+          newTagsCount: this.data.newTagsCount + newTags.length
         });
-  
-        // 随机添加新标签
-        if (Math.random() > 0.7 && this.data.tagList.length < 10) {
-          const newTag = {
-            epc: `E200 3412 0123 4567 8901 234${this.data.tagList.length}`,
-            rssi: -Math.floor(Math.random() * 40 + 40),
-            readCount: 1,
-            antenna: this.data.selectedAntenna,
-            lastSeen: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-            isActive: true
-          };
-  
+      }
+      
+      // 更新标签列表
+      this.setData({
+        tagList: formattedTags
+      });
+      
+      // 计算平均RSSI
+      if (formattedTags.length > 0) {
+        const avgRSSI = Math.round(
+          formattedTags.reduce((sum, tag) => sum + tag.rssi, 0) / formattedTags.length
+        );
+        this.setData({
+          avgRSSI: avgRSSI
+        });
+      }
+    },
+    
+    // 处理RFID状态更新
+    handleRfidStatusUpdate: function(data) {
+      console.log('📊 收到RFID状态更新:', data);
+      
+      const statusData = data.data || {};
+      const readerInfo = statusData.reader_info || {};
+      const statistics = statusData.statistics || {};
+      
+      this.setData({
+        rfidStatus: {
+          connected: statusData.connected || false,
+          inventory_active: statusData.inventory_active || false,
+          session_duration: statusData.session_info?.duration || 0,
+          last_update: Date.now()
+        },
+        readRate: statistics.read_rate || 0,
+        readerAddress: `${readerInfo.ip || '192.168.0.178'}:${readerInfo.port || 4001}`,
+        selectedAntenna: readerInfo.antenna_id || this.data.selectedAntenna
+      });
+      
+      // 如果盘存状态发生变化，同步UI状态
+      if (statusData.inventory_active !== this.data.isScanning) {
+        this.setData({
+          isScanning: statusData.inventory_active
+        });
+        
+        if (statusData.inventory_active && !this.data.runningTimer) {
+          this.setData({ startTime: Date.now() });
+          this.startRunningTimer();
+        } else if (!statusData.inventory_active && this.data.runningTimer) {
+          clearInterval(this.data.runningTimer);
+          this.data.runningTimer = null;
+        }
+      }
+    },
+    
+    // 处理单个RFID标签检测
+    handleRfidTagDetected: function(data) {
+      console.log('🆕 收到新标签检测:', data);
+      
+      const tagData = data.data || {};
+      const newTag = {
+        epc: tagData.epc || 'Unknown',
+        rssi: tagData.rssi_dbm || -99,
+        readCount: tagData.read_count || 1,
+        antenna: tagData.antenna_id || 1,
+        lastSeen: this.formatTime(tagData.detection_time),
+        isActive: true,
+        signalQuality: tagData.signal_quality || '未知'
+      };
+      
+      // 检查是否是新标签
+      const existingTag = this.data.tagList.find(tag => tag.epc === newTag.epc);
+      if (!existingTag) {
+        // 新标签，添加到列表顶部
+        this.setData({
+          tagList: [newTag, ...this.data.tagList],
+          totalTags: this.data.totalTags + 1,
+          newTagsCount: this.data.newTagsCount + 1
+        });
+        
+        // 显示新标签提示
+        wx.showToast({
+          title: `检测到新标签`,
+          icon: 'none',
+          duration: 1500
+        });
+      } else {
+        // 更新现有标签
+        const updatedList = this.data.tagList.map(tag => 
+          tag.epc === newTag.epc ? newTag : tag
+        );
+        this.setData({
+          tagList: updatedList
+        });
+      }
+    },
+    
+    // 处理RFID命令响应
+    handleRfidCommandResponse: function(data) {
+      console.log('⚡ 收到RFID命令响应:', data);
+      
+      const command = data.command || 'unknown';
+      const status = data.status || 'unknown';
+      const message = data.message || '';
+      
+      if (status === 'success') {
+        console.log(`✅ RFID命令成功: ${command} - ${message}`);
+        
+        // 根据命令类型处理响应
+        switch (command) {
+          case 'start_inventory':
+            wx.showToast({
+              title: 'RFID盘存已开始',
+              icon: 'success'
+            });
+            break;
+          case 'stop_inventory':
+            wx.showToast({
+              title: 'RFID盘存已停止',
+              icon: 'none'
+            });
+            break;
+          case 'set_antenna':
+            // 天线切换成功，已在selectAntenna中显示提示
+            break;
+          case 'get_rfid_status':
+            // 状态获取成功，不需要特殊处理
+            break;
+        }
+        
+        // 更新RFID状态
+        if (data.rfid_status) {
           this.setData({
-            tagList: [newTag, ...this.data.tagList],
-            totalTags: this.data.totalTags + 1,
-            newTagsCount: this.data.newTagsCount + 1
+            rfidStatus: {
+              connected: data.rfid_status.connected || false,
+              inventory_active: command === 'start_inventory',
+              session_duration: data.rfid_status.session_duration || 0,
+              last_update: Date.now()
+            }
           });
         }
-      }, 1000);
+      } else {
+        const error = data.error || '未知错误';
+        console.error(`❌ RFID命令失败: ${command} - ${error}`);
+        
+        wx.showToast({
+          title: `${command}失败: ${error}`,
+          icon: 'none',
+          duration: 2000
+        });
+      }
+    },
+    
+    // 更新连接状态
+    updateConnectionStatus: function(connected, robotId) {
+      console.log('📡 RFID页面连接状态更新:', connected, robotId);
+      
+      this.setData({
+        connected: connected,
+        robotConnected: connected
+      });
+      
+      if (connected) {
+        // 重新连接后，请求RFID状态
+        setTimeout(() => {
+          this.requestRfidStatus();
+        }, 1000);
+      } else {
+        // 断开连接，重置状态
+        this.setData({
+          rfidStatus: {
+            connected: false,
+            inventory_active: false,
+            session_duration: 0,
+            last_update: 0
+          },
+          isScanning: false,
+          readRate: 0
+        });
+        
+        // 停止计时器
+        if (this.data.runningTimer) {
+          clearInterval(this.data.runningTimer);
+          this.data.runningTimer = null;
+        }
+      }
+    },
+    
+    // 格式化时间
+    formatTime: function(timeData) {
+      if (!timeData) {
+        return new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      }
+      
+      if (typeof timeData === 'object' && timeData.sec) {
+        // ROS时间格式
+        const date = new Date(timeData.sec * 1000);
+        return date.toLocaleTimeString('zh-CN', { hour12: false });
+      }
+      
+      if (typeof timeData === 'number') {
+        // 时间戳
+        const date = new Date(timeData);
+        return date.toLocaleTimeString('zh-CN', { hour12: false });
+      }
+      
+      return timeData.toString();
     },
   
     // 选择天线
@@ -224,8 +485,9 @@ Page({
         selectedAntenna: antenna
       });
   
-      // TODO: 发送天线切换指令到读写器
-      console.log('切换到天线', antenna);
+      // 发送天线切换指令到机器人
+      this.sendRfidCommand('set_antenna', { antenna_id: antenna });
+      console.log('📡🔥 切换到天线', antenna);
   
       // 保存设置
       wx.setStorageSync('rfidSettings', {
@@ -301,16 +563,4 @@ Page({
         showCancel: false
       });
     },
-  
-    // 处理RFID数据（预留接口）
-    handleRFIDData: function(data) {
-      // TODO: 处理从读写器接收的数据
-      console.log('收到RFID数据:', data);
-    },
-  
-    // 发送指令到读写器（预留接口）
-    sendCommand: function(command, params) {
-      // TODO: 实现发送指令逻辑
-      console.log('发送指令:', command, params);
-    }
   });
