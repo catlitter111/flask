@@ -1,0 +1,510 @@
+/* pages/rfid/history/history.wxss - RFID历史记录页面样式 */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: #f5f5f5;
+}
+
+/* 统计卡片区域 */
+.stats-section {
+  padding: 20rpx;
+  background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+}
+
+.stats-card {
+  background: white;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.1);
+}
+
+.stats-grid {
+  display: flex;
+  justify-content: space-between;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.stat-value {
+  font-size: 48rpx;
+  font-weight: bold;
+  color: #2c3e50;
+  margin-bottom: 8rpx;
+}
+
+.stat-value.detected {
+  color: #4CAF50;
+}
+
+.stat-value.lost {
+  color: #FF5722;
+}
+
+.stat-label {
+  font-size: 24rpx;
+  color: #7f8c8d;
+}
+
+/* 筛选操作区域 */
+.filter-section {
+  background: white;
+  margin: 0 20rpx 20rpx;
+  border-radius: 24rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 32rpx;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.filter-picker {
+  flex: 1;
+  margin-right: 20rpx;
+}
+
+.picker-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16rpx 20rpx;
+  background: #f8f9fa;
+  border-radius: 16rpx;
+  border: 1rpx solid #e9ecef;
+}
+
+.picker-text {
+  font-size: 26rpx;
+  color: #2c3e50;
+}
+
+.picker-arrow {
+  font-size: 20rpx;
+  color: #95a5a6;
+  transition: transform 0.3s ease;
+}
+
+.action-btn {
+  width: 72rpx;
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #3498db;
+  border-radius: 16rpx;
+  margin-left: 16rpx;
+}
+
+.search-btn {
+  background: #e74c3c;
+}
+
+.btn-icon {
+  font-size: 28rpx;
+  color: white;
+}
+
+.search-row {
+  padding: 0 32rpx 24rpx;
+}
+
+.search-input {
+  width: 100%;
+  height: 72rpx;
+  background: #f8f9fa;
+  border-radius: 16rpx;
+  padding: 0 20rpx;
+  font-size: 26rpx;
+  border: 1rpx solid #e9ecef;
+}
+
+.operation-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx 32rpx;
+}
+
+.sort-picker {
+  flex: 1;
+}
+
+.sort-display {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 20rpx;
+  background: #f8f9fa;
+  border-radius: 16rpx;
+  border: 1rpx solid #e9ecef;
+}
+
+.sort-icon {
+  font-size: 24rpx;
+  margin-right: 12rpx;
+}
+
+.sort-text {
+  font-size: 26rpx;
+  color: #2c3e50;
+}
+
+.operation-btns {
+  display: flex;
+  gap: 16rpx;
+  margin-left: 20rpx;
+}
+
+.operation-btn {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 20rpx;
+  background: #ecf0f1;
+  border-radius: 16rpx;
+  border: 1rpx solid #d5dbdb;
+}
+
+.btn-text {
+  font-size: 24rpx;
+  color: #2c3e50;
+  margin-left: 8rpx;
+}
+
+/* 选择模式操作栏 */
+.selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #3498db;
+  padding: 20rpx 32rpx;
+  margin: 0 20rpx 20rpx;
+  border-radius: 16rpx;
+}
+
+.selection-info {
+  color: white;
+  font-size: 26rpx;
+}
+
+.selection-actions {
+  display: flex;
+  gap: 16rpx;
+}
+
+.selection-btn {
+  padding: 12rpx 20rpx !important;
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+  border: 1rpx solid rgba(255, 255, 255, 0.3) !important;
+  border-radius: 12rpx !important;
+  font-size: 24rpx !important;
+  line-height: 1 !important;
+}
+
+.selection-btn.delete {
+  background: #e74c3c !important;
+}
+
+/* 历史记录区域 */
+.history-section {
+  flex: 1;
+  margin: 0 20rpx 120rpx;
+  background: white;
+  border-radius: 24rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.history-list {
+  max-height: 100vh;
+  padding: 32rpx;
+}
+
+.history-item {
+  display: flex;
+  margin-bottom: 32rpx;
+  padding: 24rpx;
+  background: #f8f9fa;
+  border-radius: 20rpx;
+  border: 1rpx solid #e9ecef;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.history-item.selection-mode {
+  padding-left: 80rpx;
+}
+
+.history-item:active {
+  transform: scale(0.98);
+  background: #e3f2fd;
+}
+
+.selection-box {
+  position: absolute;
+  left: 24rpx;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.checkbox {
+  width: 32rpx;
+  height: 32rpx;
+  border: 2rpx solid #bdc3c7;
+  border-radius: 8rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+}
+
+.checkbox.checked {
+  background: #3498db;
+  border-color: #3498db;
+}
+
+.check-icon {
+  font-size: 20rpx;
+  color: white;
+}
+
+/* 时间轴 */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-right: 24rpx;
+  min-width: 20rpx;
+}
+
+.timeline-dot {
+  width: 20rpx;
+  height: 20rpx;
+  border-radius: 50%;
+  margin-bottom: 8rpx;
+  position: relative;
+  z-index: 2;
+}
+
+.timeline-dot.detected {
+  background: #4CAF50;
+  box-shadow: 0 0 0 6rpx rgba(76, 175, 80, 0.2);
+}
+
+.timeline-dot.lost {
+  background: #FF5722;
+  box-shadow: 0 0 0 6rpx rgba(255, 87, 34, 0.2);
+}
+
+.timeline-line {
+  width: 2rpx;
+  flex: 1;
+  background: #e9ecef;
+  min-height: 40rpx;
+}
+
+/* 内容区域 */
+.item-content {
+  flex: 1;
+}
+
+.item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16rpx;
+}
+
+.action-badge {
+  display: flex;
+  align-items: center;
+  padding: 8rpx 16rpx;
+  border-radius: 12rpx;
+  font-size: 24rpx;
+}
+
+.action-badge.detected {
+  background: rgba(76, 175, 80, 0.1);
+  color: #4CAF50;
+}
+
+.action-badge.lost {
+  background: rgba(255, 87, 34, 0.1);
+  color: #FF5722;
+}
+
+.action-icon {
+  margin-right: 8rpx;
+}
+
+.action-text {
+  font-weight: 500;
+}
+
+.item-time {
+  font-size: 22rpx;
+  color: #95a5a6;
+}
+
+.item-body {
+  margin-bottom: 16rpx;
+}
+
+.epc-code {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #2c3e50;
+  font-family: 'Courier New', monospace;
+  margin-bottom: 12rpx;
+  word-break: break-all;
+}
+
+.item-details {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 22rpx;
+  color: #7f8c8d;
+}
+
+.detail-item {
+  margin-right: 8rpx;
+}
+
+.detail-separator {
+  margin: 0 8rpx;
+  color: #bdc3c7;
+}
+
+.item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.date-text {
+  font-size: 20rpx;
+  color: #95a5a6;
+}
+
+.action-hint {
+  font-size: 20rpx;
+  color: #3498db;
+}
+
+/* 加载状态 */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 80rpx 40rpx;
+}
+
+.loading-icon {
+  font-size: 60rpx;
+  margin-bottom: 24rpx;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-size: 26rpx;
+  color: #7f8c8d;
+}
+
+.load-more, .no-more {
+  display: flex;
+  justify-content: center;
+  padding: 40rpx;
+}
+
+.load-more-text, .no-more-text {
+  font-size: 24rpx;
+  color: #95a5a6;
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 120rpx 40rpx;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 120rpx;
+  margin-bottom: 32rpx;
+  opacity: 0.6;
+}
+
+.empty-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 16rpx;
+}
+
+.empty-desc {
+  font-size: 26rpx;
+  color: #7f8c8d;
+  line-height: 1.6;
+  max-width: 400rpx;
+}
+
+/* 底部操作栏 */
+.bottom-actions {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 20rpx;
+  padding: 20rpx;
+  background: white;
+  border-top: 1rpx solid #e9ecef;
+  box-shadow: 0 -4rpx 16rpx rgba(0, 0, 0, 0.1);
+}
+
+.bottom-btn {
+  flex: 1;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  height: 80rpx !important;
+  border-radius: 16rpx !important;
+  font-size: 26rpx !important;
+  font-weight: 500 !important;
+  border: none !important;
+  line-height: 1 !important;
+}
+
+.bottom-btn.primary {
+  background: #3498db !important;
+  color: white !important;
+}
+
+.bottom-btn.secondary {
+  background: #ecf0f1 !important;
+  color: #2c3e50 !important;
+  border: 1rpx solid #d5dbdb !important;
+}
+
+.bottom-btn .btn-icon {
+  margin-right: 12rpx;
+  font-size: 24rpx;
+}

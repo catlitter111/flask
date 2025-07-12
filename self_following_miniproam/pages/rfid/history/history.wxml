@@ -1,0 +1,208 @@
+<!-- pages/rfid/history/history.wxml - RFID历史记录页面 -->
+<view class="container">
+  <!-- 顶部统计卡片 -->
+  <view class="stats-section">
+    <view class="stats-card">
+      <view class="stats-grid">
+        <view class="stat-item">
+          <text class="stat-value">{{totalRecords}}</text>
+          <text class="stat-label">总记录</text>
+        </view>
+        <view class="stat-item">
+          <text class="stat-value detected">{{detectedCount}}</text>
+          <text class="stat-label">检测到</text>
+        </view>
+        <view class="stat-item">
+          <text class="stat-value lost">{{lostCount}}</text>
+          <text class="stat-label">离线</text>
+        </view>
+        <view class="stat-item">
+          <text class="stat-value">{{uniqueTagsCount}}</text>
+          <text class="stat-label">唯一标签</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 筛选和操作栏 -->
+  <view class="filter-section">
+    <view class="filter-row">
+      <!-- 筛选选项 -->
+      <picker class="filter-picker" mode="selector" 
+              range="{{['全部', '检测到', '离线']}}" 
+              range-key="全部,detected,lost"
+              value="{{filterType}}" 
+              bindchange="onFilterTypeChange">
+        <view class="picker-display">
+          <text class="picker-text">{{filterType === 'all' ? '全部' : (filterType === 'detected' ? '检测到' : '离线')}}</text>
+          <text class="picker-arrow">▼</text>
+        </view>
+      </picker>
+
+      <picker class="filter-picker" mode="selector" 
+              range="{{['今天', '最近一周', '最近一月', '全部']}}"
+              range-key="today,week,month,all" 
+              value="{{dateFilter}}" 
+              bindchange="onDateFilterChange">
+        <view class="picker-display">
+          <text class="picker-text">
+            {{dateFilter === 'today' ? '今天' : (dateFilter === 'week' ? '最近一周' : (dateFilter === 'month' ? '最近一月' : '全部'))}}
+          </text>
+          <text class="picker-arrow">▼</text>
+        </view>
+      </picker>
+
+      <!-- 搜索按钮 -->
+      <view class="action-btn search-btn" bindtap="toggleSearch">
+        <text class="btn-icon">🔍</text>
+      </view>
+    </view>
+
+    <!-- 搜索框 -->
+    <view class="search-row" wx:if="{{showSearch}}">
+      <input class="search-input" 
+             placeholder="搜索EPC或动作类型" 
+             value="{{searchKeyword}}"
+             bindinput="onSearchInput" />
+    </view>
+
+    <!-- 排序和操作 -->
+    <view class="operation-row">
+      <picker class="sort-picker" mode="selector" 
+              range="{{['时间降序', '时间升序', 'EPC升序', 'EPC降序']}}"
+              range-key="time_desc,time_asc,epc_asc,epc_desc"
+              value="{{sortBy}}" 
+              bindchange="onSortChange">
+        <view class="sort-display">
+          <text class="sort-icon">📊</text>
+          <text class="sort-text">排序</text>
+        </view>
+      </picker>
+
+      <view class="operation-btns">
+        <view class="operation-btn" bindtap="toggleSelectionMode">
+          <text class="btn-icon">{{selectionMode ? '✓' : '☐'}}</text>
+          <text class="btn-text">选择</text>
+        </view>
+        <view class="operation-btn" bindtap="exportData">
+          <text class="btn-icon">📤</text>
+          <text class="btn-text">导出</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 选择模式操作栏 -->
+  <view class="selection-bar" wx:if="{{selectionMode}}">
+    <view class="selection-info">
+      <text>已选择 {{selectedItems.length}} 项</text>
+    </view>
+    <view class="selection-actions">
+      <button class="selection-btn" bindtap="toggleSelectAll">
+        {{selectedItems.length === filteredHistory.length ? '取消全选' : '全选'}}
+      </button>
+      <button class="selection-btn delete" bindtap="deleteSelected">删除</button>
+      <button class="selection-btn" bindtap="toggleSelectionMode">取消</button>
+    </view>
+  </view>
+
+  <!-- 历史记录列表 -->
+  <view class="history-section">
+    <scroll-view class="history-list" 
+                 scroll-y 
+                 bindscrolltolower="loadMore"
+                 enhanced="{{true}}"
+                 show-scrollbar="{{false}}">
+      
+      <!-- 加载状态 -->
+      <view class="loading-state" wx:if="{{loading && filteredHistory.length === 0}}">
+        <view class="loading-icon">⏳</view>
+        <text class="loading-text">加载中...</text>
+      </view>
+
+      <!-- 历史记录项 -->
+      <view class="history-item {{selectionMode ? 'selection-mode' : ''}}" 
+            wx:for="{{filteredHistory}}" 
+            wx:key="id"
+            bindtap="{{selectionMode ? 'toggleItemSelection' : 'viewDetails'}}"
+            data-item="{{item}}"
+            data-id="{{item.id}}">
+        
+        <!-- 选择框 -->
+        <view class="selection-box" wx:if="{{selectionMode}}">
+          <view class="checkbox {{selectedItems.indexOf(item.id) > -1 ? 'checked' : ''}}">
+            <text class="check-icon" wx:if="{{selectedItems.indexOf(item.id) > -1}}">✓</text>
+          </view>
+        </view>
+
+        <!-- 时间轴 -->
+        <view class="timeline">
+          <view class="timeline-dot {{item.action}}"></view>
+          <view class="timeline-line" wx:if="{{index < filteredHistory.length - 1}}"></view>
+        </view>
+
+        <!-- 内容区域 -->
+        <view class="item-content">
+          <view class="item-header">
+            <view class="action-badge {{item.action}}">
+              <text class="action-icon">{{item.actionIcon}}</text>
+              <text class="action-text">{{item.actionText}}</text>
+            </view>
+            <text class="item-time">{{item.timeOnly}}</text>
+          </view>
+
+          <view class="item-body">
+            <text class="epc-code">{{item.shortEpc}}</text>
+            <view class="item-details">
+              <text class="detail-item">RSSI: {{item.rssi}}dBm</text>
+              <text class="detail-separator">|</text>
+              <text class="detail-item">天线: {{item.antenna}}</text>
+              <text class="detail-separator">|</text>
+              <text class="detail-item">读取: {{item.readCount}}次</text>
+              <text class="detail-separator" wx:if="{{item.duration}}">|</text>
+              <text class="detail-item" wx:if="{{item.duration}}">持续: {{item.durationText}}</text>
+            </view>
+          </view>
+
+          <view class="item-footer">
+            <text class="date-text">{{item.dateString}}</text>
+            <view class="item-actions" wx:if="{{!selectionMode}}">
+              <text class="action-hint">点击查看详情</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 加载更多 -->
+      <view class="load-more" wx:if="{{hasMore && !loading}}">
+        <text class="load-more-text">上拉加载更多</text>
+      </view>
+
+      <!-- 没有更多数据 -->
+      <view class="no-more" wx:if="{{!hasMore && filteredHistory.length > 0}}">
+        <text class="no-more-text">没有更多记录了</text>
+      </view>
+
+      <!-- 空状态 -->
+      <view class="empty-state" wx:if="{{filteredHistory.length === 0 && !loading}}">
+        <text class="empty-icon">📝</text>
+        <text class="empty-title">暂无历史记录</text>
+        <text class="empty-desc">
+          {{searchKeyword ? '没有找到匹配的记录' : '开始使用RFID扫描后会显示历史记录'}}
+        </text>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- 底部操作栏 -->
+  <view class="bottom-actions" wx:if="{{!selectionMode}}">
+    <button class="bottom-btn secondary" bindtap="clearAllHistory">
+      <text class="btn-icon">🗑️</text>
+      <text>清空历史</text>
+    </button>
+    <button class="bottom-btn primary" bindtap="exportData">
+      <text class="btn-icon">📊</text>
+      <text>导出报告</text>
+    </button>
+  </view>
+</view>

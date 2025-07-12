@@ -5,7 +5,8 @@
       "pages/feature/feature",
       "pages/feature/detail/detail",
       "pages/assistant/assistant",
-      "pages/rfid/rfid"
+      "pages/rfid/rfid",
+      "pages/rfid/history/history"
     ],
     "window": {
       "navigationBarTextStyle": "white",

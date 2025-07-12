@@ -540,9 +540,9 @@ Page({
       const filteredTags = this.data.tagList.filter(tag => {
         if (tag.isActive) return true;
         
-        // 检查非活跃标签是否超过显示时间（比如60秒）
+        // 检查非活跃标签是否超过显示时间（5秒）
         const timeSinceLastSeen = now - (tag.lastSeenTimestamp || 0);
-        return timeSinceLastSeen < 60000; // 60秒后移除非活跃标签
+        return timeSinceLastSeen < 5000; // 5秒后移除非活跃标签
       });
       
       if (filteredTags.length !== this.data.tagList.length) {
@@ -707,41 +707,9 @@ Page({
   
     // 查看历史记录
     viewHistory: function() {
-      const history = this.data.tagHistory;
-      if (history.length === 0) {
-        wx.showToast({
-          title: '暂无历史记录',
-          icon: 'none'
-        });
-        return;
-      }
-      
-      // 显示历史记录摘要
-      const detectedCount = history.filter(h => h.action === 'detected').length;
-      const lostCount = history.filter(h => h.action === 'lost').length;
-      const recentHistory = history.slice(-10).reverse();
-      
-      let content = `总计记录：${history.length} 条\\n`;
-      content += `检测到：${detectedCount} 次\\n`;
-      content += `消失：${lostCount} 次\\n\\n`;
-      content += '最近10条记录：\\n';
-      
-      recentHistory.forEach((item, index) => {
-        const action = item.action === 'detected' ? '🟢检测' : '🔴消失';
-        const time = new Date(item.timestamp).toLocaleTimeString('zh-CN');
-        content += `${action} ${item.epc.substr(-8)} ${time}\\n`;
-      });
-      
-      wx.showModal({
-        title: 'RFID历史记录',
-        content: content,
-        confirmText: '导出记录',
-        cancelText: '关闭',
-        success: (res) => {
-          if (res.confirm) {
-            this.exportHistoryData();
-          }
-        }
+      // 跳转到专门的历史记录页面
+      wx.navigateTo({
+        url: '/pages/rfid/history/history'
       });
     },
     
