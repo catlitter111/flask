@@ -1,0 +1,21 @@
+# RFID读写器节点参数配置
+
+rfid_reader:
+  ros__parameters:
+    # 网络连接配置
+    reader_ip: "192.168.0.178"    # RFID读写器IP地址
+    reader_port: 4001             # RFID读写器端口
+    reader_address: 255           # 读写器地址 (255=0xFF为广播地址)
+    
+    # 工作参数
+    antenna_id: 1                 # 工作天线ID (1-4)
+    publish_rate: 1.0             # 发布频率 (Hz)
+    auto_start: true              # 节点启动时自动开始盘存
+    
+    # 高级参数
+    connection_timeout: 5.0       # 连接超时时间 (秒)
+    inventory_interval: 0.5       # 盘存指令发送间隔 (秒)
+    tag_timeout: 30.0             # 标签超时时间 (秒，超过此时间未检测到则移除)
+    
+    # 日志级别
+    log_level: "INFO"             # DEBUG, INFO, WARN, ERROR

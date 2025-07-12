@@ -1,0 +1,9 @@
+# RFID读写器控制服务
+string command          # 命令类型: "start_inventory", "stop_inventory", "set_antenna", "get_status"
+uint8 antenna_id        # 天线ID (用于set_antenna命令)
+string ip_address       # IP地址 (用于连接命令)
+uint16 port             # 端口 (用于连接命令)
+---
+bool success            # 命令执行结果
+string message          # 结果消息
+RfidReaderStatus status # 当前状态

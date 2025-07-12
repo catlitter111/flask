@@ -1,0 +1,21 @@
+# RFID读写器调试参数配置
+
+rfid_reader:
+  ros__parameters:
+    # 网络连接配置
+    reader_ip: "192.168.0.178"
+    reader_port: 4001
+    reader_address: 255
+    
+    # 调试参数
+    antenna_id: 1
+    publish_rate: 2.0             # 更高的发布频率便于调试
+    auto_start: false             # 调试模式手动启动
+    
+    # 高级参数
+    connection_timeout: 10.0      # 更长的连接超时
+    inventory_interval: 0.2       # 更频繁的盘存
+    tag_timeout: 60.0             # 更长的标签超时
+    
+    # 详细日志
+    log_level: "DEBUG"
