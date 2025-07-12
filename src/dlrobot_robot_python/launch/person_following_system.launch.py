@@ -68,7 +68,7 @@ def generate_launch_description():
     # 跟随控制参数
     target_distance_arg = DeclareLaunchArgument(
         'target_distance',
-        default_value='1.0',
+        default_value='2.0',
         description='Target following distance in meters'
     )
     
