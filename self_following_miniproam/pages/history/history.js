@@ -124,6 +124,89 @@ Page({
         });
       }
     },
+
+    // 处理详细跟踪数据
+    handleDetailedTrackingData: function(data) {
+      console.log('📍 收到跟踪数据更新:', data);
+      
+      try {
+        // 检查是否正在实时跟踪
+        if (this.data.realtimeTracking) {
+          this.updateLiveTrackData(data);
+        }
+        
+        // 解析详细跟踪数据
+        const detailedData = data.data || {};
+        
+        // 更新实时统计信息
+        if (detailedData.statistics) {
+          console.log('📊 更新实时统计:', detailedData.statistics);
+          // 可以在这里更新页面上的实时统计显示
+        }
+        
+        // 处理轨迹数据
+        if (detailedData.tracks && Array.isArray(detailedData.tracks)) {
+          console.log('📈 处理轨迹数据:', detailedData.tracks.length, '条轨迹');
+          // 如果需要，可以在这里更新历史记录
+        }
+        
+        // 处理目标轨迹
+        if (detailedData.target_track) {
+          console.log('🎯 目标轨迹更新:', detailedData.target_track);
+          // 更新目标轨迹显示
+        }
+        
+        // 记录详细跟踪数据到历史记录（可选）
+        if (this.data.realtimeTracking) {
+          this.recordDetailedTrackingData(detailedData);
+        }
+        
+      } catch (error) {
+        console.error('❌ 处理详细跟踪数据失败:', error);
+      }
+    },
+    
+    // 记录详细跟踪数据到历史记录
+    recordDetailedTrackingData: function(detailedData) {
+      try {
+        // 只在实时跟踪时记录数据
+        if (!this.data.realtimeTracking) {
+          return;
+        }
+        
+        // 创建历史记录条目
+        const historyEntry = {
+          id: 'live_' + Date.now(),
+          timestamp: Date.now(),
+          type: 'detailed_tracking',
+          data: {
+            total_tracks: detailedData.total_tracks || 0,
+            target_detected: detailedData.target_detected || false,
+            tracking_mode: detailedData.tracking_mode || 'unknown',
+            frame_id: detailedData.frame_id || 0,
+            statistics: detailedData.statistics || {},
+            target_track: detailedData.target_track || null,
+            system_info: detailedData.system_info || {}
+          }
+        };
+        
+        // 添加到实时跟踪数据
+        const currentLiveData = this.data.liveTrackData || [];
+        currentLiveData.push(historyEntry);
+        
+        // 限制实时数据数量，避免内存过多占用
+        if (currentLiveData.length > 100) {
+          currentLiveData.splice(0, currentLiveData.length - 100);
+        }
+        
+        this.setData({
+          liveTrackData: currentLiveData
+        });
+        
+      } catch (error) {
+        console.error('❌ 记录详细跟踪数据失败:', error);
+      }
+    },
     
     onPullDownRefresh: function() {
       this.refreshData(() => {
