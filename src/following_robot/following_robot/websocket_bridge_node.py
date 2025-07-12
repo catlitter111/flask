@@ -1303,8 +1303,8 @@ class WebSocketBridgeNode(Node):
                 '/rfid/command'
             )
             
-            # 等待RFID服务可用（非阻塞）
-            self.check_rfid_service_timer = self.create_timer(3.0, self.check_rfid_service)
+            # 等待RFID服务可用（非阻塞）- 增加延迟以等待服务完全启动
+            self.create_timer(1.0, self.delayed_rfid_service_check)
             
             self.get_logger().info('✅ RFID组件已设置')
             self.get_logger().info('📡 订阅RFID主题: /rfid/tags, /rfid/status, /rfid/tag_detected')
@@ -1315,16 +1315,25 @@ class WebSocketBridgeNode(Node):
     
     def check_rfid_service(self):
         """检查RFID服务是否可用"""
-        if self.rfid_command_client.service_is_ready():
-            if not self.rfid_service_available:
-                self.rfid_service_available = True
-                self.get_logger().info('✅ RFID命令服务已就绪')
-                # 取消定时检查
-                self.check_rfid_service_timer.cancel()
-        else:
-            if self.rfid_service_available:
-                self.rfid_service_available = False
-                self.get_logger().warn('⚠️ RFID命令服务不可用')
+        try:
+            if self.rfid_command_client.service_is_ready():
+                if not self.rfid_service_available:
+                    self.rfid_service_available = True
+                    self.get_logger().info('✅ RFID命令服务已就绪')
+                    # 取消定时检查
+                    if hasattr(self, 'check_rfid_service_timer'):
+                        self.check_rfid_service_timer.cancel()
+            else:
+                if self.rfid_service_available:
+                    self.rfid_service_available = False
+                    self.get_logger().warn('⚠️ RFID命令服务不可用，等待服务就绪...')
+        except Exception as e:
+            self.get_logger().debug(f'🔍 检查RFID服务时出错: {e}')
+
+    def delayed_rfid_service_check(self):
+        """延迟启动RFID服务检查"""
+        self.get_logger().info('🔍 开始检查RFID服务状态...')
+        self.check_rfid_service_timer = self.create_timer(2.0, self.check_rfid_service)
 
     def setup_timers(self):
         """设置定时器"""

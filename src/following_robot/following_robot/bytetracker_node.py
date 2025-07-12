@@ -2986,7 +2986,7 @@ class ByteTrackerNode(Node):
                             frame, detection_results, calculate_ratios=False)
 
                 # 调试输出：检测结果概况
-                self.get_logger().info(f'🔍 检测结果: 检测到 {len(detection_results)} 个人员')
+                # self.get_logger().info(f'🔍 检测结果: 检测到 {len(detection_results)} 个人员')
                 return detection_results
             else:
                 self.get_logger().warn("⚠️ 服装检测模块不可用")

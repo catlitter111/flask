@@ -100,6 +100,7 @@ class RFIDReaderNode(Node):
         self.declare_parameter('publish_rate', 1.0)  # Hz
         self.declare_parameter('auto_start', True)
         self.declare_parameter('antenna_id', 1)
+        self.declare_parameter('tag_timeout', 30.0)  # 标签超时时间(秒)
         
         # 获取参数
         self.reader_ip = self.get_parameter('reader_ip').value
@@ -108,6 +109,7 @@ class RFIDReaderNode(Node):
         self.publish_rate = self.get_parameter('publish_rate').value
         self.auto_start = self.get_parameter('auto_start').value
         self.antenna_id = self.get_parameter('antenna_id').value
+        self.tag_timeout = self.get_parameter('tag_timeout').value
         
         # 初始化变量
         self.sock = None
@@ -340,6 +342,28 @@ class RFIDReaderNode(Node):
             self.send_command(self.CMD_REAL_TIME_INVENTORY)
             time.sleep(0.5)
 
+    def is_tag_active(self, tag_info):
+        """检查标签是否仍然活跃（未超时）"""
+        now = datetime.now()
+        time_since_last_seen = (now - tag_info.last_seen).total_seconds()
+        return time_since_last_seen <= self.tag_timeout
+
+    def cleanup_expired_tags(self):
+        """清理过期的标签"""
+        now = datetime.now()
+        expired_tags = []
+        
+        with self.lock:
+            for epc, tag_info in list(self.current_tags.items()):
+                time_since_last_seen = (now - tag_info.last_seen).total_seconds()
+                if time_since_last_seen > self.tag_timeout:
+                    expired_tags.append(epc)
+                    del self.current_tags[epc]
+        
+        # 记录清理的过期标签
+        if expired_tags:
+            self.get_logger().info(f"清理了 {len(expired_tags)} 个过期标签: {expired_tags[:3]}{'...' if len(expired_tags) > 3 else ''}")
+
     def stop_inventory(self):
         """停止盘存"""
         self.is_running = False
@@ -356,16 +380,23 @@ class RFIDReaderNode(Node):
         if not self.is_running:
             return
 
+        # 清理过期标签
+        self.cleanup_expired_tags()
+
         # 发布标签数组
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = "rfid_reader"
 
         with self.lock:
+            # 只发布活跃的标签
+            active_tags = [tag_info for tag_info in self.current_tags.values() 
+                          if self.is_tag_active(tag_info)]
+            
             tags_msg = RfidTagArray()
             tags_msg.header = header
-            tags_msg.tags = [tag_info.to_ros_msg(header) for tag_info in self.current_tags.values()]
-            tags_msg.total_tags = len(self.current_tags)
+            tags_msg.tags = [tag_info.to_ros_msg(header) for tag_info in active_tags]
+            tags_msg.total_tags = len(active_tags)
             tags_msg.total_reads = self.total_reads
 
         self.tags_publisher.publish(tags_msg)

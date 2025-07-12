@@ -23,6 +23,7 @@ This is a ROS2 Humble-based self-following robot system that combines computer v
 - **robot_control_node**: Robot motion control and following logic
 - **dlrobot_robot_node**: Hardware driver for DLRobot chassis
 - **stereo_vision_node**: Stereo camera processing
+- **rfid_reader_node**: UHF RFID reader interface for tag monitoring
 
 ## Build and Development Commands
 
@@ -47,7 +48,7 @@ colcon build
 colcon build --packages-select following_robot
 
 # Build with custom messages first
-colcon build --packages-select custom_msgs dlrobot_robot_msg
+colcon build --packages-select custom_msgs dlrobot_robot_msg rfid_reader
 colcon build --packages-select following_robot dlrobot_robot_python
 
 # Source the built packages
@@ -66,6 +67,20 @@ ros2 launch following_robot full_system.launch.py websocket_host:=192.168.1.100
 
 # Launch with Ackermann steering
 ros2 launch following_robot full_system.launch.py use_ackermann:=true wheelbase:=0.143
+
+# Launch with RFID monitoring enabled
+ros2 launch following_robot full_system.launch.py enable_rfid:=true rfid_reader_ip:=192.168.0.178
+
+# Launch without RFID monitoring
+ros2 launch following_robot full_system.launch.py enable_rfid:=false
+
+# Complete configuration with RFID
+ros2 launch following_robot full_system.launch.py \
+    websocket_host:=192.168.1.100 \
+    enable_rfid:=true \
+    rfid_reader_ip:=192.168.0.178 \
+    rfid_auto_start:=true \
+    rfid_antenna_id:=1
 ```
 
 #### Individual Component Testing
@@ -84,6 +99,12 @@ ros2 run following_robot robot_control_node
 
 # Test hardware driver
 ros2 run dlrobot_robot_python dlrobot_robot_node
+
+# Test RFID reader
+ros2 run rfid_reader rfid_reader_node.py
+
+# Test RFID with custom IP
+ros2 run rfid_reader rfid_reader_node.py --ros-args -p reader_ip:=192.168.0.178
 ```
 
 #### Test Scripts
@@ -117,10 +138,14 @@ python3 test_feature_data_flow.py
 - `/ackermann_cmd`: Ackermann steering commands (if enabled)
 - `/odom`: Robot odometry data
 - `/mobile_base/sensors/imu_data`: IMU sensor data
+- `/rfid/tags`: RFID tag data array
+- `/rfid/status`: RFID reader status updates
+- `/rfid/tag_detected`: Individual RFID tag detection events
 
 ### Services
 - `/features/extract_features`: Feature extraction service
 - `/stereo/get_distance`: Distance measurement service
+- `/rfid/command`: RFID reader control commands
 
 ## Configuration
 

@@ -358,17 +358,55 @@
     transition: all 0.3s ease;
   }
   
+  .tag-item.active {
+    background: #F8FFF8;
+    border-left: 6rpx solid #4CAF50;
+    border-color: #4CAF50;
+  }
+  
+  .tag-item.inactive {
+    background: #FFF8F8;
+    border-left: 6rpx solid #FF5722;
+    border-color: #FF5722;
+    opacity: 0.7;
+  }
+  
   .tag-item:active {
     background: #E3F2FD;
     transform: scale(0.98);
   }
   
   .tag-indicator {
-    width: 8rpx;
-    height: 60rpx;
-    background: #2196F3;
-    border-radius: 4rpx;
+    width: 12rpx;
+    height: 12rpx;
+    border-radius: 50%;
     margin-right: 20rpx;
+    transition: all 0.3s ease;
+  }
+  
+  .tag-indicator.active {
+    background-color: #4CAF50;
+    animation: pulse 2s infinite;
+  }
+  
+  .tag-indicator.inactive {
+    background-color: #FF5722;
+    animation: none;
+  }
+  
+  @keyframes pulse {
+    0% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.2);
+      opacity: 0.7;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
   }
   
   .tag-content {
@@ -388,6 +426,18 @@
     align-items: center;
     font-size: 22rpx;
     color: #666;
+    margin-bottom: 8rpx;
+  }
+  
+  .tag-timestamps {
+    display: flex;
+    gap: 16rpx;
+    font-size: 20rpx;
+    color: #9E9E9E;
+  }
+  
+  .timestamp-item {
+    font-size: 20rpx;
   }
   
   .info-item {
@@ -423,6 +473,21 @@
     background: #E8F5E9;
     color: #4CAF50;
     font-weight: 500;
+  }
+  
+  .tag-status.inactive {
+    background: #FFEBEE;
+    color: #FF5722;
+    font-weight: 500;
+  }
+  
+  .tag-quality {
+    font-size: 18rpx;
+    color: #9E9E9E;
+    padding: 2rpx 8rpx;
+    background: #F5F5F5;
+    border-radius: 8rpx;
+    margin-top: 4rpx;
   }
   
   /* 空状态 */

@@ -113,8 +113,8 @@
     </view>
     
     <scroll-view class="tag-list" scroll-y>
-      <view class="tag-item" wx:for="{{tagList}}" wx:key="epc">
-        <view class="tag-indicator"></view>
+      <view class="tag-item {{item.isActive ? 'active' : 'inactive'}}" wx:for="{{tagList}}" wx:key="epc">
+        <view class="tag-indicator {{item.isActive ? 'active' : 'inactive'}}"></view>
         <view class="tag-content">
           <text class="tag-epc">{{item.epc}}</text>
           <view class="tag-info">
@@ -124,12 +124,16 @@
             <text class="info-separator">|</text>
             <text class="info-item">天线: {{item.antenna}}</text>
           </view>
+          <view class="tag-timestamps">
+            <text class="timestamp-item">首次: {{item.firstSeen}}</text>
+            <text class="timestamp-item">最后: {{item.lastSeen}}</text>
+          </view>
         </view>
         <view class="tag-meta">
-          <text class="tag-time">{{item.lastSeen}}</text>
           <text class="tag-status {{item.isActive ? 'active' : 'inactive'}}">
-            {{item.isActive ? '活跃' : '静默'}}
+            {{item.isActive ? '🟢 活跃' : '🔴 离线'}}
           </text>
+          <text class="tag-quality">{{item.signalQuality}}</text>
         </view>
       </view>
       

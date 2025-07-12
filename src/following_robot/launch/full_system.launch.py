@@ -2,16 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-完整系统启动文件 - ByteTracker + WebSocket桥接 + 特征提取
-=========================================================
+完整系统启动文件 - ByteTracker + WebSocket桥接 + 特征提取 + RFID监控
+=======================================================================
 
 功能说明：
     同时启动以下组件：
     1. 特征提取服务节点 (提供人体特征提取服务)
     2. ByteTracker目标跟踪节点
-    3. WebSocket桥接节点
+    3. WebSocket桥接节点 (包含RFID消息转发)
     4. 机器人控制节点
     5. 底层硬件驱动节点 (Python版本 - dlrobot_robot_python)
+    6. RFID读写器节点 (UHF RFID标签监控)
     
 使用方法：
     # 基础启动
@@ -32,7 +33,9 @@
         use_ackermann:=true \
         wheelbase:=0.143 \
         serial_port:=/dev/dlrobot_controller \
-        websocket_host:=192.168.1.100
+        websocket_host:=192.168.1.100 \
+        rfid_reader_ip:=192.168.0.178 \
+        enable_rfid:=true
 """
 
 import os
@@ -129,6 +132,49 @@ def generate_launch_description():
         'wheelbase',
         default_value='0.143',
         description='机器人轮距 (m): mini_akm=0.143, senior_akm=0.320, top_akm_bs=0.503, top_akm_dl=0.549'
+    )
+    
+    # RFID相关参数
+    declare_enable_rfid = DeclareLaunchArgument(
+        'enable_rfid',
+        default_value='true',
+        description='是否启用RFID监控功能'
+    )
+    
+    declare_rfid_reader_ip = DeclareLaunchArgument(
+        'rfid_reader_ip',
+        default_value='192.168.0.178',
+        description='RFID读写器IP地址'
+    )
+    
+    declare_rfid_reader_port = DeclareLaunchArgument(
+        'rfid_reader_port',
+        default_value='4001',
+        description='RFID读写器端口'
+    )
+    
+    declare_rfid_reader_address = DeclareLaunchArgument(
+        'rfid_reader_address',
+        default_value='255',
+        description='RFID读写器地址 (255=0xFF为广播地址)'
+    )
+    
+    declare_rfid_publish_rate = DeclareLaunchArgument(
+        'rfid_publish_rate',
+        default_value='2.0',
+        description='RFID数据发布频率 (Hz)'
+    )
+    
+    declare_rfid_auto_start = DeclareLaunchArgument(
+        'rfid_auto_start',
+        default_value='false',
+        description='是否自动开始RFID盘存'
+    )
+    
+    declare_rfid_antenna_id = DeclareLaunchArgument(
+        'rfid_antenna_id',
+        default_value='1',
+        description='默认工作天线ID (1-4)'
     )
     
     # ByteTracker节点
@@ -304,6 +350,33 @@ def generate_launch_description():
         emulate_tty=True,
     )
     
+    # RFID读写器节点
+    rfid_reader_node = Node(
+        package='rfid_reader',
+        executable='rfid_reader_node.py',
+        name='rfid_reader_main',  # 使用唯一名称避免冲突
+        output='screen',
+        parameters=[{
+            'reader_ip': LaunchConfiguration('rfid_reader_ip'),
+            'reader_port': LaunchConfiguration('rfid_reader_port'),
+            'reader_address': LaunchConfiguration('rfid_reader_address'),
+            'publish_rate': LaunchConfiguration('rfid_publish_rate'),
+            'auto_start': LaunchConfiguration('rfid_auto_start'),
+            'antenna_id': LaunchConfiguration('rfid_antenna_id'),
+        }],
+        remappings=[
+            # 确保RFID话题名称一致
+            ('~/rfid_tags', '/rfid/tags'),
+            ('~/rfid_status', '/rfid/status'),
+            ('~/rfid_tag_detected', '/rfid/tag_detected'),
+            ('~/rfid_command', '/rfid/command'),
+        ],
+        condition=IfCondition(LaunchConfiguration('enable_rfid')),
+        respawn=True,
+        respawn_delay=5.0,
+        emulate_tty=True,
+    )
+    
     # 状态监控节点（可选）
     # status_monitor_node = Node(
     #     package='following_robot',
@@ -335,6 +408,13 @@ def generate_launch_description():
         declare_serial_baud,
         declare_feature_output_dir,
         declare_wheelbase,
+        declare_enable_rfid,
+        declare_rfid_reader_ip,
+        declare_rfid_reader_port,
+        declare_rfid_reader_address,
+        declare_rfid_publish_rate,
+        declare_rfid_auto_start,
+        declare_rfid_antenna_id,
         
         # 启动节点 (特征提取节点先启动，确保服务就绪)
         feature_extraction_node,
@@ -344,5 +424,6 @@ def generate_launch_description():
         dlrobot_driver_node,
         dlrobot_driver_node_akm,
         cmd_vel_to_ackermann_node,
+        rfid_reader_node,
         # status_monitor_node,  # 注释掉直到实现
     ]) 
