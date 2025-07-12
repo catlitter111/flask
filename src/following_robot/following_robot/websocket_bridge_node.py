@@ -1525,7 +1525,7 @@ class WebSocketBridgeNode(Node):
             
             # 格式化控制台输出
             target_status = "有目标" if target_detected else "无目标"
-            self.get_logger().info(f'📊 模式: {tracking_mode}, 画面人数: {total_tracks}, 目标状态: {target_status}, 帧号: {frame_id}')
+            # self.get_logger().info(f'📊 模式: {tracking_mode}, 画面人数: {total_tracks}, 目标状态: {target_status}, 帧号: {frame_id}')
             
             # 构造发送给WebSocket服务器的数据
             websocket_message = {

@@ -3617,7 +3617,7 @@ class ByteTrackerNode(Node):
             active_tracks = len([t for t in tracks if t.state == TrackState.TRACKED])
             
             target_status = "有目标" if target_detected else "无目标"
-            self.get_logger().info(f'🤖 ByteTracker发布 - 模式: {tracking_mode}, 检测人数: {total_tracks}, 活跃轨迹: {active_tracks}, 目标状态: {target_status}, 帧号: {frame_id}')
+            # self.get_logger().info(f'🤖 ByteTracker发布 - 模式: {tracking_mode}, 检测人数: {total_tracks}, 活跃轨迹: {active_tracks}, 目标状态: {target_status}, 帧号: {frame_id}')
             
             # 调试日志（降低频率）
             if self.frame_count % 60 == 0:  # 每60帧记录一次（约2秒）
