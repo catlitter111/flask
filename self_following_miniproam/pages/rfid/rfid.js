@@ -45,7 +45,8 @@ Page({
       messageCount: 0,
       
       // 标签管理配置
-      tagTimeout: 30000, // 30秒超时
+      tagTimeout: 5000, // 5秒超时 (快速检测离线标签)
+      tagDisplayTimeout: 15000, // 15秒显示超时 (非活跃标签的显示时间)
       enableHistory: true
     },
   
@@ -484,30 +485,36 @@ Page({
         const existingTag = currentTags.find(tag => tag.epc === serverTag.epc);
         
         if (existingTag) {
-          // 更新现有标签
+          // 更新现有标签，保留重要的本地状态
           mergedTags.push({
             ...existingTag,
             ...serverTag,
             isActive: true,
-            lastSeenTimestamp: now
+            lastSeenTimestamp: now,
+            // 保留首次检测时间戳用于计算持续时间
+            firstSeenTimestamp: existingTag.firstSeenTimestamp || now
           });
         } else {
-          // 新标签，添加到历史记录
-          this.addToHistory(serverTag, 'detected');
-          mergedTags.push(serverTag);
+          // 新标签，设置首次检测时间戳并添加到历史记录
+          const newTag = {
+            ...serverTag,
+            firstSeenTimestamp: now,
+            isActive: true
+          };
+          this.addToHistory(newTag, 'detected');
+          mergedTags.push(newTag);
           actualNewTags++;
         }
       });
       
-      // 处理本地存在但服务器不再发送的标签（标记为非活跃）
+      // 处理本地存在但服务器不再发送的标签（保留活跃状态，让时间管理器处理）
       currentTags.forEach(localTag => {
         const stillActive = serverActiveTags.find(tag => tag.epc === localTag.epc);
-        if (!stillActive && localTag.isActive) {
-          // 标签消失，添加到历史记录
-          this.addToHistory(localTag, 'lost');
+        if (!stillActive) {
+          // 标签可能消失，但不立即标记为非活跃，让时间管理器处理
           mergedTags.push({
             ...localTag,
-            isActive: false
+            // 保持当前状态，让 updateTagsStatus 根据时间判断
           });
         }
       });
@@ -530,26 +537,48 @@ Page({
     // 启动本地清理定时器
     startCleanupTimer: function() {
       this.data.cleanupTimer = setInterval(() => {
-        this.cleanupInactiveTags();
-      }, 5000); // 每5秒检查一次
+        this.updateTagsStatus();
+      }, 3000); // 每3秒检查一次标签状态
     },
     
-    // 清理非活跃标签
-    cleanupInactiveTags: function() {
+    // 更新标签状态（包括离线检测和清理）
+    updateTagsStatus: function() {
       const now = Date.now();
-      const filteredTags = this.data.tagList.filter(tag => {
-        if (tag.isActive) return true;
-        
-        // 检查非活跃标签是否超过显示时间（5秒）
+      let hasChanges = false;
+      const updatedTags = [];
+      
+      this.data.tagList.forEach(tag => {
         const timeSinceLastSeen = now - (tag.lastSeenTimestamp || 0);
-        return timeSinceLastSeen < 5000; // 5秒后移除非活跃标签
+        
+        // 检查是否应该标记为离线
+        if (tag.isActive && timeSinceLastSeen > this.data.tagTimeout) {
+          console.log(`🔴 标签 ${tag.epc} 离线 (${Math.round(timeSinceLastSeen/1000)}秒未见)`);
+          // 标记为离线并添加到历史记录
+          this.addToHistory(tag, 'lost');
+          updatedTags.push({
+            ...tag,
+            isActive: false,
+            offlineTimestamp: now // 记录离线时间
+          });
+          hasChanges = true;
+        } 
+        // 检查是否应该从显示列表中移除
+        else if (!tag.isActive && timeSinceLastSeen > this.data.tagDisplayTimeout) {
+          console.log(`🧹 清理离线标签 ${tag.epc} (离线${Math.round(timeSinceLastSeen/1000)}秒)`);
+          // 不添加到更新列表，即移除
+          hasChanges = true;
+        } 
+        else {
+          // 保持当前状态
+          updatedTags.push(tag);
+        }
       });
       
-      if (filteredTags.length !== this.data.tagList.length) {
+      if (hasChanges) {
         this.setData({
-          tagList: filteredTags
+          tagList: updatedTags
         });
-        console.log('🧹 清理了过期的非活跃标签');
+        console.log(`📊 标签状态更新: 总计${updatedTags.length}个标签`);
       }
     },
     
@@ -557,18 +586,46 @@ Page({
     addToHistory: function(tag, action) {
       if (!this.data.enableHistory) return;
       
+      const app = getApp();
+      const now = Date.now();
       const historyItem = {
-        id: Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        id: now + '_' + Math.random().toString(36).substr(2, 9),
         epc: tag.epc,
         action: action, // 'detected' 或 'lost'
-        timestamp: Date.now(),
+        timestamp: now,
         timeString: new Date().toLocaleString('zh-CN'),
-        rssi: tag.rssi,
-        antenna: tag.antenna,
+        rssi: tag.rssi || -99,
+        antenna: tag.antenna || 1,
         readCount: tag.readCount || 0,
         duration: action === 'lost' && tag.firstSeenTimestamp ? 
-          Date.now() - tag.firstSeenTimestamp : null
+          now - tag.firstSeenTimestamp : null,
+        // 添加更多信息用于历史记录页面显示
+        signalQuality: tag.signalQuality || '未知',
+        shortEpc: tag.epc && tag.epc.length > 16 ? `${tag.epc.substr(0, 8)}...${tag.epc.substr(-8)}` : tag.epc,
+        actionText: action === 'detected' ? '检测到' : '离线',
+        actionIcon: action === 'detected' ? '🟢' : '🔴',
+        dateString: new Date().toLocaleDateString('zh-CN'),
+        timeOnly: new Date().toLocaleTimeString('zh-CN'),
+        durationText: null // 将在后面计算
       };
+      
+      // 计算持续时间文本
+      if (historyItem.duration) {
+        const seconds = Math.floor(historyItem.duration / 1000);
+        if (seconds < 60) {
+          historyItem.durationText = `${seconds}秒`;
+        } else if (seconds < 3600) {
+          const minutes = Math.floor(seconds / 60);
+          const remainingSeconds = seconds % 60;
+          historyItem.durationText = `${minutes}分${remainingSeconds}秒`;
+        } else {
+          const hours = Math.floor(seconds / 3600);
+          const minutes = Math.floor((seconds % 3600) / 60);
+          historyItem.durationText = `${hours}小时${minutes}分`;
+        }
+      } else {
+        historyItem.durationText = '-';
+      }
       
       // 添加到历史记录（最多保存1000条）
       const history = [...this.data.tagHistory, historyItem];
@@ -580,7 +637,15 @@ Page({
         tagHistory: history
       });
       
-      console.log(`📚 添加历史记录: ${tag.epc} ${action === 'detected' ? '检测到' : '消失'}`);
+      // 立即保存到本地存储
+      this.saveHistoryImmediately();
+      
+      // 通知历史记录页面更新（如果页面已打开）
+      if (app.globalData.rfidHistoryPage) {
+        app.globalData.rfidHistoryPage.notifyHistoryUpdate();
+      }
+      
+      console.log(`📚 添加历史记录: ${tag.epc} ${action === 'detected' ? '检测到' : '离线'} ${historyItem.durationText ? `(持续${historyItem.durationText})` : ''}`);
     },
     
     // 加载历史记录
@@ -607,6 +672,17 @@ Page({
         console.log(`💾 保存了 ${this.data.tagHistory.length} 条历史记录`);
       } catch (e) {
         console.error('保存历史记录失败:', e);
+      }
+    },
+    
+    // 实时保存历史记录（每次添加时立即保存）
+    saveHistoryImmediately: function() {
+      if (!this.data.enableHistory) return;
+      
+      try {
+        wx.setStorageSync('rfidHistory', this.data.tagHistory);
+      } catch (e) {
+        console.error('实时保存历史记录失败:', e);
       }
     },
     

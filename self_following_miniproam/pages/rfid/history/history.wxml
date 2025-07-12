@@ -30,8 +30,6 @@
       <!-- 筛选选项 -->
       <picker class="filter-picker" mode="selector" 
               range="{{['全部', '检测到', '离线']}}" 
-              range-key="全部,detected,lost"
-              value="{{filterType}}" 
               bindchange="onFilterTypeChange">
         <view class="picker-display">
           <text class="picker-text">{{filterType === 'all' ? '全部' : (filterType === 'detected' ? '检测到' : '离线')}}</text>
@@ -41,8 +39,6 @@
 
       <picker class="filter-picker" mode="selector" 
               range="{{['今天', '最近一周', '最近一月', '全部']}}"
-              range-key="today,week,month,all" 
-              value="{{dateFilter}}" 
               bindchange="onDateFilterChange">
         <view class="picker-display">
           <text class="picker-text">
@@ -70,8 +66,6 @@
     <view class="operation-row">
       <picker class="sort-picker" mode="selector" 
               range="{{['时间降序', '时间升序', 'EPC升序', 'EPC降序']}}"
-              range-key="time_desc,time_asc,epc_asc,epc_desc"
-              value="{{sortBy}}" 
               bindchange="onSortChange">
         <view class="sort-display">
           <text class="sort-icon">📊</text>

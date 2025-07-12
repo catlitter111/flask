@@ -52,8 +52,39 @@ Page({
     // 加载历史数据
     this.loadHistoryData();
     
-    // 设置下拉刷新
-    this.setupPullRefresh();
+    // 注册页面到全局app，用于实时更新
+    const app = getApp();
+    app.globalData.rfidHistoryPage = this;
+    
+      // 注意：下拉刷新功能已在页面配置文件 history.json 中启用
+  // 无需在代码中手动启用
+  },
+
+  onUnload: function() {
+    console.log('📚 RFID历史记录页面卸载');
+    
+    // 从全局app中移除页面引用
+    const app = getApp();
+    if (app.globalData.rfidHistoryPage === this) {
+      app.globalData.rfidHistoryPage = null;
+    }
+  },
+
+  onShow: function() {
+    console.log('📚 RFID历史记录页面显示');
+    
+    // 重新注册页面到全局app
+    const app = getApp();
+    app.globalData.rfidHistoryPage = this;
+    
+    // 重新加载数据（可能有新的历史记录）
+    this.loadHistoryData();
+  },
+
+  // 外部调用：通知历史记录更新
+  notifyHistoryUpdate: function() {
+    console.log('📚 收到历史记录更新通知');
+    this.loadHistoryData();
   },
 
   // 初始化日期筛选
@@ -75,6 +106,7 @@ Page({
     try {
       // 从本地存储加载
       const historyData = wx.getStorageSync('rfidHistory') || [];
+      console.log(`📚 加载历史数据: ${historyData.length} 条记录`);
       
       // 处理和统计数据
       this.processHistoryData(historyData);
@@ -95,21 +127,31 @@ Page({
 
   // 处理历史数据
   processHistoryData: function(rawData) {
-    const processedData = rawData.map(item => ({
-      ...item,
-      timeString: item.timeString || new Date(item.timestamp).toLocaleString('zh-CN'),
-      dateString: new Date(item.timestamp).toLocaleDateString('zh-CN'),
-      timeOnly: new Date(item.timestamp).toLocaleTimeString('zh-CN'),
-      shortEpc: item.epc.length > 16 ? `${item.epc.substr(0, 8)}...${item.epc.substr(-8)}` : item.epc,
-      actionText: item.action === 'detected' ? '检测到' : '离线',
-      actionIcon: item.action === 'detected' ? '🟢' : '🔴',
-      durationText: item.duration ? this.formatDuration(item.duration) : '-'
-    }));
+    const processedData = rawData.map(item => {
+      // 如果数据已经包含了显示字段，使用已有的；否则生成新的
+      return {
+        ...item,
+        timeString: item.timeString || new Date(item.timestamp).toLocaleString('zh-CN'),
+        dateString: item.dateString || new Date(item.timestamp).toLocaleDateString('zh-CN'),
+        timeOnly: item.timeOnly || new Date(item.timestamp).toLocaleTimeString('zh-CN'),
+        shortEpc: item.shortEpc || (item.epc && item.epc.length > 16 ? `${item.epc.substr(0, 8)}...${item.epc.substr(-8)}` : item.epc),
+        actionText: item.actionText || (item.action === 'detected' ? '检测到' : '离线'),
+        actionIcon: item.actionIcon || (item.action === 'detected' ? '🟢' : '🔴'),
+        durationText: item.durationText || (item.duration ? this.formatDuration(item.duration) : '-'),
+        // 确保必要字段存在
+        rssi: item.rssi || -99,
+        antenna: item.antenna || 1,
+        readCount: item.readCount || 0,
+        signalQuality: item.signalQuality || '未知'
+      };
+    });
 
     // 统计数据
     const detectedCount = processedData.filter(item => item.action === 'detected').length;
     const lostCount = processedData.filter(item => item.action === 'lost').length;
     const uniqueTags = new Set(processedData.map(item => item.epc));
+
+    console.log(`📊 历史数据统计: 总记录${processedData.length}, 检测${detectedCount}, 离线${lostCount}, 唯一标签${uniqueTags.size}`);
 
     this.setData({
       historyList: processedData,
@@ -199,8 +241,11 @@ Page({
 
   // 筛选类型改变
   onFilterTypeChange: function(e) {
+    const filterOptions = ['all', 'detected', 'lost'];
+    const selectedFilter = filterOptions[e.detail.value];
+    
     this.setData({
-      filterType: e.detail.value,
+      filterType: selectedFilter,
       currentPage: 1
     }, () => {
       this.applyFilters();
@@ -209,8 +254,11 @@ Page({
 
   // 日期筛选改变
   onDateFilterChange: function(e) {
+    const dateOptions = ['today', 'week', 'month', 'all'];
+    const selectedDate = dateOptions[e.detail.value];
+    
     this.setData({
-      dateFilter: e.detail.value,
+      dateFilter: selectedDate,
       currentPage: 1
     }, () => {
       this.applyFilters();
@@ -219,8 +267,11 @@ Page({
 
   // 排序方式改变
   onSortChange: function(e) {
+    const sortOptions = ['time_desc', 'time_asc', 'epc_asc', 'epc_desc'];
+    const selectedSort = sortOptions[e.detail.value];
+    
     this.setData({
-      sortBy: e.detail.value,
+      sortBy: selectedSort,
       currentPage: 1
     }, () => {
       this.applyFilters();
@@ -262,24 +313,25 @@ Page({
 
   // 下拉刷新
   onPullDownRefresh: function() {
+    console.log('📚 开始刷新RFID历史记录');
     this.setData({
       refreshing: true,
       currentPage: 1
     });
     
+    // 从存储中重新加载历史数据
     this.loadHistoryData();
     
     setTimeout(() => {
       wx.stopPullDownRefresh();
       this.setData({ refreshing: false });
+      console.log('📚 历史记录刷新完成');
     }, 1000);
   },
 
-  // 设置下拉刷新
-  setupPullRefresh: function() {
-    // 启用下拉刷新
-    wx.enablePullDownRefresh();
-  },
+  // 下拉刷新功能说明：
+  // 下拉刷新功能已在页面配置文件 history.json 中启用，
+  // 微信小程序会自动处理下拉手势，并调用 onPullDownRefresh 生命周期函数
 
   // 切换选择模式
   toggleSelectionMode: function() {

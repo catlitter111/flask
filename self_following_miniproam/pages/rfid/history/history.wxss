@@ -64,49 +64,65 @@
 .filter-row {
   display: flex;
   align-items: center;
-  padding: 24rpx 32rpx;
+  padding: 20rpx 24rpx;
   border-bottom: 1rpx solid #f0f0f0;
+  gap: 16rpx;
 }
 
 .filter-picker {
   flex: 1;
-  margin-right: 20rpx;
 }
 
 .picker-display {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16rpx 20rpx;
+  padding: 14rpx 16rpx;
   background: #f8f9fa;
-  border-radius: 16rpx;
+  border-radius: 12rpx;
   border: 1rpx solid #e9ecef;
+  transition: all 0.3s ease;
+}
+
+.picker-display:active {
+  background: #e3f2fd;
+  border-color: #2196F3;
 }
 
 .picker-text {
-  font-size: 26rpx;
+  font-size: 24rpx;
   color: #2c3e50;
+  font-weight: 500;
 }
 
 .picker-arrow {
-  font-size: 20rpx;
+  font-size: 18rpx;
   color: #95a5a6;
   transition: transform 0.3s ease;
 }
 
 .action-btn {
-  width: 72rpx;
-  height: 72rpx;
+  width: 64rpx;
+  height: 64rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #3498db;
-  border-radius: 16rpx;
-  margin-left: 16rpx;
+  border-radius: 12rpx;
+  transition: all 0.3s ease;
+}
+
+.action-btn:active {
+  transform: scale(0.95);
+  background: #2980b9;
 }
 
 .search-btn {
   background: #e74c3c;
+}
+
+.search-btn:active {
+  background: #c0392b;
 }
 
 .btn-icon {
@@ -132,7 +148,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24rpx 32rpx;
+  padding: 20rpx 24rpx;
+  gap: 16rpx;
 }
 
 .sort-picker {
@@ -142,41 +159,54 @@
 .sort-display {
   display: flex;
   align-items: center;
-  padding: 16rpx 20rpx;
+  padding: 14rpx 16rpx;
   background: #f8f9fa;
-  border-radius: 16rpx;
+  border-radius: 12rpx;
   border: 1rpx solid #e9ecef;
+  transition: all 0.3s ease;
+}
+
+.sort-display:active {
+  background: #e3f2fd;
+  border-color: #2196F3;
 }
 
 .sort-icon {
-  font-size: 24rpx;
-  margin-right: 12rpx;
+  font-size: 22rpx;
+  margin-right: 10rpx;
 }
 
 .sort-text {
-  font-size: 26rpx;
+  font-size: 24rpx;
   color: #2c3e50;
+  font-weight: 500;
 }
 
 .operation-btns {
   display: flex;
-  gap: 16rpx;
-  margin-left: 20rpx;
+  gap: 12rpx;
 }
 
 .operation-btn {
   display: flex;
   align-items: center;
-  padding: 16rpx 20rpx;
+  padding: 14rpx 16rpx;
   background: #ecf0f1;
-  border-radius: 16rpx;
+  border-radius: 12rpx;
   border: 1rpx solid #d5dbdb;
+  transition: all 0.3s ease;
+}
+
+.operation-btn:active {
+  background: #d5dbdb;
+  transform: scale(0.95);
 }
 
 .btn-text {
-  font-size: 24rpx;
+  font-size: 22rpx;
   color: #2c3e50;
-  margin-left: 8rpx;
+  margin-left: 6rpx;
+  font-weight: 500;
 }
 
 /* 选择模式操作栏 */
@@ -184,40 +214,54 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #3498db;
-  padding: 20rpx 32rpx;
-  margin: 0 20rpx 20rpx;
-  border-radius: 16rpx;
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  padding: 16rpx 24rpx;
+  margin: 0 16rpx 16rpx;
+  border-radius: 12rpx;
+  box-shadow: 0 4rpx 12rpx rgba(52, 152, 219, 0.3);
 }
 
 .selection-info {
   color: white;
-  font-size: 26rpx;
+  font-size: 24rpx;
+  font-weight: 600;
 }
 
 .selection-actions {
   display: flex;
-  gap: 16rpx;
+  gap: 12rpx;
 }
 
 .selection-btn {
-  padding: 12rpx 20rpx !important;
+  padding: 10rpx 16rpx !important;
   background: rgba(255, 255, 255, 0.2) !important;
   color: white !important;
   border: 1rpx solid rgba(255, 255, 255, 0.3) !important;
-  border-radius: 12rpx !important;
-  font-size: 24rpx !important;
+  border-radius: 8rpx !important;
+  font-size: 22rpx !important;
   line-height: 1 !important;
+  font-weight: 500 !important;
+  transition: all 0.3s ease !important;
+}
+
+.selection-btn:active {
+  background: rgba(255, 255, 255, 0.3) !important;
+  transform: scale(0.95) !important;
 }
 
 .selection-btn.delete {
   background: #e74c3c !important;
+  border-color: #c0392b !important;
+}
+
+.selection-btn.delete:active {
+  background: #c0392b !important;
 }
 
 /* 历史记录区域 */
 .history-section {
   flex: 1;
-  margin: 0 20rpx 120rpx;
+  margin: 0 16rpx 120rpx;
   background: white;
   border-radius: 24rpx;
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.08);
@@ -226,15 +270,15 @@
 
 .history-list {
   max-height: 100vh;
-  padding: 32rpx;
+  padding: 20rpx 16rpx;
 }
 
 .history-item {
   display: flex;
-  margin-bottom: 32rpx;
-  padding: 24rpx;
+  margin-bottom: 20rpx;
+  padding: 20rpx;
   background: #f8f9fa;
-  border-radius: 20rpx;
+  border-radius: 16rpx;
   border: 1rpx solid #e9ecef;
   transition: all 0.3s ease;
   position: relative;
