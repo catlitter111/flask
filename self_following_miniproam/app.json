@@ -4,7 +4,8 @@
       "pages/history/history",
       "pages/feature/feature",
       "pages/feature/detail/detail",
-      "pages/assistant/assistant"
+      "pages/assistant/assistant",
+      "pages/rfid/rfid"
     ],
     "window": {
       "navigationBarTextStyle": "white",
@@ -44,6 +45,12 @@
           "text": "AI伴侣",
           "iconPath": "images/assistant.png",
           "selectedIconPath": "images/assistant-active.png"
+        },
+        {
+            "pagePath": "pages/rfid/rfid",
+            "text": "RFID监控",
+            "iconPath": "images/rfid.png",
+            "selectedIconPath": "images/rfid-active.png"
         }
       ]
     },

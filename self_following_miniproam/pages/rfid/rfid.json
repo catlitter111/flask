@@ -1,0 +1,9 @@
+{
+    "navigationBarTitleText": "RFID 监控中心",
+    "navigationBarBackgroundColor": "#2196F3",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f6f8fc",
+    "backgroundTextStyle": "light",
+    "enablePullDownRefresh": false,
+    "usingComponents": {}
+  }

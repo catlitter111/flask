@@ -1,0 +1,160 @@
+<!-- pages/rfid/rfid.wxml - RFID实时监控页面 -->
+<view class="container">
+  <!-- 实时状态面板 -->
+  <view class="status-panel">
+    <view class="panel-header">
+      <text class="panel-title">实时监控状态</text>
+      <view class="status-indicator {{isScanning ? 'scanning' : 'idle'}}">
+        <view class="status-dot"></view>
+        <text class="status-text">{{isScanning ? '运行中' : '已停止'}}</text>
+      </view>
+    </view>
+    
+    <view class="status-content">
+      <view class="status-row">
+        <view class="status-item">
+          <text class="status-label">连接状态：</text>
+          <text class="status-value {{connected ? 'connected' : 'disconnected'}}">
+            {{connected ? '✓ 已连接' : '✗ 未连接'}}
+          </text>
+        </view>
+        <view class="status-item">
+          <text class="status-label">运行时长：</text>
+          <text class="status-value">{{runningTime}}</text>
+        </view>
+      </view>
+      
+      <view class="status-row">
+        <view class="status-item">
+          <text class="status-label">读写器地址：</text>
+          <text class="status-value">{{readerAddress}}</text>
+        </view>
+        <view class="status-item">
+          <text class="status-label">读取速率：</text>
+          <text class="status-value highlight">{{readRate}} 次/秒</text>
+        </view>
+      </view>
+    </view>
+  </view>
+  
+  <!-- 控制按钮区 -->
+  <view class="control-section">
+    <button class="control-btn {{isScanning ? 'stop' : 'start'}}" 
+            bindtap="toggleScanning">
+      <text class="btn-title">{{isScanning ? '停止盘点' : '开始盘点'}}</text>
+      <text class="btn-subtitle">{{isScanning ? '点击停止实时扫描' : '点击开始实时扫描'}}</text>
+    </button>
+    
+    <button class="control-btn clear" bindtap="clearData">
+      <text class="btn-title">清空数据</text>
+      <text class="btn-subtitle">清除所有标签记录</text>
+    </button>
+  </view>
+  
+  <!-- 天线选择区 -->
+  <view class="antenna-section">
+    <text class="section-title">天线配置</text>
+    <view class="antenna-selector">
+      <view class="antenna-item {{selectedAntenna === 1 ? 'active' : ''}}" 
+            bindtap="selectAntenna" data-antenna="1">
+        <text>天线 1</text>
+      </view>
+      <view class="antenna-item {{selectedAntenna === 2 ? 'active' : ''}}" 
+            bindtap="selectAntenna" data-antenna="2">
+        <text>天线 2</text>
+      </view>
+      <view class="antenna-item {{selectedAntenna === 3 ? 'active' : ''}}" 
+            bindtap="selectAntenna" data-antenna="3">
+        <text>天线 3</text>
+      </view>
+      <view class="antenna-item {{selectedAntenna === 4 ? 'active' : ''}}" 
+            bindtap="selectAntenna" data-antenna="4">
+        <text>天线 4</text>
+      </view>
+    </view>
+  </view>
+  
+  <!-- 实时数据显示区 -->
+  <view class="realtime-data">
+    <view class="data-header">
+      <text class="data-title">实时数据流</text>
+      <view class="data-status">
+        <view class="live-dot"></view>
+        <text>实时更新</text>
+      </view>
+    </view>
+    
+    <view class="data-grid">
+      <view class="data-card">
+        <text class="card-value">{{totalTags}}</text>
+        <text class="card-label">检测标签</text>
+        <text class="card-hint">{{newTagsCount > 0 ? '+' + newTagsCount + ' 新增' : ''}}</text>
+      </view>
+      
+      <view class="data-card">
+        <text class="card-value">{{totalReads}}</text>
+        <text class="card-label">总读取次数</text>
+        <text class="card-hint">{{avgReadsPerTag}} 次/标签</text>
+      </view>
+      
+      <view class="data-card">
+        <text class="card-value">{{avgRSSI}}</text>
+        <text class="card-label">平均RSSI</text>
+        <text class="card-hint">dBm</text>
+      </view>
+    </view>
+  </view>
+  
+  <!-- 标签列表 -->
+  <view class="tag-list-section">
+    <view class="list-header">
+      <text class="list-title">标签列表</text>
+      <text class="list-count">{{tagList.length}} 个标签</text>
+    </view>
+    
+    <scroll-view class="tag-list" scroll-y>
+      <view class="tag-item" wx:for="{{tagList}}" wx:key="epc">
+        <view class="tag-indicator"></view>
+        <view class="tag-content">
+          <text class="tag-epc">{{item.epc}}</text>
+          <view class="tag-info">
+            <text class="info-item">RSSI: {{item.rssi}}dBm</text>
+            <text class="info-separator">|</text>
+            <text class="info-item">读取: {{item.readCount}}次</text>
+            <text class="info-separator">|</text>
+            <text class="info-item">天线: {{item.antenna}}</text>
+          </view>
+        </view>
+        <view class="tag-meta">
+          <text class="tag-time">{{item.lastSeen}}</text>
+          <text class="tag-status {{item.isActive ? 'active' : 'inactive'}}">
+            {{item.isActive ? '活跃' : '静默'}}
+          </text>
+        </view>
+      </view>
+      
+      <!-- 空状态 -->
+      <view class="empty-state" wx:if="{{tagList.length === 0}}">
+        <text class="empty-icon">📡</text>
+        <text class="empty-title">暂无标签数据</text>
+        <text class="empty-desc">点击"开始盘点"按钮开始扫描RFID标签</text>
+      </view>
+    </scroll-view>
+  </view>
+  
+  <!-- 底部操作栏 -->
+  <view class="bottom-bar">
+    <button class="bottom-btn" bindtap="exportData">
+      <text class="btn-icon">📤</text>
+      <text>导出数据</text>
+    </button>
+    <button class="bottom-btn" bindtap="viewHistory">
+      <text class="btn-icon">📊</text>
+      <text>历史记录</text>
+    </button>
+    <button class="bottom-btn" bindtap="openSettings">
+      <text class="btn-icon">⚙️</text>
+      <text>高级设置</text>
+    </button>
+  </view>
+</view>
