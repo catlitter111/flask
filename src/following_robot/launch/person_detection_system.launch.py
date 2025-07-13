@@ -10,9 +10,10 @@ def generate_launch_description():
     """
     启动人体检测系统的完整launch文件
     包含相机节点、深度服务节点和人体检测节点
+    增强功能：动态速度调节、PID控制、分段速度控制
     """
     
-    # 声明launch参数
+    # 声明基础launch参数
     camera_name_arg = DeclareLaunchArgument(
         'camera_name',
         default_value='camera',
@@ -43,12 +44,233 @@ def generate_launch_description():
         description='DLRobot serial port'
     )
     
+    # 声明基础控制参数
+    max_linear_speed_arg = DeclareLaunchArgument(
+        'max_linear_speed',
+        default_value='0.7',
+        description='Maximum linear speed (m/s)'
+    )
+    
+    max_angular_speed_arg = DeclareLaunchArgument(
+        'max_angular_speed',
+        default_value='0.5',
+        description='Maximum angular speed (rad/s)'
+    )
+    
+    min_follow_distance_arg = DeclareLaunchArgument(
+        'min_follow_distance',
+        default_value='0.8',
+        description='Minimum following distance (m)'
+    )
+    
+    max_follow_distance_arg = DeclareLaunchArgument(
+        'max_follow_distance',
+        default_value='1.2',
+        description='Maximum following distance (m)'
+    )
+    
+    follow_speed_factor_arg = DeclareLaunchArgument(
+        'follow_speed_factor',
+        default_value='0.5',
+        description='Following speed factor'
+    )
+    
+    # 声明动态速度调节参数
+    enable_dynamic_speed_arg = DeclareLaunchArgument(
+        'enable_dynamic_speed',
+        default_value='true',
+        description='Enable dynamic speed adjustment'
+    )
+    
+    enable_pid_control_arg = DeclareLaunchArgument(
+        'enable_pid_control',
+        default_value='true',
+        description='Enable PID control for following'
+    )
+    
+    enable_speed_smoothing_arg = DeclareLaunchArgument(
+        'enable_speed_smoothing',
+        default_value='true',
+        description='Enable speed smoothing'
+    )
+    
+    distance_prediction_enabled_arg = DeclareLaunchArgument(
+        'distance_prediction_enabled',
+        default_value='false',
+        description='Enable distance prediction for speed adjustment'
+    )
+    
+    # 声明PID控制参数
+    distance_pid_kp_arg = DeclareLaunchArgument(
+        'distance_pid_kp',
+        default_value='1.2',
+        description='Distance PID controller proportional gain'
+    )
+    
+    distance_pid_ki_arg = DeclareLaunchArgument(
+        'distance_pid_ki',
+        default_value='0.15',
+        description='Distance PID controller integral gain'
+    )
+    
+    distance_pid_kd_arg = DeclareLaunchArgument(
+        'distance_pid_kd',
+        default_value='0.08',
+        description='Distance PID controller derivative gain'
+    )
+    
+    angle_pid_kp_arg = DeclareLaunchArgument(
+        'angle_pid_kp',
+        default_value='2.2',
+        description='Angle PID controller proportional gain'
+    )
+    
+    angle_pid_ki_arg = DeclareLaunchArgument(
+        'angle_pid_ki',
+        default_value='0.05',
+        description='Angle PID controller integral gain'
+    )
+    
+    angle_pid_kd_arg = DeclareLaunchArgument(
+        'angle_pid_kd',
+        default_value='0.12',
+        description='Angle PID controller derivative gain'
+    )
+    
+    # 声明距离分段参数
+    very_close_distance_arg = DeclareLaunchArgument(
+        'very_close_distance',
+        default_value='0.5',
+        description='Very close distance threshold (m)'
+    )
+    
+    close_distance_arg = DeclareLaunchArgument(
+        'close_distance',
+        default_value='0.7',
+        description='Close distance threshold (m)'
+    )
+    
+    optimal_distance_near_arg = DeclareLaunchArgument(
+        'optimal_distance_near',
+        default_value='0.9',
+        description='Optimal distance near threshold (m)'
+    )
+    
+    optimal_distance_far_arg = DeclareLaunchArgument(
+        'optimal_distance_far',
+        default_value='1.3',
+        description='Optimal distance far threshold (m)'
+    )
+    
+    far_distance_arg = DeclareLaunchArgument(
+        'far_distance',
+        default_value='2.2',
+        description='Far distance threshold (m)'
+    )
+    
+    very_far_distance_arg = DeclareLaunchArgument(
+        'very_far_distance',
+        default_value='3.5',
+        description='Very far distance threshold (m)'
+    )
+    
+    # 声明速度分段参数
+    very_close_speed_factor_arg = DeclareLaunchArgument(
+        'very_close_speed_factor',
+        default_value='-0.7',
+        description='Speed factor for very close distance'
+    )
+    
+    close_speed_factor_arg = DeclareLaunchArgument(
+        'close_speed_factor',
+        default_value='-0.4',
+        description='Speed factor for close distance'
+    )
+    
+    optimal_speed_factor_arg = DeclareLaunchArgument(
+        'optimal_speed_factor',
+        default_value='0.0',
+        description='Speed factor for optimal distance'
+    )
+    
+    far_speed_factor_arg = DeclareLaunchArgument(
+        'far_speed_factor',
+        default_value='0.5',
+        description='Speed factor for far distance'
+    )
+    
+    very_far_speed_factor_arg = DeclareLaunchArgument(
+        'very_far_speed_factor',
+        default_value='0.9',
+        description='Speed factor for very far distance'
+    )
+    
+    # 声明平滑控制参数
+    speed_smoothing_factor_arg = DeclareLaunchArgument(
+        'speed_smoothing_factor',
+        default_value='0.75',
+        description='Speed smoothing factor (0.0-1.0)'
+    )
+    
+    max_acceleration_arg = DeclareLaunchArgument(
+        'max_acceleration',
+        default_value='1.2',
+        description='Maximum acceleration (m/s²)'
+    )
+    
+    min_speed_change_arg = DeclareLaunchArgument(
+        'min_speed_change',
+        default_value='0.015',
+        description='Minimum speed change threshold'
+    )
+    
     # 获取launch配置
     camera_name = LaunchConfiguration('camera_name')
     use_astra_camera = LaunchConfiguration('use_astra_camera')
     use_depth_service = LaunchConfiguration('use_depth_service')
     use_dlrobot_driver = LaunchConfiguration('use_dlrobot_driver')
     dlrobot_port = LaunchConfiguration('dlrobot_port')
+    
+    # 获取控制参数配置
+    max_linear_speed = LaunchConfiguration('max_linear_speed')
+    max_angular_speed = LaunchConfiguration('max_angular_speed')
+    min_follow_distance = LaunchConfiguration('min_follow_distance')
+    max_follow_distance = LaunchConfiguration('max_follow_distance')
+    follow_speed_factor = LaunchConfiguration('follow_speed_factor')
+    
+    # 获取动态速度调节参数配置
+    enable_dynamic_speed = LaunchConfiguration('enable_dynamic_speed')
+    enable_pid_control = LaunchConfiguration('enable_pid_control')
+    enable_speed_smoothing = LaunchConfiguration('enable_speed_smoothing')
+    distance_prediction_enabled = LaunchConfiguration('distance_prediction_enabled')
+    
+    # 获取PID参数配置
+    distance_pid_kp = LaunchConfiguration('distance_pid_kp')
+    distance_pid_ki = LaunchConfiguration('distance_pid_ki')
+    distance_pid_kd = LaunchConfiguration('distance_pid_kd')
+    angle_pid_kp = LaunchConfiguration('angle_pid_kp')
+    angle_pid_ki = LaunchConfiguration('angle_pid_ki')
+    angle_pid_kd = LaunchConfiguration('angle_pid_kd')
+    
+    # 获取距离分段参数配置
+    very_close_distance = LaunchConfiguration('very_close_distance')
+    close_distance = LaunchConfiguration('close_distance')
+    optimal_distance_near = LaunchConfiguration('optimal_distance_near')
+    optimal_distance_far = LaunchConfiguration('optimal_distance_far')
+    far_distance = LaunchConfiguration('far_distance')
+    very_far_distance = LaunchConfiguration('very_far_distance')
+    
+    # 获取速度分段参数配置
+    very_close_speed_factor = LaunchConfiguration('very_close_speed_factor')
+    close_speed_factor = LaunchConfiguration('close_speed_factor')
+    optimal_speed_factor = LaunchConfiguration('optimal_speed_factor')
+    far_speed_factor = LaunchConfiguration('far_speed_factor')
+    very_far_speed_factor = LaunchConfiguration('very_far_speed_factor')
+    
+    # 获取平滑控制参数配置
+    speed_smoothing_factor = LaunchConfiguration('speed_smoothing_factor')
+    max_acceleration = LaunchConfiguration('max_acceleration')
+    min_speed_change = LaunchConfiguration('min_speed_change')
     
     # Astra相机节点
     astra_camera_node = Node(
@@ -111,21 +333,56 @@ def generate_launch_description():
         ]
     )
     
-    # 机器人控制节点
+    # 机器人控制节点（增强版）
     robot_control_node = Node(
         package='following_robot',
         executable='robot_control_node',
         name='robot_control_node',
         output='screen',
         parameters=[
-            {'max_linear_speed': 0.7},
-            {'max_angular_speed': 0.9},
-            {'min_follow_distance': 0.8},
-            {'max_follow_distance': 1.0},
-            {'follow_speed_factor': 0.5},
+            # 基础控制参数
+            {'max_linear_speed': max_linear_speed},
+            {'max_angular_speed': max_angular_speed},
+            {'min_follow_distance': min_follow_distance},
+            {'max_follow_distance': max_follow_distance},
+            {'follow_speed_factor': follow_speed_factor},
             {'wheelbase': 0.143},
             {'use_ackermann': False},
             {'safety_enabled': True},
+            
+            # 动态速度调节功能开关
+            {'enable_dynamic_speed': enable_dynamic_speed},
+            {'enable_pid_control': enable_pid_control},
+            {'enable_speed_smoothing': enable_speed_smoothing},
+            {'distance_prediction_enabled': distance_prediction_enabled},
+            
+            # PID控制参数
+            {'distance_pid_kp': distance_pid_kp},
+            {'distance_pid_ki': distance_pid_ki},
+            {'distance_pid_kd': distance_pid_kd},
+            {'angle_pid_kp': angle_pid_kp},
+            {'angle_pid_ki': angle_pid_ki},
+            {'angle_pid_kd': angle_pid_kd},
+            
+            # 距离分段参数
+            {'very_close_distance': very_close_distance},
+            {'close_distance': close_distance},
+            {'optimal_distance_near': optimal_distance_near},
+            {'optimal_distance_far': optimal_distance_far},
+            {'far_distance': far_distance},
+            {'very_far_distance': very_far_distance},
+            
+            # 速度分段参数
+            {'very_close_speed_factor': very_close_speed_factor},
+            {'close_speed_factor': close_speed_factor},
+            {'optimal_speed_factor': optimal_speed_factor},
+            {'far_speed_factor': far_speed_factor},
+            {'very_far_speed_factor': very_far_speed_factor},
+            
+            # 平滑控制参数
+            {'speed_smoothing_factor': speed_smoothing_factor},
+            {'max_acceleration': max_acceleration},
+            {'min_speed_change': min_speed_change},
         ]
     )
     
@@ -173,12 +430,55 @@ def generate_launch_description():
     )
     
     return LaunchDescription([
+        # 基础参数
         camera_name_arg,
         use_astra_camera_arg,
         use_depth_service_arg,
         use_dlrobot_driver_arg,
         dlrobot_port_arg,
         
+        # 基础控制参数
+        max_linear_speed_arg,
+        max_angular_speed_arg,
+        min_follow_distance_arg,
+        max_follow_distance_arg,
+        follow_speed_factor_arg,
+        
+        # 动态速度调节参数
+        enable_dynamic_speed_arg,
+        enable_pid_control_arg,
+        enable_speed_smoothing_arg,
+        distance_prediction_enabled_arg,
+        
+        # PID控制参数
+        distance_pid_kp_arg,
+        distance_pid_ki_arg,
+        distance_pid_kd_arg,
+        angle_pid_kp_arg,
+        angle_pid_ki_arg,
+        angle_pid_kd_arg,
+        
+        # 距离分段参数
+        very_close_distance_arg,
+        close_distance_arg,
+        optimal_distance_near_arg,
+        optimal_distance_far_arg,
+        far_distance_arg,
+        very_far_distance_arg,
+        
+        # 速度分段参数
+        very_close_speed_factor_arg,
+        close_speed_factor_arg,
+        optimal_speed_factor_arg,
+        far_speed_factor_arg,
+        very_far_speed_factor_arg,
+        
+        # 平滑控制参数
+        speed_smoothing_factor_arg,
+        max_acceleration_arg,
+        min_speed_change_arg,
+        
+        # 节点
         astra_camera_node,
         depth_service_node,
         person_detection_node,

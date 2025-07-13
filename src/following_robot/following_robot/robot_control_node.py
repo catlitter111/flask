@@ -5,6 +5,7 @@
 ============
 整合turn_on_dlrobot_robot功能，提供小车运动控制接口
 支持多种控制模式：跟随模式、手动控制模式、导航模式
+增强功能：动态速度调节、PID控制、分段速度控制
 """
 
 import rclpy
@@ -14,6 +15,7 @@ import math
 import time
 import json
 from enum import Enum
+from collections import deque
 
 # ROS消息类型
 from geometry_msgs.msg import Twist, Point
@@ -36,6 +38,224 @@ class ControlMode(Enum):
     INTERACTION = "interaction"  # 交互模式
 
 
+class PIDController:
+    """PID控制器"""
+    
+    def __init__(self, kp=1.0, ki=0.0, kd=0.0, output_limits=(-1.0, 1.0)):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.output_limits = output_limits
+        
+        self.prev_error = 0.0
+        self.integral = 0.0
+        self.prev_time = time.time()
+        
+    def update(self, error, current_time=None):
+        """更新PID控制器"""
+        if current_time is None:
+            current_time = time.time()
+            
+        dt = current_time - self.prev_time
+        if dt <= 0.0:
+            return 0.0
+            
+        # 比例项
+        proportional = self.kp * error
+        
+        # 积分项
+        self.integral += error * dt
+        integral_term = self.ki * self.integral
+        
+        # 微分项
+        derivative = (error - self.prev_error) / dt
+        derivative_term = self.kd * derivative
+        
+        # 总输出
+        output = proportional + integral_term + derivative_term
+        
+        # 输出限制
+        if self.output_limits:
+            output = max(self.output_limits[0], min(self.output_limits[1], output))
+            
+        # 积分饱和处理
+        if abs(output) >= abs(self.output_limits[1]):
+            self.integral -= error * dt  # 回退积分项
+            
+        self.prev_error = error
+        self.prev_time = current_time
+        
+        return output
+    
+    def reset(self):
+        """重置PID控制器"""
+        self.prev_error = 0.0
+        self.integral = 0.0
+        self.prev_time = time.time()
+
+
+class DynamicSpeedController:
+    """动态速度控制器"""
+    
+    def __init__(self, max_linear_speed=0.5, max_angular_speed=1.0):
+        self.max_linear_speed = max_linear_speed
+        self.max_angular_speed = max_angular_speed
+        
+        # 距离分段参数
+        self.distance_zones = {
+            'very_close': 0.0,      # 非常接近
+            'close': 0.8,           # 接近
+            'optimal_near': 1.0,    # 最佳距离近端
+            'optimal_far': 1.5,     # 最佳距离远端
+            'far': 2.5,             # 远距离
+            'very_far': 4.0         # 非常远
+        }
+        
+        # 各距离段的速度参数
+        self.speed_profiles = {
+            'very_close': {'linear_factor': -0.6, 'angular_factor': 0.8},  # 后退
+            'close': {'linear_factor': -0.3, 'angular_factor': 0.6},       # 缓慢后退
+            'optimal': {'linear_factor': 0.0, 'angular_factor': 0.4},      # 停止/微调
+            'far': {'linear_factor': 0.4, 'angular_factor': 0.5},          # 前进
+            'very_far': {'linear_factor': 0.8, 'angular_factor': 0.6}      # 快速前进
+        }
+        
+        # 速度平滑参数
+        self.speed_smoothing_factor = 0.7  # 速度平滑系数
+        self.min_speed_change = 0.02       # 最小速度变化阈值
+        self.max_acceleration = 1.0        # 最大加速度 m/s²
+        
+        # 历史记录
+        self.distance_history = deque(maxlen=10)
+        self.speed_history = deque(maxlen=5)
+        self.last_linear_speed = 0.0
+        self.last_angular_speed = 0.0
+        self.last_update_time = time.time()
+        
+    def update_parameters(self, **kwargs):
+        """更新参数"""
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+                
+    def get_distance_zone(self, distance):
+        """获取距离区间"""
+        if distance < self.distance_zones['very_close']:
+            return 'very_close'
+        elif distance < self.distance_zones['close']:
+            return 'very_close'
+        elif distance < self.distance_zones['optimal_near']:
+            return 'close'
+        elif distance < self.distance_zones['optimal_far']:
+            return 'optimal'
+        elif distance < self.distance_zones['far']:
+            return 'far'
+        else:
+            return 'very_far'
+    
+    def calculate_target_speed(self, distance, angle_error):
+        """计算目标速度"""
+        # 获取距离区间
+        zone = self.get_distance_zone(distance)
+        
+        # 获取速度配置
+        if zone in self.speed_profiles:
+            profile = self.speed_profiles[zone]
+        else:
+            profile = self.speed_profiles['optimal']
+            
+        # 计算基础线速度
+        if zone == 'optimal':
+            # 在最佳距离范围内，根据距离微调
+            optimal_center = (self.distance_zones['optimal_near'] + self.distance_zones['optimal_far']) / 2
+            distance_error = distance - optimal_center
+            linear_speed = profile['linear_factor'] * distance_error * 0.3
+        else:
+            # 其他区间的速度计算
+            if zone == 'very_close' or zone == 'close':
+                # 距离太近，后退速度与距离成反比
+                distance_factor = max(0.3, 1.0 - distance / self.distance_zones['close'])
+            elif zone == 'far':
+                # 远距离，前进速度与距离成正比
+                distance_factor = min(1.0, (distance - self.distance_zones['optimal_far']) / 
+                                    (self.distance_zones['far'] - self.distance_zones['optimal_far']))
+            else:  # very_far
+                # 非常远距离，使用固定高速
+                distance_factor = 1.0
+                
+            linear_speed = profile['linear_factor'] * distance_factor * self.max_linear_speed
+        
+        # 计算角速度
+        angular_speed = -angle_error * profile['angular_factor'] * self.max_angular_speed
+        
+        # 速度限制
+        linear_speed = max(-self.max_linear_speed, min(self.max_linear_speed, linear_speed))
+        angular_speed = max(-self.max_angular_speed, min(self.max_angular_speed, angular_speed))
+        
+        return linear_speed, angular_speed, zone
+    
+    def smooth_speed_change(self, target_linear, target_angular):
+        """平滑速度变化"""
+        current_time = time.time()
+        dt = current_time - self.last_update_time
+        
+        if dt <= 0:
+            return self.last_linear_speed, self.last_angular_speed
+            
+        # 计算最大速度变化（基于加速度限制）
+        max_linear_change = self.max_acceleration * dt
+        max_angular_change = self.max_acceleration * dt * 2  # 角速度变化更快
+        
+        # 计算期望的速度变化
+        linear_change = target_linear - self.last_linear_speed
+        angular_change = target_angular - self.last_angular_speed
+        
+        # 应用加速度限制
+        if abs(linear_change) > max_linear_change:
+            linear_change = max_linear_change * (1 if linear_change > 0 else -1)
+        if abs(angular_change) > max_angular_change:
+            angular_change = max_angular_change * (1 if angular_change > 0 else -1)
+            
+        # 应用平滑系数
+        smooth_linear = self.last_linear_speed + linear_change * self.speed_smoothing_factor
+        smooth_angular = self.last_angular_speed + angular_change * self.speed_smoothing_factor
+        
+        # 最小变化阈值
+        if abs(smooth_linear - self.last_linear_speed) < self.min_speed_change:
+            smooth_linear = self.last_linear_speed
+        if abs(smooth_angular - self.last_angular_speed) < self.min_speed_change:
+            smooth_angular = self.last_angular_speed
+            
+        # 更新历史记录
+        self.last_linear_speed = smooth_linear
+        self.last_angular_speed = smooth_angular
+        self.last_update_time = current_time
+        
+        return smooth_linear, smooth_angular
+    
+    def add_distance_sample(self, distance):
+        """添加距离采样"""
+        self.distance_history.append(distance)
+        
+    def get_distance_trend(self):
+        """获取距离变化趋势"""
+        if len(self.distance_history) < 3:
+            return 0.0
+            
+        # 计算距离变化率
+        recent_distances = list(self.distance_history)[-3:]
+        trend = (recent_distances[-1] - recent_distances[0]) / len(recent_distances)
+        return trend
+    
+    def reset(self):
+        """重置控制器"""
+        self.distance_history.clear()
+        self.speed_history.clear()
+        self.last_linear_speed = 0.0
+        self.last_angular_speed = 0.0
+        self.last_update_time = time.time()
+
+
 class RobotControlNode(Node):
     """小车控制节点"""
     
@@ -54,6 +274,40 @@ class RobotControlNode(Node):
         self.min_follow_distance = 1.0  # 最小跟随距离 m
         self.max_follow_distance = 3.0  # 最大跟随距离 m
         self.follow_speed_factor = 0.3  # 跟随速度因子
+        
+        # 新增：动态速度调节参数
+        self.enable_dynamic_speed = True
+        self.enable_pid_control = True
+        self.enable_speed_smoothing = True
+        self.distance_prediction_enabled = True
+        
+        # PID控制参数
+        self.distance_pid_kp = 1.0
+        self.distance_pid_ki = 0.1
+        self.distance_pid_kd = 0.05
+        self.angle_pid_kp = 2.0
+        self.angle_pid_ki = 0.0
+        self.angle_pid_kd = 0.1
+        
+        # 距离分段参数
+        self.very_close_distance = 0.6
+        self.close_distance = 0.8
+        self.optimal_distance_near = 1.0
+        self.optimal_distance_far = 1.5
+        self.far_distance = 2.5
+        self.very_far_distance = 4.0
+        
+        # 速度分段参数
+        self.very_close_speed_factor = -0.6
+        self.close_speed_factor = -0.3
+        self.optimal_speed_factor = 0.0
+        self.far_speed_factor = 0.4
+        self.very_far_speed_factor = 0.8
+        
+        # 平滑控制参数
+        self.speed_smoothing_factor = 0.7
+        self.max_acceleration = 1.0
+        self.min_speed_change = 0.02
         
         # 阿克曼参数
         self.wheelbase = 0.143  # 轴距（mini_akm）
@@ -74,7 +328,9 @@ class RobotControlNode(Node):
         self.motor_speed = 50  # 电机速度百分比 (0-100)
         self.control_type = "motor"  # 控制类型：motor 或 companion
         
+        # 初始化控制器
         self.setup_parameters()
+        self.setup_controllers()
         self.setup_publishers()
         self.setup_subscribers()
         self.setup_services()
@@ -82,10 +338,12 @@ class RobotControlNode(Node):
         
         self.get_logger().info("🚗 小车控制节点初始化完成")
         self.get_logger().info(f"🎮 当前控制模式: {self.control_mode.value}")
+        self.get_logger().info(f"🎯 动态速度调节: {'启用' if self.enable_dynamic_speed else '禁用'}")
+        self.get_logger().info(f"🎛️ PID控制: {'启用' if self.enable_pid_control else '禁用'}")
 
     def setup_parameters(self):
         """设置参数"""
-        # 声明参数
+        # 声明基础参数
         self.declare_parameter('max_linear_speed', 0.5)
         self.declare_parameter('max_angular_speed', 1.0)
         self.declare_parameter('min_follow_distance', 1.0)
@@ -94,6 +352,40 @@ class RobotControlNode(Node):
         self.declare_parameter('wheelbase', 0.143)
         self.declare_parameter('use_ackermann', False)
         self.declare_parameter('safety_enabled', True)
+        
+        # 声明动态速度调节参数
+        self.declare_parameter('enable_dynamic_speed', True)
+        self.declare_parameter('enable_pid_control', True)
+        self.declare_parameter('enable_speed_smoothing', True)
+        self.declare_parameter('distance_prediction_enabled', True)
+        
+        # 声明PID参数
+        self.declare_parameter('distance_pid_kp', 1.0)
+        self.declare_parameter('distance_pid_ki', 0.1)
+        self.declare_parameter('distance_pid_kd', 0.05)
+        self.declare_parameter('angle_pid_kp', 2.0)
+        self.declare_parameter('angle_pid_ki', 0.0)
+        self.declare_parameter('angle_pid_kd', 0.1)
+        
+        # 声明距离分段参数
+        self.declare_parameter('very_close_distance', 0.6)
+        self.declare_parameter('close_distance', 0.8)
+        self.declare_parameter('optimal_distance_near', 1.0)
+        self.declare_parameter('optimal_distance_far', 1.5)
+        self.declare_parameter('far_distance', 2.5)
+        self.declare_parameter('very_far_distance', 4.0)
+        
+        # 声明速度分段参数
+        self.declare_parameter('very_close_speed_factor', -0.6)
+        self.declare_parameter('close_speed_factor', -0.3)
+        self.declare_parameter('optimal_speed_factor', 0.0)
+        self.declare_parameter('far_speed_factor', 0.4)
+        self.declare_parameter('very_far_speed_factor', 0.8)
+        
+        # 声明平滑控制参数
+        self.declare_parameter('speed_smoothing_factor', 0.7)
+        self.declare_parameter('max_acceleration', 1.0)
+        self.declare_parameter('min_speed_change', 0.02)
         
         # 获取参数值
         self.max_linear_speed = float(self.get_parameter('max_linear_speed').value or 0.5)
@@ -104,6 +396,89 @@ class RobotControlNode(Node):
         self.wheelbase = float(self.get_parameter('wheelbase').value or 0.143)
         self.use_ackermann = bool(self.get_parameter('use_ackermann').value or False)
         self.safety_enabled = bool(self.get_parameter('safety_enabled').value or True)
+        
+        # 获取动态速度调节参数
+        self.enable_dynamic_speed = bool(self.get_parameter('enable_dynamic_speed').value or True)
+        self.enable_pid_control = bool(self.get_parameter('enable_pid_control').value or True)
+        self.enable_speed_smoothing = bool(self.get_parameter('enable_speed_smoothing').value or True)
+        self.distance_prediction_enabled = bool(self.get_parameter('distance_prediction_enabled').value or True)
+        
+        # 获取PID参数
+        self.distance_pid_kp = float(self.get_parameter('distance_pid_kp').value or 1.0)
+        self.distance_pid_ki = float(self.get_parameter('distance_pid_ki').value or 0.1)
+        self.distance_pid_kd = float(self.get_parameter('distance_pid_kd').value or 0.05)
+        self.angle_pid_kp = float(self.get_parameter('angle_pid_kp').value or 2.0)
+        self.angle_pid_ki = float(self.get_parameter('angle_pid_ki').value or 0.0)
+        self.angle_pid_kd = float(self.get_parameter('angle_pid_kd').value or 0.1)
+        
+        # 获取距离分段参数
+        self.very_close_distance = float(self.get_parameter('very_close_distance').value or 0.6)
+        self.close_distance = float(self.get_parameter('close_distance').value or 0.8)
+        self.optimal_distance_near = float(self.get_parameter('optimal_distance_near').value or 1.0)
+        self.optimal_distance_far = float(self.get_parameter('optimal_distance_far').value or 1.5)
+        self.far_distance = float(self.get_parameter('far_distance').value or 2.5)
+        self.very_far_distance = float(self.get_parameter('very_far_distance').value or 4.0)
+        
+        # 获取速度分段参数
+        self.very_close_speed_factor = float(self.get_parameter('very_close_speed_factor').value or -0.6)
+        self.close_speed_factor = float(self.get_parameter('close_speed_factor').value or -0.3)
+        self.optimal_speed_factor = float(self.get_parameter('optimal_speed_factor').value or 0.0)
+        self.far_speed_factor = float(self.get_parameter('far_speed_factor').value or 0.4)
+        self.very_far_speed_factor = float(self.get_parameter('very_far_speed_factor').value or 0.8)
+        
+        # 获取平滑控制参数
+        self.speed_smoothing_factor = float(self.get_parameter('speed_smoothing_factor').value or 0.7)
+        self.max_acceleration = float(self.get_parameter('max_acceleration').value or 1.0)
+        self.min_speed_change = float(self.get_parameter('min_speed_change').value or 0.02)
+
+    def setup_controllers(self):
+        """设置控制器"""
+        # 创建动态速度控制器
+        self.dynamic_speed_controller = DynamicSpeedController(
+            self.max_linear_speed, 
+            self.max_angular_speed
+        )
+        
+        # 更新动态速度控制器参数
+        self.dynamic_speed_controller.update_parameters(
+            distance_zones={
+                'very_close': self.very_close_distance,
+                'close': self.close_distance,
+                'optimal_near': self.optimal_distance_near,
+                'optimal_far': self.optimal_distance_far,
+                'far': self.far_distance,
+                'very_far': self.very_far_distance
+            },
+            speed_profiles={
+                'very_close': {'linear_factor': self.very_close_speed_factor, 'angular_factor': 0.8},
+                'close': {'linear_factor': self.close_speed_factor, 'angular_factor': 0.6},
+                'optimal': {'linear_factor': self.optimal_speed_factor, 'angular_factor': 0.4},
+                'far': {'linear_factor': self.far_speed_factor, 'angular_factor': 0.5},
+                'very_far': {'linear_factor': self.very_far_speed_factor, 'angular_factor': 0.6}
+            },
+            speed_smoothing_factor=self.speed_smoothing_factor,
+            max_acceleration=self.max_acceleration,
+            min_speed_change=self.min_speed_change
+        )
+        
+        # 创建PID控制器
+        if self.enable_pid_control:
+            self.distance_pid = PIDController(
+                self.distance_pid_kp, 
+                self.distance_pid_ki, 
+                self.distance_pid_kd,
+                (-self.max_linear_speed, self.max_linear_speed)
+            )
+            
+            self.angle_pid = PIDController(
+                self.angle_pid_kp, 
+                self.angle_pid_ki, 
+                self.angle_pid_kd,
+                (-self.max_angular_speed, self.max_angular_speed)
+            )
+        else:
+            self.distance_pid = None
+            self.angle_pid = None
 
     def setup_publishers(self):
         """设置发布者"""
@@ -126,6 +501,10 @@ class RobotControlNode(Node):
         # 新增：控制指令信息发布者（用于WebSocket转发）
         self.control_command_publisher = self.create_publisher(
             String, '/robot_control/current_command', qos)
+        
+        # 新增：动态速度控制状态发布者
+        self.speed_control_status_publisher = self.create_publisher(
+            String, '/robot_control/speed_control_status', qos)
 
     def setup_subscribers(self):
         """设置订阅者"""
@@ -389,7 +768,7 @@ class RobotControlNode(Node):
             self.get_logger().error(f"❌ 处理JSON人体位置数据失败: {e}")
     
     def process_following_control_json(self, person_data):
-        """处理基于JSON数据的跟随控制逻辑"""
+        """处理基于JSON数据的跟随控制逻辑（增强版）"""
         try:
             distance = person_data.get('distance', 0.0)
             center = person_data.get('center', [0, 0])  # [x, y]像素坐标
@@ -403,30 +782,18 @@ class RobotControlNode(Node):
             camera_fov = 60.0  # 度
             angle_x = horizontal_offset_pixels * (camera_fov / image_width) * (3.14159 / 180)  # 转换为弧度
             
-            # 距离控制
-            linear_vel = 0.0
-            if distance > self.max_follow_distance:
-                # 距离太远，加速跟上
-                linear_vel = self.follow_speed_factor * min(
-                    (distance - self.max_follow_distance) / 2.0,
-                    self.max_linear_speed
-                )
-            elif distance < self.min_follow_distance:
-                # 距离太近，后退
-                linear_vel = -self.follow_speed_factor * min(
-                    (self.min_follow_distance - distance) / 1.0,
-                    self.max_linear_speed * 0.5
-                )
-            
-            # 角度控制
-            angular_vel = 0.0
-            if abs(angle_x) > 0.1:  # 角度阈值（弧度）
-                angular_vel = -angle_x * 0.5  # 角度控制增益
-                angular_vel = max(-self.max_angular_speed, 
-                                min(self.max_angular_speed, angular_vel))
+            # 使用增强的动态速度控制
+            if self.enable_dynamic_speed:
+                linear_vel, angular_vel = self.calculate_dynamic_speed(distance, angle_x)
+            else:
+                # 使用原始简单控制逻辑
+                linear_vel, angular_vel = self.calculate_simple_speed(distance, angle_x)
             
             # 发送控制命令
             self.send_velocity_command(linear_vel, angular_vel)
+            
+            # 发布速度控制状态
+            self.publish_speed_control_status(distance, angle_x, linear_vel, angular_vel)
             
             self.get_logger().debug(
                 f"JSON跟随控制: dist={distance:.2f}, angle={angle_x:.2f}, "
@@ -435,6 +802,95 @@ class RobotControlNode(Node):
             
         except Exception as e:
             self.get_logger().error(f"JSON跟随控制处理错误: {e}")
+    
+    def calculate_dynamic_speed(self, distance, angle_x):
+        """计算动态速度（增强版）"""
+        # 添加距离采样到历史记录
+        self.dynamic_speed_controller.add_distance_sample(distance)
+        
+        # 计算目标距离（最佳跟随距离的中点）
+        target_distance = (self.optimal_distance_near + self.optimal_distance_far) / 2
+        
+        if self.enable_pid_control and self.distance_pid and self.angle_pid:
+            # 使用PID控制
+            distance_error = distance - target_distance
+            linear_vel = self.distance_pid.update(distance_error)
+            angular_vel = self.angle_pid.update(angle_x)
+        else:
+            # 使用动态速度控制器
+            linear_vel, angular_vel, zone = self.dynamic_speed_controller.calculate_target_speed(
+                distance, angle_x
+            )
+        
+        # 应用速度平滑
+        if self.enable_speed_smoothing:
+            linear_vel, angular_vel = self.dynamic_speed_controller.smooth_speed_change(
+                linear_vel, angular_vel
+            )
+        
+        # 距离预测调整
+        if self.distance_prediction_enabled:
+            distance_trend = self.dynamic_speed_controller.get_distance_trend()
+            # 根据距离变化趋势调整速度
+            if distance_trend > 0.1:  # 距离快速增大
+                linear_vel *= 1.2  # 稍微加速
+            elif distance_trend < -0.1:  # 距离快速减小
+                linear_vel *= 0.8  # 稍微减速
+        
+        return linear_vel, angular_vel
+    
+    def calculate_simple_speed(self, distance, angle_x):
+        """计算简单速度（原始逻辑）"""
+        # 距离控制
+        linear_vel = 0.0
+        if distance > self.max_follow_distance:
+            # 距离太远，加速跟上
+            linear_vel = self.follow_speed_factor * min(
+                (distance - self.max_follow_distance) / 2.0,
+                self.max_linear_speed
+            )
+        elif distance < self.min_follow_distance:
+            # 距离太近，后退
+            linear_vel = -self.follow_speed_factor * min(
+                (self.min_follow_distance - distance) / 1.0,
+                self.max_linear_speed * 0.5
+            )
+        
+        # 角度控制
+        angular_vel = 0.0
+        if abs(angle_x) > 0.1:  # 角度阈值（弧度）
+            angular_vel = -angle_x * 0.5  # 角度控制增益
+            angular_vel = max(-self.max_angular_speed, 
+                            min(self.max_angular_speed, angular_vel))
+        
+        return linear_vel, angular_vel
+    
+    def publish_speed_control_status(self, distance, angle_x, linear_vel, angular_vel):
+        """发布速度控制状态"""
+        try:
+            zone = self.dynamic_speed_controller.get_distance_zone(distance)
+            distance_trend = self.dynamic_speed_controller.get_distance_trend()
+            
+            status_info = {
+                "timestamp": int(time.time() * 1000),
+                "distance": round(distance, 3),
+                "angle_x": round(angle_x, 3),
+                "linear_vel": round(linear_vel, 3),
+                "angular_vel": round(angular_vel, 3),
+                "distance_zone": zone,
+                "distance_trend": round(distance_trend, 3),
+                "dynamic_speed_enabled": self.enable_dynamic_speed,
+                "pid_enabled": self.enable_pid_control,
+                "smoothing_enabled": self.enable_speed_smoothing,
+                "prediction_enabled": self.distance_prediction_enabled
+            }
+            
+            status_msg = String()
+            status_msg.data = json.dumps(status_info)
+            self.speed_control_status_publisher.publish(status_msg)
+            
+        except Exception as e:
+            self.get_logger().error(f"发布速度控制状态失败: {e}")
 
     def mode_cmd_callback(self, msg):
         """控制模式切换回调"""
@@ -461,6 +917,13 @@ class RobotControlNode(Node):
         self.emergency_stop = msg.data
         if self.emergency_stop:
             self.send_stop_command()
+            # 重置控制器
+            if self.dynamic_speed_controller:
+                self.dynamic_speed_controller.reset()
+            if self.distance_pid:
+                self.distance_pid.reset()
+            if self.angle_pid:
+                self.angle_pid.reset()
             self.get_logger().warn("🚨 紧急停止激活")
 
     def set_control_mode(self, mode):
@@ -471,6 +934,14 @@ class RobotControlNode(Node):
             # 切换模式时先停止
             if mode == ControlMode.STOP:
                 self.send_stop_command()
+            
+            # 重置控制器
+            if self.dynamic_speed_controller:
+                self.dynamic_speed_controller.reset()
+            if self.distance_pid:
+                self.distance_pid.reset()
+            if self.angle_pid:
+                self.angle_pid.reset()
             
             self.control_mode = mode
             
@@ -487,30 +958,18 @@ class RobotControlNode(Node):
             angle_x = float(person_pos.angle_x) if person_pos.angle_x is not None else 0.0
             angle_y = float(person_pos.angle_y) if person_pos.angle_y is not None else 0.0
             
-            # 距离控制
-            linear_vel = 0.0
-            if distance > self.max_follow_distance:
-                # 距离太远，加速跟上
-                linear_vel = self.follow_speed_factor * min(
-                    (distance - self.max_follow_distance) / 2.0,
-                    self.max_linear_speed
-                )
-            elif distance < self.min_follow_distance:
-                # 距离太近，后退
-                linear_vel = -self.follow_speed_factor * min(
-                    (self.min_follow_distance - distance) / 1.0,
-                    self.max_linear_speed * 0.5
-                )
-            
-            # 角度控制
-            angular_vel = 0.0
-            if abs(angle_x) > 0.1:  # 角度阈值（弧度）
-                angular_vel = -angle_x * 0.5  # 角度控制增益
-                angular_vel = max(-self.max_angular_speed, 
-                                min(self.max_angular_speed, angular_vel))
+            # 使用增强的动态速度控制
+            if self.enable_dynamic_speed:
+                linear_vel, angular_vel = self.calculate_dynamic_speed(distance, angle_x)
+            else:
+                # 使用原始简单控制逻辑
+                linear_vel, angular_vel = self.calculate_simple_speed(distance, angle_x)
             
             # 发送控制命令
             self.send_velocity_command(linear_vel, angular_vel)
+            
+            # 发布速度控制状态
+            self.publish_speed_control_status(distance, angle_x, linear_vel, angular_vel)
             
             self.get_logger().debug(
                 f"跟随控制: dist={distance:.2f}, angle={angle_x:.2f}, "
@@ -542,7 +1001,9 @@ class RobotControlNode(Node):
             "control_type": self.control_type,
             "motor_speed": self.motor_speed,
             "emergency_stop": self.emergency_stop,
-            "use_ackermann": self.use_ackermann
+            "use_ackermann": self.use_ackermann,
+            "dynamic_speed_enabled": self.enable_dynamic_speed,
+            "pid_enabled": self.enable_pid_control
         }
         
         if self.use_ackermann:
@@ -643,6 +1104,10 @@ class RobotControlNode(Node):
                 "emergency_stop": self.emergency_stop,
                 "motor_speed": self.motor_speed,
                 "control_type": self.control_type,
+                "dynamic_speed_enabled": self.enable_dynamic_speed,
+                "pid_enabled": self.enable_pid_control,
+                "smoothing_enabled": self.enable_speed_smoothing,
+                "prediction_enabled": self.distance_prediction_enabled,
                 "last_detection": time.time() - self.last_detection_time if self.last_detection_time > 0 else -1
             }
             status_msg.data = str(status_info)
@@ -673,6 +1138,22 @@ class RobotControlNode(Node):
         """设置安全模式"""
         self.safety_enabled = enabled
         self.get_logger().info(f"🛡️ 安全模式: {'启用' if enabled else '禁用'}")
+
+    def set_dynamic_speed_mode(self, enabled):
+        """设置动态速度模式"""
+        self.enable_dynamic_speed = enabled
+        if self.dynamic_speed_controller:
+            self.dynamic_speed_controller.reset()
+        self.get_logger().info(f"⚡ 动态速度调节: {'启用' if enabled else '禁用'}")
+
+    def set_pid_control_mode(self, enabled):
+        """设置PID控制模式"""
+        self.enable_pid_control = enabled
+        if self.distance_pid:
+            self.distance_pid.reset()
+        if self.angle_pid:
+            self.angle_pid.reset()
+        self.get_logger().info(f"🎛️ PID控制: {'启用' if enabled else '禁用'}")
 
 
 def main(args=None):
