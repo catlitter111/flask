@@ -6,6 +6,13 @@
 整合turn_on_dlrobot_robot功能，提供小车运动控制接口
 支持多种控制模式：跟随模式、手动控制模式、导航模式
 增强功能：动态速度调节、PID控制、分段速度控制
+
+🎯 运动控制设计：
+- X轴速度：前进(+)/后退(-)线速度控制 (m/s)
+- Z轴速度：左转(+)/右转(-)角速度控制 (rad/s)  
+- Y轴速度：强制设为0.0 (差分驱动机器人不支持侧向运动)
+
+适用于差分驱动机器人，如DLRobot系列底盘
 """
 
 import rclpy
@@ -257,7 +264,17 @@ class DynamicSpeedController:
 
 
 class RobotControlNode(Node):
-    """小车控制节点"""
+    """
+    小车控制节点
+    
+    🎯 运动控制说明：
+    - X轴速度：前进(+)/后退(-)线速度控制
+    - Z轴速度：左转(+)/右转(-)角速度控制  
+    - Y轴速度：强制设为0.0（差分驱动机器人不支持侧向运动）
+    
+    支持多种控制模式：跟随模式、手动控制模式、导航模式
+    增强功能：动态速度调节、PID控制、分段速度控制
+    """
     
     def __init__(self):
         super().__init__('robot_control_node')
@@ -309,6 +326,9 @@ class RobotControlNode(Node):
         self.max_acceleration = 1.0
         self.min_speed_change = 0.02
         
+        # 🔧 转向方向修正参数（解决小车转错方向问题）
+        self.angular_velocity_reverse = False  # 是否反转角速度方向
+        
         # 阿克曼参数
         self.wheelbase = 0.143  # 轴距（mini_akm）
         self.use_ackermann = False
@@ -340,6 +360,7 @@ class RobotControlNode(Node):
         self.get_logger().info(f"🎮 当前控制模式: {self.control_mode.value}")
         self.get_logger().info(f"🎯 动态速度调节: {'启用' if self.enable_dynamic_speed else '禁用'}")
         self.get_logger().info(f"🎛️ PID控制: {'启用' if self.enable_pid_control else '禁用'}")
+        self.get_logger().info("📐 运动控制配置: X轴(前进/后退) + Z轴(左转/右转), Y轴强制为0(差分驱动)")
 
     def setup_parameters(self):
         """设置参数"""
@@ -387,6 +408,9 @@ class RobotControlNode(Node):
         self.declare_parameter('max_acceleration', 1.0)
         self.declare_parameter('min_speed_change', 0.02)
         
+        # 声明转向方向修正参数
+        self.declare_parameter('angular_velocity_reverse', False)
+        
         # 获取参数值
         self.max_linear_speed = float(self.get_parameter('max_linear_speed').value or 0.5)
         self.max_angular_speed = float(self.get_parameter('max_angular_speed').value or 1.0)
@@ -430,6 +454,9 @@ class RobotControlNode(Node):
         self.speed_smoothing_factor = float(self.get_parameter('speed_smoothing_factor').value or 0.7)
         self.max_acceleration = float(self.get_parameter('max_acceleration').value or 1.0)
         self.min_speed_change = float(self.get_parameter('min_speed_change').value or 0.02)
+        
+        # 获取转向方向修正参数
+        self.angular_velocity_reverse = bool(self.get_parameter('angular_velocity_reverse').value or False)
 
     def setup_controllers(self):
         """设置控制器"""
@@ -647,7 +674,14 @@ class RobotControlNode(Node):
             self.get_logger().error(f"❌ 命令处理失败: {e}")
 
     def handle_motor_command(self, cmd_type, cmd_value):
-        """处理电机控制命令"""
+        """
+        处理电机控制命令
+        
+        🎯 电机控制说明：
+        - 前进/后退：使用X轴线速度控制
+        - 左转/右转：使用Z轴角速度控制
+        - 侧向运动：不支持（Y轴速度强制为0）
+        """
         try:
             # 解析速度参数
             if cmd_value:
@@ -659,22 +693,26 @@ class RobotControlNode(Node):
             linear_vel = (speed / 100.0) * self.max_linear_speed
             angular_vel = (speed / 100.0) * self.max_angular_speed
             
-            # 根据命令类型设置运动参数
+            # 🎯 根据命令类型设置运动参数（只使用X轴和Z轴）
             if cmd_type == 'motor_forward':
+                # X轴正向线速度，Z轴角速度为0
                 self.send_velocity_command(linear_vel, 0.0)
-                self.get_logger().info(f"🔺 电机前进: {speed}%")
+                self.get_logger().info(f"🔺 电机前进: {speed}% (X轴={linear_vel:.3f})")
                 
             elif cmd_type == 'motor_backward':
+                # X轴负向线速度，Z轴角速度为0
                 self.send_velocity_command(-linear_vel, 0.0)
-                self.get_logger().info(f"🔻 电机后退: {speed}%")
+                self.get_logger().info(f"🔻 电机后退: {speed}% (X轴={-linear_vel:.3f})")
                 
             elif cmd_type == 'motor_left':
+                # X轴线速度为0，Z轴正向角速度（左转）
                 self.send_velocity_command(0.0, angular_vel)
-                self.get_logger().info(f"◀️ 电机左转: {speed}%")
+                self.get_logger().info(f"◀️ 电机左转: {speed}% (Z轴={angular_vel:.3f})")
                 
             elif cmd_type == 'motor_right':
+                # X轴线速度为0，Z轴负向角速度（右转）
                 self.send_velocity_command(0.0, -angular_vel)
-                self.get_logger().info(f"▶️ 电机右转: {speed}%")
+                self.get_logger().info(f"▶️ 电机右转: {speed}% (Z轴={-angular_vel:.3f})")
                 
             elif cmd_type == 'motor_stop':
                 self.send_stop_command()
@@ -724,8 +762,14 @@ class RobotControlNode(Node):
     def manual_cmd_callback(self, msg):
         """手动控制命令回调"""
         if self.control_mode == ControlMode.MANUAL:
-            self.send_velocity_command(msg.linear.x, msg.angular.z)
-            self.get_logger().debug(f"手动控制: linear={msg.linear.x:.2f}, angular={msg.angular.z:.2f}")
+            # 🎯 只使用X轴（前进/后退）和Z轴（旋转）速度，忽略Y轴（侧向）速度
+            # X轴：前进/后退线速度，Z轴：旋转角速度，Y轴：强制设为0（差分驱动不支持侧向运动）
+            linear_x = msg.linear.x  # 前进/后退速度
+            angular_z = msg.angular.z  # 旋转角速度
+            # 明确忽略 msg.linear.y（侧向速度）
+            
+            self.send_velocity_command(linear_x, angular_z)
+            self.get_logger().debug(f"手动控制: X轴(前进)={linear_x:.2f}, Z轴(旋转)={angular_z:.2f}, Y轴(侧向)=0.0(忽略)")
 
     def person_position_callback(self, msg):
         """人体位置回调"""
@@ -979,8 +1023,27 @@ class RobotControlNode(Node):
         except Exception as e:
             self.get_logger().error(f"跟随控制处理错误: {e}")
 
+    def apply_angular_velocity_correction(self, angular_z):
+        """
+        应用角速度方向修正
+        
+        🔧 解决小车转向方向错误的问题：
+        - 如果angular_velocity_reverse为True，则反转角速度方向
+        - 适用于不同机器人硬件的差异
+        """
+        if self.angular_velocity_reverse:
+            return -angular_z
+        return angular_z
+
     def send_velocity_command(self, linear_x, angular_z):
-        """发送速度控制命令"""
+        """
+        发送速度控制命令
+        
+        参数说明：
+        - linear_x: X轴线速度 (m/s) - 前进(+)/后退(-)
+        - angular_z: Z轴角速度 (rad/s) - 左转(+)/右转(-)
+        - Y轴速度: 强制设为0.0 (差分驱动机器人不支持侧向运动)
+        """
         if self.emergency_stop:
             return
         
@@ -988,14 +1051,21 @@ class RobotControlNode(Node):
         linear_x = float(linear_x) if linear_x is not None else 0.0
         angular_z = float(angular_z) if angular_z is not None else 0.0
         
+        # ⚠️ Y轴速度强制设为0（差分驱动不支持侧向运动）
+        linear_y = 0.0
+        
         linear_x = max(-self.max_linear_speed, min(self.max_linear_speed, linear_x))
         angular_z = max(-self.max_angular_speed, min(self.max_angular_speed, angular_z))
+        
+        # 🔧 应用角速度方向修正（解决转向方向错误问题）
+        angular_z = self.apply_angular_velocity_correction(angular_z)
         
         # 准备控制指令信息（用于WebSocket转发）
         command_info = {
             "type": "robot_control_command",
             "timestamp": int(time.time() * 1000),
             "linear_x": round(linear_x, 3),
+            "linear_y": round(linear_y, 3),  # 明确记录Y轴为0
             "angular_z": round(angular_z, 3),
             "control_mode": self.control_mode.value,
             "control_type": self.control_type,
@@ -1022,19 +1092,20 @@ class RobotControlNode(Node):
             if abs(linear_x) > 0.001 or abs(steering_angle) > 0.001:
                 self.get_logger().info(f"🚗📤 [robot_control_node] 发布阿克曼命令: 速度={linear_x:.3f}, 转向角={steering_angle:.3f}")
         else:
-            # 标准Twist控制
+            # 标准Twist控制 - 明确设置各轴速度
             msg = Twist()
-            msg.linear.x = linear_x
-            msg.linear.y = 0.0
-            msg.linear.z = 0.0
-            msg.angular.x = 0.0
-            msg.angular.y = 0.0
-            msg.angular.z = angular_z
+            # 🎯 机器人运动控制：只使用X轴和Z轴，Y轴强制设为0
+            msg.linear.x = linear_x    # X轴：前进(+)/后退(-)线速度
+            msg.linear.y = 0.0         # Y轴：侧向速度，强制设为0（差分驱动不支持）
+            msg.linear.z = 0.0         # Z轴：垂直速度，强制设为0（2D平面运动）
+            msg.angular.x = 0.0        # X轴旋转：俯仰角速度，强制设为0（2D平面运动）
+            msg.angular.y = 0.0        # Y轴旋转：翻滚角速度，强制设为0（2D平面运动）
+            msg.angular.z = angular_z  # Z轴：偏航角速度，左转(+)/右转(-)
             
             self.cmd_publisher.publish(msg)
             # 只在有实际运动时打印日志
             if abs(linear_x) > 0.001 or abs(angular_z) > 0.001:
-                self.get_logger().info(f"🚗📤 [robot_control_node] 发布Twist命令: 线速度={linear_x:.3f}, 角速度={angular_z:.3f}")
+                self.get_logger().info(f"🚗📤 [robot_control_node] 发布Twist命令: X轴(前进)={linear_x:.3f}, Z轴(旋转)={angular_z:.3f}, Y轴(侧向)=0.0")
         
         # 发布控制指令信息到WebSocket桥接节点
         command_msg = String()
@@ -1043,7 +1114,7 @@ class RobotControlNode(Node):
         
         # 只在有实际运动时打印WebSocket发布日志
         if abs(linear_x) > 0.001 or abs(angular_z) > 0.001:
-            self.get_logger().info(f"🌐📤 [robot_control_node] 发布控制指令到WebSocket: x={linear_x:.3f}, z={angular_z:.3f}")
+            self.get_logger().info(f"🌐📤 [robot_control_node] 发布控制指令到WebSocket: X轴={linear_x:.3f}, Z轴={angular_z:.3f}, Y轴=0.0")
 
     def send_stop_command(self):
         """发送停止命令"""

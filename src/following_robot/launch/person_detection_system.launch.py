@@ -224,6 +224,13 @@ def generate_launch_description():
         description='Minimum speed change threshold'
     )
     
+    # 声明转向方向修正参数
+    angular_velocity_reverse_arg = DeclareLaunchArgument(
+        'angular_velocity_reverse',
+        default_value='true',
+        description='Reverse angular velocity direction to fix turning direction'
+    )
+    
     # 获取launch配置
     camera_name = LaunchConfiguration('camera_name')
     use_astra_camera = LaunchConfiguration('use_astra_camera')
@@ -271,6 +278,9 @@ def generate_launch_description():
     speed_smoothing_factor = LaunchConfiguration('speed_smoothing_factor')
     max_acceleration = LaunchConfiguration('max_acceleration')
     min_speed_change = LaunchConfiguration('min_speed_change')
+    
+    # 获取转向方向修正参数配置
+    angular_velocity_reverse = LaunchConfiguration('angular_velocity_reverse')
     
     # Astra相机节点
     astra_camera_node = Node(
@@ -383,6 +393,9 @@ def generate_launch_description():
             {'speed_smoothing_factor': speed_smoothing_factor},
             {'max_acceleration': max_acceleration},
             {'min_speed_change': min_speed_change},
+            
+            # 转向方向修正参数
+            {'angular_velocity_reverse': angular_velocity_reverse},
         ]
     )
     
@@ -477,6 +490,9 @@ def generate_launch_description():
         speed_smoothing_factor_arg,
         max_acceleration_arg,
         min_speed_change_arg,
+        
+        # 转向方向修正参数
+        angular_velocity_reverse_arg,
         
         # 节点
         astra_camera_node,
