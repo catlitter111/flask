@@ -39,7 +39,7 @@ def generate_launch_description():
     
     dlrobot_port_arg = DeclareLaunchArgument(
         'dlrobot_port',
-        default_value='/dev/ttyS7',
+        default_value='/dev/ttyACM0',
         description='DLRobot serial port'
     )
     

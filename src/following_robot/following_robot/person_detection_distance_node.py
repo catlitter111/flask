@@ -352,14 +352,14 @@ class PersonDetectionDistanceNode(Node):
             self.position_pub.publish(pos_msg)
             
             # 日志输出
-            if self.person_positions:
-                self.get_logger().info(f'Detected {len(self.person_positions)} person(s)')
-                for person in self.person_positions:
-                    if person['valid_distance'] and person['distance'] is not None:
-                        self.get_logger().info(
-                            f"{person['id']}: center=({person['center'][0]}, {person['center'][1]}), "
-                            f"distance={person['distance']:.2f}m"
-                        )
+            # if self.person_positions:
+            #     self.get_logger().info(f'Detected {len(self.person_positions)} person(s)')
+            #     for person in self.person_positions:
+            #         if person['valid_distance'] and person['distance'] is not None:
+            #             self.get_logger().info(
+            #                 f"{person['id']}: center=({person['center'][0]}, {person['center'][1]}), "
+            #                 f"distance={person['distance']:.2f}m"
+            #             )
             
         except Exception as e:
             self.get_logger().error(f'Error publishing person positions: {e}')

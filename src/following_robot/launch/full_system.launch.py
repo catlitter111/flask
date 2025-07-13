@@ -257,8 +257,8 @@ def generate_launch_description():
         parameters=[{
             'max_linear_speed': 0.5,
             'max_angular_speed': 1.0,
-            'min_follow_distance': 1.0,
-            'max_follow_distance': 3.0,
+            'min_follow_distance': 2.0,
+            'max_follow_distance': 5.0,
             'follow_speed_factor': 0.3,
             'wheelbase': 0.143,
             'use_ackermann': LaunchConfiguration('use_ackermann'),
