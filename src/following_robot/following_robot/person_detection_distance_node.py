@@ -50,7 +50,7 @@ class PersonDetectionDistanceNode(Node):
         # 发布检测结果（包含框选和距离信息）
         self.detection_pub = self.create_publisher(
             Image,
-            '/person_detection/annotated_image',
+            '/bytetracker/visualization',
             10
         )
         

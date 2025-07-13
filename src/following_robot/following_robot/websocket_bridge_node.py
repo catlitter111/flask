@@ -939,6 +939,20 @@ class WebSocketBridgeNode(Node):
                 # 获取RFID状态
                 self.handle_rfid_command('get_status', params)
                 
+            elif command == 'switch_to_manual':
+                # 切换到手动模式/停止跟踪
+                cmd_msg = String()
+                cmd_msg.data = 'switch_to_manual'
+                self.command_publisher.publish(cmd_msg)
+                self.get_logger().info('🎯🔥 [模式切换] switch_to_manual -> ROS命令: "switch_to_manual"')
+                
+            elif command == 'switch_to_auto':
+                # 切换到自动模式/开始跟踪
+                cmd_msg = String()
+                cmd_msg.data = 'switch_to_auto'
+                self.command_publisher.publish(cmd_msg)
+                self.get_logger().info('🤖🔥 [模式切换] switch_to_auto -> ROS命令: "switch_to_auto"')
+                
             else:
                 # 未知命令，记录日志但不报错
                 self.get_logger().warning(f'⚠️ 未知命令: {command}')

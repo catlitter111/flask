@@ -39,6 +39,7 @@ class PersonFollowingController(Node):
         self.persons_data: Dict[str, dict] = {}
         self.last_detection_time = 0.0
         self.is_following = False
+        self.manual_mode = False  # 手动模式标志，True时禁用跟踪
         
         # 控制PID参数
         self.linear_pid = {'kp': 0.5, 'ki': 0.0, 'kd': 0.1}
@@ -138,7 +139,16 @@ class PersonFollowingController(Node):
             sensor_qos
         )
         
+        # 控制命令订阅者（用于接收来自WebSocket的开关跟踪命令）
+        self.control_command_sub = self.create_subscription(
+            String,
+            '/robot_control/command',
+            self.control_command_callback,
+            qos
+        )
+        
         self.get_logger().info(f'📡 订阅者创建完成: {self.person_positions_topic}')
+        self.get_logger().info('📡 订阅控制命令话题: /robot_control/command')
     
     def person_positions_callback(self, msg: String):
         """人体位置信息回调函数"""
@@ -158,17 +168,52 @@ class PersonFollowingController(Node):
                         'timestamp': time.time()
                     }
             
-            # 如果检测到人体，启动跟随
-            if self.persons_data:
+            # 如果检测到人体且不在手动模式，启动跟随
+            if self.persons_data and not self.manual_mode:
                 self.is_following = True
                 # 更新目标人体
                 self.update_target_person()
                 
                 if self.debug_mode:
                     self.get_logger().info(f'🎯 检测到 {len(self.persons_data)} 个人体')
+            elif self.manual_mode and self.persons_data:
+                # 手动模式下仍然更新人体数据，但不启动跟踪
+                if self.debug_mode:
+                    self.get_logger().debug(f'🎯 [手动模式] 检测到 {len(self.persons_data)} 个人体，但不跟踪')
             
         except Exception as e:
             self.get_logger().error(f'❌ 解析人体位置数据失败: {e}')
+    
+    def control_command_callback(self, msg: String):
+        """控制命令回调函数"""
+        try:
+            command = msg.data.strip()
+            
+            if command == 'switch_to_manual':
+                # 切换到手动模式，停止跟踪
+                self.manual_mode = True
+                self.is_following = False
+                self.current_target_person = None
+                self.persons_data.clear()
+                
+                # 发送停止指令
+                twist_msg = Twist()
+                twist_msg.linear.x = 0.0
+                twist_msg.angular.z = 0.0
+                self.cmd_vel_pub.publish(twist_msg)
+                
+                self.get_logger().info('🎯 已切换到手动模式，停止跟踪')
+                
+            elif command == 'switch_to_auto':
+                # 切换到自动模式，开启跟踪
+                self.manual_mode = False
+                self.get_logger().info('🤖 已切换到自动模式，开启跟踪')
+                
+            else:
+                self.get_logger().debug(f'🔍 收到其他控制命令: {command}')
+                
+        except Exception as e:
+            self.get_logger().error(f'❌ 处理控制命令失败: {e}')
     
     def update_target_person(self):
         """更新目标跟随人体 - 选择最近的人"""
@@ -250,6 +295,12 @@ class PersonFollowingController(Node):
     def control_loop(self):
         """主控制循环"""
         try:
+            # 如果在手动模式下，不执行跟踪控制
+            if self.manual_mode:
+                # 发布停止状态
+                self.publish_following_status(0.0, 0.0)
+                return
+            
             # 计算控制指令
             linear_vel, angular_vel = self.calculate_control_command()
             
@@ -280,7 +331,8 @@ class PersonFollowingController(Node):
         """发布跟随状态信息"""
         try:
             status_data = {
-                'is_following': self.is_following,
+                'is_following': self.is_following and not self.manual_mode,
+                'manual_mode': self.manual_mode,
                 'target_person': self.current_target_person,
                 'persons_count': len(self.persons_data),
                 'linear_velocity': linear_vel,

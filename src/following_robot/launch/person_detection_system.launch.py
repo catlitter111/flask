@@ -97,6 +97,36 @@ def generate_launch_description():
         ]
     )
     
+    # 人体跟随控制节点
+    person_following_controller_node = Node(
+        package='dlrobot_robot_python',
+        executable='person_following_controller',
+        name='person_following_controller',
+        output='screen',
+        parameters=[
+            {'target_distance': 1.0},
+            {'max_linear_speed': 0.3},
+            {'max_angular_speed': 0.5},
+            {'debug_mode': True},
+        ]
+    )
+    
+    # WebSocket桥接节点
+    websocket_bridge_node = Node(
+        package='following_robot',
+        executable='websocket_bridge_node',
+        name='websocket_bridge_node',
+        output='screen',
+        parameters=[
+            {'websocket_host': '101.201.150.96'},
+            {'websocket_port': 1234},
+            {'robot_id': 'companion_robot_001'},
+            {'enable_image_stream': True},
+            {'enable_status_report': True},
+            {'enable_command_receive': True},
+        ]
+    )
+    
     # RViz2可视化节点（可选）
     rviz_node = Node(
         package='rviz2',
@@ -115,5 +145,7 @@ def generate_launch_description():
         astra_camera_node,
         depth_service_node,
         person_detection_node,
+        person_following_controller_node,
+        websocket_bridge_node,
         rviz_node,
     ])
