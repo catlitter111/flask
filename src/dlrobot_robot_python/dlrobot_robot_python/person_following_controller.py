@@ -140,6 +140,7 @@ class PersonFollowingController(Node):
         )
         
         # 控制命令订阅者（用于接收来自WebSocket的开关跟踪命令）
+        qos = QoSProfile(depth=10)
         self.control_command_sub = self.create_subscription(
             String,
             '/robot_control/command',

@@ -12,6 +12,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile
 import math
 import time
+import json
 from enum import Enum
 
 # ROS消息类型
@@ -139,10 +140,15 @@ class RobotControlNode(Node):
             Twist, '/robot_control/manual_cmd', 
             self.manual_cmd_callback, qos)
         
-        # 人体位置订阅
+        # 人体位置订阅（兼容多种格式）
         self.person_position_sub = self.create_subscription(
             Position, '/robot_control/person_position',
             self.person_position_callback, qos)
+            
+        # 人体检测JSON数据订阅（来自person_detection_distance_node）
+        self.person_positions_json_sub = self.create_subscription(
+            String, '/person_detection/person_positions',
+            self.person_positions_json_callback, qos)
         
         # 控制模式订阅
         self.mode_cmd_sub = self.create_subscription(
@@ -240,6 +246,17 @@ class RobotControlNode(Node):
                 self.send_stop_command()
                 self.get_logger().warn("🚨 紧急停止激活")
                 
+            elif cmd_type == 'switch_to_manual':
+                # 切换到手动模式，停止跟踪
+                self.set_control_mode(ControlMode.MANUAL)
+                self.send_stop_command()
+                self.get_logger().info('🎯 已切换到手动模式，停止跟踪')
+                
+            elif cmd_type == 'switch_to_auto':
+                # 切换到自动模式，开启跟踪
+                self.set_control_mode(ControlMode.FOLLOWING)
+                self.get_logger().info('🤖 已切换到自动模式，开启跟踪')
+                
             else:
                 self.get_logger().warn(f"⚠️ 未知命令: {command}")
                 
@@ -334,6 +351,86 @@ class RobotControlNode(Node):
         
         if self.control_mode == ControlMode.FOLLOWING:
             self.process_following_control(msg)
+    
+    def person_positions_json_callback(self, msg):
+        """处理JSON格式的人体位置数据（来自person_detection_distance_node）"""
+        try:
+            import json
+            data = json.loads(msg.data)
+            persons = data.get('persons', [])
+            
+            if not persons:
+                return
+            
+            # 找到距离最近的有效人体
+            closest_person = None
+            min_distance = float('inf')
+            
+            for person in persons:
+                if person.get('valid_distance', False) and person.get('distance') is not None:
+                    distance = person['distance']
+                    if distance < min_distance:
+                        min_distance = distance
+                        closest_person = person
+            
+            if closest_person:
+                # 更新检测时间
+                self.last_detection_time = time.time()
+                
+                # 处理跟随控制（仅在跟随模式下）
+                if self.control_mode == ControlMode.FOLLOWING:
+                    self.process_following_control_json(closest_person)
+                    
+        except Exception as e:
+            self.get_logger().error(f"❌ 处理JSON人体位置数据失败: {e}")
+    
+    def process_following_control_json(self, person_data):
+        """处理基于JSON数据的跟随控制逻辑"""
+        try:
+            distance = person_data.get('distance', 0.0)
+            center = person_data.get('center', [0, 0])  # [x, y]像素坐标
+            
+            # 假设图像宽度640像素，计算水平偏移角度
+            image_width = 640
+            image_center_x = image_width / 2
+            horizontal_offset_pixels = center[0] - image_center_x
+            
+            # 转换为角度（假设相机水平视场角60度）
+            camera_fov = 60.0  # 度
+            angle_x = horizontal_offset_pixels * (camera_fov / image_width) * (3.14159 / 180)  # 转换为弧度
+            
+            # 距离控制
+            linear_vel = 0.0
+            if distance > self.max_follow_distance:
+                # 距离太远，加速跟上
+                linear_vel = self.follow_speed_factor * min(
+                    (distance - self.max_follow_distance) / 2.0,
+                    self.max_linear_speed
+                )
+            elif distance < self.min_follow_distance:
+                # 距离太近，后退
+                linear_vel = -self.follow_speed_factor * min(
+                    (self.min_follow_distance - distance) / 1.0,
+                    self.max_linear_speed * 0.5
+                )
+            
+            # 角度控制
+            angular_vel = 0.0
+            if abs(angle_x) > 0.1:  # 角度阈值（弧度）
+                angular_vel = -angle_x * 0.5  # 角度控制增益
+                angular_vel = max(-self.max_angular_speed, 
+                                min(self.max_angular_speed, angular_vel))
+            
+            # 发送控制命令
+            self.send_velocity_command(linear_vel, angular_vel)
+            
+            self.get_logger().debug(
+                f"JSON跟随控制: dist={distance:.2f}, angle={angle_x:.2f}, "
+                f"linear={linear_vel:.2f}, angular={angular_vel:.2f}"
+            )
+            
+        except Exception as e:
+            self.get_logger().error(f"JSON跟随控制处理错误: {e}")
 
     def mode_cmd_callback(self, msg):
         """控制模式切换回调"""
@@ -512,6 +609,8 @@ class RobotControlNode(Node):
             status_msg = String()
             status_info = {
                 "mode": self.control_mode.value,
+                "is_following": self.control_mode == ControlMode.FOLLOWING,
+                "manual_mode": self.control_mode == ControlMode.MANUAL,
                 "target_person": self.target_person_name,
                 "following_enabled": self.following_enabled,
                 "emergency_stop": self.emergency_stop,

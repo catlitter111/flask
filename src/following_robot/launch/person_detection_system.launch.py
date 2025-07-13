@@ -31,10 +31,24 @@ def generate_launch_description():
         description='Whether to launch depth service node'
     )
     
+    use_dlrobot_driver_arg = DeclareLaunchArgument(
+        'use_dlrobot_driver',
+        default_value='true',
+        description='Whether to launch DLRobot hardware driver'
+    )
+    
+    dlrobot_port_arg = DeclareLaunchArgument(
+        'dlrobot_port',
+        default_value='/dev/ttyS7',
+        description='DLRobot serial port'
+    )
+    
     # 获取launch配置
     camera_name = LaunchConfiguration('camera_name')
     use_astra_camera = LaunchConfiguration('use_astra_camera')
     use_depth_service = LaunchConfiguration('use_depth_service')
+    use_dlrobot_driver = LaunchConfiguration('use_dlrobot_driver')
+    dlrobot_port = LaunchConfiguration('dlrobot_port')
     
     # Astra相机节点
     astra_camera_node = Node(
@@ -97,17 +111,21 @@ def generate_launch_description():
         ]
     )
     
-    # 人体跟随控制节点
-    person_following_controller_node = Node(
-        package='dlrobot_robot_python',
-        executable='person_following_controller',
-        name='person_following_controller',
+    # 机器人控制节点
+    robot_control_node = Node(
+        package='following_robot',
+        executable='robot_control_node',
+        name='robot_control_node',
         output='screen',
         parameters=[
-            {'target_distance': 1.0},
             {'max_linear_speed': 0.3},
             {'max_angular_speed': 0.5},
-            {'debug_mode': True},
+            {'min_follow_distance': 1.0},
+            {'max_follow_distance': 3.0},
+            {'follow_speed_factor': 0.3},
+            {'wheelbase': 0.143},
+            {'use_ackermann': False},
+            {'safety_enabled': True},
         ]
     )
     
@@ -127,6 +145,23 @@ def generate_launch_description():
         ]
     )
     
+    # DLRobot硬件驱动节点
+    dlrobot_driver_node = Node(
+        package='dlrobot_robot_python',
+        executable='dlrobot_robot_node',
+        name='dlrobot_robot_node',
+        output='screen',
+        parameters=[{
+            'usart_port_name': dlrobot_port,
+            'serial_baud_rate': 115200,
+            'robot_frame_id': 'base_footprint',
+            'odom_frame_id': 'odom_combined',
+            'cmd_vel': 'cmd_vel',
+            'akm_cmd_vel': 'none',
+        }],
+        condition=IfCondition(use_dlrobot_driver)
+    )
+    
     # RViz2可视化节点（可选）
     rviz_node = Node(
         package='rviz2',
@@ -141,11 +176,14 @@ def generate_launch_description():
         camera_name_arg,
         use_astra_camera_arg,
         use_depth_service_arg,
+        use_dlrobot_driver_arg,
+        dlrobot_port_arg,
         
         astra_camera_node,
         depth_service_node,
         person_detection_node,
-        person_following_controller_node,
+        robot_control_node,
         websocket_bridge_node,
+        dlrobot_driver_node,
         rviz_node,
     ])
