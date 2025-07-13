@@ -131,6 +131,19 @@ Page({
         resultImageBase64: '',    // 结果图片base64编码
         resultImageSize: 0,       // 结果图片大小(KB)
         lastUpdate: 0             // 最后更新时间
+      },
+      
+      // 新增：当前控制指令数据
+      currentCommandData: {
+        linear_x: 0.0,            // 线速度X
+        angular_z: 0.0,           // 角速度Z  
+        control_mode: '未知',     // 控制模式
+        control_type: '未知',     // 控制类型
+        motor_speed: 0,           // 电机速度
+        emergency_stop: false,    // 紧急停止状态
+        use_ackermann: false,     // 是否使用阿克曼控制
+        steering_angle: 0.0,      // 转向角（阿克曼模式）
+        lastUpdate: 0             // 最后更新时间
       }
     },
   
@@ -1821,6 +1834,39 @@ Page({
       
     } catch (error) {
       console.error('❌ 处理详细跟踪数据失败:', error);
+    }
+  },
+  
+  // 处理机器人控制指令数据
+  handleRobotControlCommand: function(data) {
+    try {
+      const commandData = data.data || {};
+      
+      // 更新当前控制指令数据
+      this.setData({
+        'currentCommandData.linear_x': commandData.linear_x || 0.0,
+        'currentCommandData.angular_z': commandData.angular_z || 0.0,
+        'currentCommandData.control_mode': commandData.control_mode || '未知',
+        'currentCommandData.control_type': commandData.control_type || '未知',
+        'currentCommandData.motor_speed': commandData.motor_speed || 0,
+        'currentCommandData.emergency_stop': commandData.emergency_stop || false,
+        'currentCommandData.use_ackermann': commandData.use_ackermann || false,
+        'currentCommandData.steering_angle': commandData.steering_angle || 0.0,
+        'currentCommandData.lastUpdate': Date.now()
+      });
+      
+      // 只在有实际运动时输出日志
+      if (Math.abs(commandData.linear_x || 0) > 0.001 || Math.abs(commandData.angular_z || 0) > 0.001) {
+        console.log('🎮 控制指令更新:', {
+          x: (commandData.linear_x || 0).toFixed(3),
+          z: (commandData.angular_z || 0).toFixed(3),
+          模式: commandData.control_mode,
+          类型: commandData.control_type
+        });
+      }
+      
+    } catch (error) {
+      console.error('❌ 处理控制指令数据失败:', error);
     }
   }
 });

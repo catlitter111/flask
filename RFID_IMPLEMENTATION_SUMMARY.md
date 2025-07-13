@@ -225,3 +225,70 @@ RFID监控功能已完全集成到微信小程序中，实现了：
 4. **用户体验**: 直观的界面、实时反馈、错误处理
 
 整个实现遵循了ROS2的设计模式，保持了系统的模块化和可扩展性，为后续功能扩展奠定了良好基础。
+
+
+1. 新的分层架构：
+  WebSocket Bridge → Robot Control Node (决策协调) → Person Following
+  Controller (专业算法) → DLRobot Driver (硬件接口) → 硬件
+
+  2. 职责重新分工：
+  - Robot Control Node: 专注于决策协调、模式切换、命令转发
+  - Person Following Controller:
+  专业PID跟随算法（复用dlrobot_robot_python优势）
+  - Command Monitor Node: 实时监控所有命令和串口指令
+
+  🔥 新增功能亮点
+
+  1. 实时命令监控：
+  - 📡 监控所有发送给小车的命令
+  - 🔍 显示用户友好的动作描述（如"前进,速度50%"）
+  - 📊 显示实际的串口十六进制指令
+  - 📈 提供详细的统计信息
+
+  2. 串口指令解析：
+  示例输出：
+  📡 [14:30:25] 小车动作: 前进, 速度50% (线:0.150, 角:0.000)
+      ➤ 实际串口指令: 7B 00 00 00 96 00 00 00 00 96 7D
+      ➤ 命令序号: #15
+
+  3. 智能架构优化：
+  - 消除了重复的跟随逻辑
+  - 充分利用专业PID控制器
+  - 清晰的消息流和职责分工
+
+  📝 使用方法
+
+  1. 启动完整系统：
+  ros2 launch following_robot person_detection_system.launch.py
+
+  2. 查看命令监控：
+  # 查看所有命令监控
+  ros2 topic echo /robot_control/command_monitor
+
+  # 查看串口指令监控  
+  ros2 topic echo /robot_control/serial_monitor
+
+  3. 发送测试命令：
+  # 前进50%速度
+  ros2 topic pub /websocket_bridge/command std_msgs/String 'data: 
+  motor_forward:50' --once
+
+  # 切换到自动跟随模式
+  ros2 topic pub /websocket_bridge/command std_msgs/String 'data: 
+  switch_to_auto' --once
+
+  4. 运行测试验证：
+  cd /userdata/try_again/SelfFollowingROS2
+  ./test_refactored_system.py
+
+  💡 重构优势
+
+  1. 专业化分工 - 每个节点职责单一，发挥最大效能
+  2. 复用优势 - 充分利用dlrobot_robot_python的成熟算法
+  3. 监控透明 - 实时看到所有命令和串口数据
+  4. 易于调试 - 详细的日志和统计信息
+  5. 易于扩展 - 清晰的架构便于添加新功能
+
+  现在你的系统不仅架构更清晰，还能实时监控发送给小车的每一条命令，包括用户友好
+  的描述和实际的串口十六进制指令！
+

@@ -290,6 +290,59 @@
         </view>
       </view>
       
+      <!-- 新增：当前控制指令显示区域 -->
+      <view class="current-command-data" wx:if="{{currentCommandData.lastUpdate > 0}}">
+        <view class="command-section-header">
+          <text class="section-title">🎮 当前命令</text>
+          <text class="update-time">{{utils.formatTimeAgo(currentCommandData.lastUpdate)}}</text>
+        </view>
+        
+        <view class="command-display">
+          <view class="command-item">
+            <text class="command-label">X (前后)</text>
+            <text class="command-value {{currentCommandData.linear_x > 0 ? 'positive' : currentCommandData.linear_x < 0 ? 'negative' : 'zero'}}">
+              {{utils.toFixed(currentCommandData.linear_x, 3)}}
+            </text>
+          </view>
+          <view class="command-item">
+            <text class="command-label">Y (左右)</text>
+            <text class="command-value {{currentCommandData.angular_z > 0 ? 'positive' : currentCommandData.angular_z < 0 ? 'negative' : 'zero'}}">
+              {{utils.toFixed(currentCommandData.angular_z, 3)}}
+            </text>
+          </view>
+          <view class="command-item">
+            <text class="command-label">Z (旋转)</text>
+            <text class="command-value {{currentCommandData.angular_z > 0 ? 'positive' : currentCommandData.angular_z < 0 ? 'negative' : 'zero'}}">
+              {{utils.toFixed(currentCommandData.angular_z, 3)}}
+            </text>
+          </view>
+        </view>
+        
+        <view class="command-details">
+          <view class="detail-item">
+            <text class="detail-label">控制模式</text>
+            <text class="detail-value">{{currentCommandData.control_mode || '未知'}}</text>
+          </view>
+          <view class="detail-item">
+            <text class="detail-label">控制类型</text>
+            <text class="detail-value">{{currentCommandData.control_type || '未知'}}</text>
+          </view>
+          <view class="detail-item">
+            <text class="detail-label">电机速度</text>
+            <text class="detail-value">{{currentCommandData.motor_speed || 0}}%</text>
+          </view>
+          <view class="detail-item" wx:if="{{currentCommandData.use_ackermann}}">
+            <text class="detail-label">转向角</text>
+            <text class="detail-value">{{utils.toFixed(currentCommandData.steering_angle || 0, 3)}}°</text>
+          </view>
+        </view>
+        
+        <!-- 紧急停止状态指示 -->
+        <view class="emergency-status" wx:if="{{currentCommandData.emergency_stop}}">
+          <text class="emergency-text">🚨 紧急停止激活</text>
+        </view>
+      </view>
+      
       <!-- 实时跟踪数据区域 -->
       <view class="real-tracking-data" wx:if="{{trackingData.lastUpdateTime > 0}}">
         <view class="tracking-section-header">

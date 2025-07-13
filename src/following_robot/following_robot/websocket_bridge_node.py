@@ -236,6 +236,14 @@ class WebSocketBridgeNode(Node):
             10
         )
         
+        # 新增：订阅控制指令数据（用于转发给WebSocket）
+        self.control_command_subscription = self.create_subscription(
+            String,
+            '/robot_control/current_command',
+            self.control_command_callback,
+            10
+        )
+        
         # 可选：如果需要图像流，保留这个订阅
         if self.enable_image_stream:
             self.image_subscription = self.create_subscription(
@@ -1919,6 +1927,41 @@ class WebSocketBridgeNode(Node):
         except Exception as e:
             self.get_logger().error(f'❌ 处理详细跟踪数据时发生错误: {str(e)}')
             self.get_logger().error(f'❌ 详细错误: {traceback.format_exc()}')
+    
+    def control_command_callback(self, msg):
+        """处理控制指令数据（转发给WebSocket）"""
+        if not self.ws_connected:
+            return
+            
+        try:
+            # 解析控制指令JSON数据
+            command_data = json.loads(msg.data)
+            
+            # 简化日志输出，只显示关键信息
+            linear_x = command_data.get('linear_x', 0.0)
+            angular_z = command_data.get('angular_z', 0.0)
+            control_mode = command_data.get('control_mode', '未知')
+            
+            # 只在有实际运动时输出日志
+            if abs(linear_x) > 0.001 or abs(angular_z) > 0.001:
+                self.get_logger().info(f'🎮📡 转发控制指令: x={linear_x:.3f}, z={angular_z:.3f}, 模式={control_mode}')
+            
+            # 构造发送给WebSocket服务器的数据
+            websocket_message = {
+                'type': 'robot_control_command',
+                'robot_id': self.robot_id,
+                'timestamp': int(time.time() * 1000),
+                'data': command_data
+            }
+            
+            # 发送到WebSocket
+            if self.ws:
+                self.ws.send(json.dumps(websocket_message))
+                
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f'❌ 控制指令数据解析失败: {e}')
+        except Exception as e:
+            self.get_logger().error(f'❌ 处理控制指令时发生错误: {str(e)}')
             
     def get_color_name(self, rgb_color):
         """根据RGB值获取颜色名称"""

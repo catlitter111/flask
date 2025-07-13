@@ -758,6 +758,17 @@ class CompanionServer:
             status = data.get('status', 'unknown')
             logger.info(f"⚡ 转发RFID命令响应 - 机器人: {robot_id}, 命令: {command}, 状态: {status}")
             
+        elif message_type == 'robot_control_command':
+            # 转发机器人控制指令到所有客户端
+            await self.forward_to_companions(robot_id, data)
+            command_data = data.get('data', {})
+            linear_x = command_data.get('linear_x', 0.0)
+            angular_z = command_data.get('angular_z', 0.0)
+            control_mode = command_data.get('control_mode', '未知')
+            # 只在有实际运动时记录日志
+            if abs(linear_x) > 0.001 or abs(angular_z) > 0.001:
+                logger.info(f"🎮 转发控制指令 - 机器人: {robot_id}, x={linear_x:.3f}, z={angular_z:.3f}, 模式={control_mode}")
+
         elif message_type == 'heartbeat':
             # 机器人心跳
             connection.last_heartbeat = time.time()

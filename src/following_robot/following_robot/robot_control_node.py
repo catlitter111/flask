@@ -122,6 +122,10 @@ class RobotControlNode(Node):
             String, '/robot_control/status', qos)
         self.mode_publisher = self.create_publisher(
             String, '/robot_control/mode', qos)
+        
+        # 新增：控制指令信息发布者（用于WebSocket转发）
+        self.control_command_publisher = self.create_publisher(
+            String, '/robot_control/current_command', qos)
 
     def setup_subscribers(self):
         """设置订阅者"""
@@ -528,9 +532,23 @@ class RobotControlNode(Node):
         linear_x = max(-self.max_linear_speed, min(self.max_linear_speed, linear_x))
         angular_z = max(-self.max_angular_speed, min(self.max_angular_speed, angular_z))
         
+        # 准备控制指令信息（用于WebSocket转发）
+        command_info = {
+            "type": "robot_control_command",
+            "timestamp": int(time.time() * 1000),
+            "linear_x": round(linear_x, 3),
+            "angular_z": round(angular_z, 3),
+            "control_mode": self.control_mode.value,
+            "control_type": self.control_type,
+            "motor_speed": self.motor_speed,
+            "emergency_stop": self.emergency_stop,
+            "use_ackermann": self.use_ackermann
+        }
+        
         if self.use_ackermann:
             # 阿克曼控制
             steering_angle = self.convert_to_steering_angle(linear_x, angular_z)
+            command_info["steering_angle"] = round(steering_angle, 3)
             
             msg = AckermannDriveStamped()
             msg.header.stamp = self.get_clock().now().to_msg()
@@ -556,6 +574,15 @@ class RobotControlNode(Node):
             # 只在有实际运动时打印日志
             if abs(linear_x) > 0.001 or abs(angular_z) > 0.001:
                 self.get_logger().info(f"🚗📤 [robot_control_node] 发布Twist命令: 线速度={linear_x:.3f}, 角速度={angular_z:.3f}")
+        
+        # 发布控制指令信息到WebSocket桥接节点
+        command_msg = String()
+        command_msg.data = json.dumps(command_info)
+        self.control_command_publisher.publish(command_msg)
+        
+        # 只在有实际运动时打印WebSocket发布日志
+        if abs(linear_x) > 0.001 or abs(angular_z) > 0.001:
+            self.get_logger().info(f"🌐📤 [robot_control_node] 发布控制指令到WebSocket: x={linear_x:.3f}, z={angular_z:.3f}")
 
     def send_stop_command(self):
         """发送停止命令"""

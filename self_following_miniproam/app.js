@@ -559,6 +559,11 @@ App({
             }
             break;
             
+          case 'robot_control_command':
+            // 机器人控制指令数据
+            this.handleRobotControlCommand(data);
+            break;
+            
           case 'error':
             // 错误消息
             this.handleError(data);
@@ -1390,6 +1395,25 @@ App({
     
 
     
+    // 处理机器人控制指令数据
+    handleRobotControlCommand: function(data) {
+      // 异步分发到控制页面
+      if (this.globalData.controlPage) {
+        wx.nextTick(() => {
+          this.globalData.controlPage.handleRobotControlCommand(data);
+        });
+      }
+      
+      // 只在有实际运动时记录日志
+      const commandData = data.data || {};
+      const linear_x = commandData.linear_x || 0.0;
+      const angular_z = commandData.angular_z || 0.0;
+      
+      if (this.globalData.debugMode && (Math.abs(linear_x) > 0.001 || Math.abs(angular_z) > 0.001)) {
+        console.log('🎮 收到控制指令:', `x=${linear_x.toFixed(3)}, z=${angular_z.toFixed(3)}`);
+      }
+    },
+
     // 处理伴侣机器人断开连接
     handleCompanionDisconnected: function(data) {
       console.log('💔 伴侣机器人断开连接:', data.companion_id);
