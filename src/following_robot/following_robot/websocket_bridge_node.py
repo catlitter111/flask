@@ -348,12 +348,12 @@ class WebSocketBridgeNode(Node):
                 on_close=self.on_ws_close
             )
             
-            # 在新线程中运行WebSocket，配置心跳参数与服务端匹配
+            # 在新线程中运行WebSocket，优化心跳参数与服务端匹配
             self.ws_thread = threading.Thread(
                 target=self.ws.run_forever,
                 kwargs={
-                    'ping_interval': 18,  # 比服务端的20秒稍小，确保客户端主动发送ping
-                    'ping_timeout': 8,    # 比服务端的10秒稍小
+                    'ping_interval': 25,  # 增加到25秒，与应用层心跳同步
+                    'ping_timeout': 15,   # 增加到15秒，给予足够时间响应
                     'ping_payload': b'keepalive'  # 添加心跳负载
                 }
             )
@@ -1384,8 +1384,7 @@ class WebSocketBridgeNode(Node):
                     self.rfid_service_available = True
                     self.get_logger().info('✅ RFID命令服务已就绪')
                     # 取消定时检查
-                    if hasattr(self, 'check_rfid_service_timer'):
-                        self.check_rfid_service_timer.cancel()
+                    # Note: check_rfid_service_timer is managed by create_timer
             else:
                 if self.rfid_service_available:
                     self.rfid_service_available = False
@@ -2060,8 +2059,7 @@ class WebSocketBridgeNode(Node):
             self.check_feature_service_timer.cancel()
             
         # 取消RFID服务检查定时器
-        if hasattr(self, 'check_rfid_service_timer'):
-            self.check_rfid_service_timer.cancel()
+        # Note: RFID service timer is managed by create_timer
             
         super().destroy_node()
         self.get_logger().info('✅ WebSocket桥接节点已关闭')

@@ -142,8 +142,8 @@ class CompanionServer:
         }
 
         # 心跳配置
-        self.heartbeat_interval = 30  # 秒
-        self.heartbeat_timeout = 60  # 秒
+        self.heartbeat_interval = 30  # 秒 - 与应用层心跳同步
+        self.heartbeat_timeout = 90   # 秒 - 更宽松的超时时间
 
         logger.info(f"🚀 服务器初始化 - WebSocket: {host}:{port}, HTTP: {host}:{http_port}")
 
@@ -388,8 +388,8 @@ class CompanionServer:
                 self.host,
                 self.port,
                 process_request=process_request,
-                ping_interval=22,  # 稍大于客户端的18秒，避免冲突
-                ping_timeout=12    # 给予更多时间处理
+                ping_interval=30,  # 增加到30秒，大于客户端的25秒
+                ping_timeout=20    # 增加到20秒，给予足够时间处理
         ):
             logger.info(f"✅ 服务器已启动 - ws://{self.host}:{self.port}")
             await asyncio.Future()  # 永久运行
@@ -401,8 +401,8 @@ class CompanionServer:
                 self.handle_connection,
                 self.host,
                 self.port,
-                ping_interval=22,  # 稍大于客户端的18秒，避免冲突
-                ping_timeout=12    # 给予更多时间处理
+                ping_interval=30,  # 增加到30秒，大于客户端的25秒
+                ping_timeout=20    # 增加到20秒，给予足够时间处理
         ):
             logger.info(f"✅ 服务器已启动 - ws://{self.host}:{self.port}")
             await asyncio.Future()  # 永久运行
