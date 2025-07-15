@@ -9,7 +9,7 @@ from launch.conditions import IfCondition
 def generate_launch_description():
     """
     启动人体检测系统的完整launch文件
-    包含相机节点、深度服务节点和人体检测节点
+    包含相机节点、YOLO11检测节点、深度服务节点和人体检测节点
     增强功能：动态速度调节、PID控制、分段速度控制
     """
     
@@ -26,6 +26,12 @@ def generate_launch_description():
         description='Whether to launch Astra camera node'
     )
     
+    use_rknn_yolo11_arg = DeclareLaunchArgument(
+        'use_rknn_yolo11',
+        default_value='true',
+        description='Whether to launch RKNN YOLO11 detection node'
+    )
+    
     use_depth_service_arg = DeclareLaunchArgument(
         'use_depth_service',
         default_value='true',
@@ -40,8 +46,33 @@ def generate_launch_description():
     
     dlrobot_port_arg = DeclareLaunchArgument(
         'dlrobot_port',
-        default_value='/dev/ttyACM0',
+        default_value='/dev/ttyS9',
         description='DLRobot serial port'
+    )
+    
+    # YOLO11检测节点相关参数
+    yolo11_model_path_arg = DeclareLaunchArgument(
+        'yolo11_model_path',
+        default_value='/userdata/rknn_yolo11_ros2/model/cloth.rknn',
+        description='Path to YOLO11 RKNN model file'
+    )
+    
+    yolo11_confidence_threshold_arg = DeclareLaunchArgument(
+        'yolo11_confidence_threshold',
+        default_value='0.25',
+        description='YOLO11 confidence threshold'
+    )
+    
+    yolo11_nms_threshold_arg = DeclareLaunchArgument(
+        'yolo11_nms_threshold',
+        default_value='0.45',
+        description='YOLO11 NMS threshold'
+    )
+    
+    yolo11_enable_debug_image_arg = DeclareLaunchArgument(
+        'yolo11_enable_debug_image',
+        default_value='true',
+        description='Enable YOLO11 debug image output'
     )
     
     # 声明基础控制参数
@@ -234,9 +265,16 @@ def generate_launch_description():
     # 获取launch配置
     camera_name = LaunchConfiguration('camera_name')
     use_astra_camera = LaunchConfiguration('use_astra_camera')
+    use_rknn_yolo11 = LaunchConfiguration('use_rknn_yolo11')
     use_depth_service = LaunchConfiguration('use_depth_service')
     use_dlrobot_driver = LaunchConfiguration('use_dlrobot_driver')
     dlrobot_port = LaunchConfiguration('dlrobot_port')
+    
+    # 获取YOLO11参数配置
+    yolo11_model_path = LaunchConfiguration('yolo11_model_path')
+    yolo11_confidence_threshold = LaunchConfiguration('yolo11_confidence_threshold')
+    yolo11_nms_threshold = LaunchConfiguration('yolo11_nms_threshold')
+    yolo11_enable_debug_image = LaunchConfiguration('yolo11_enable_debug_image')
     
     # 获取控制参数配置
     max_linear_speed = LaunchConfiguration('max_linear_speed')
@@ -311,7 +349,28 @@ def generate_launch_description():
             'publish_tf': True,
             'tf_publish_rate': 10.0,
             'connection_delay': 100,
-        }]
+        }],
+        condition=IfCondition(use_astra_camera)
+    )
+    
+    # RKNN YOLO11检测节点
+    rknn_yolo11_node = Node(
+        package='rknn_yolo11_ros2',
+        executable='rknn_yolo11_ros2_node',
+        name='rknn_yolo11_node',
+        output='screen',
+        parameters=[{
+            'model_path': yolo11_model_path,
+            'confidence_threshold': yolo11_confidence_threshold,
+            'nms_threshold': yolo11_nms_threshold,
+            'enable_debug_image': yolo11_enable_debug_image,
+        }],
+        remappings=[
+            ('/camera/image_raw', [camera_name, '/color/image_raw']),
+            ('/detections', '/detections'),
+            ('/debug_image', '/debug_image'),
+        ],
+        condition=IfCondition(use_rknn_yolo11)
     )
     
     # 深度服务节点
@@ -446,9 +505,16 @@ def generate_launch_description():
         # 基础参数
         camera_name_arg,
         use_astra_camera_arg,
+        use_rknn_yolo11_arg,
         use_depth_service_arg,
         use_dlrobot_driver_arg,
         dlrobot_port_arg,
+        
+        # YOLO11检测节点参数
+        yolo11_model_path_arg,
+        yolo11_confidence_threshold_arg,
+        yolo11_nms_threshold_arg,
+        yolo11_enable_debug_image_arg,
         
         # 基础控制参数
         max_linear_speed_arg,
@@ -496,6 +562,7 @@ def generate_launch_description():
         
         # 节点
         astra_camera_node,
+        rknn_yolo11_node,
         depth_service_node,
         person_detection_node,
         robot_control_node,
