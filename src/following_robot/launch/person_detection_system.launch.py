@@ -46,7 +46,7 @@ def generate_launch_description():
     
     dlrobot_port_arg = DeclareLaunchArgument(
         'dlrobot_port',
-        default_value='/dev/ttyS9',
+        default_value='/dev/ttyACM0',
         description='DLRobot serial port'
     )
     
@@ -364,6 +364,10 @@ def generate_launch_description():
             'confidence_threshold': yolo11_confidence_threshold,
             'nms_threshold': yolo11_nms_threshold,
             'enable_debug_image': yolo11_enable_debug_image,
+            'use_sim_time': False,
+            # 性能优化参数
+            'queue_size': 1,  # 减少队列延迟
+            'use_intra_process_comms': True,  # 启用进程内通信优化
         }],
         remappings=[
             ('/camera/image_raw', [camera_name, '/color/image_raw']),
@@ -397,8 +401,14 @@ def generate_launch_description():
             ('/camera/color/image_raw', [camera_name, '/color/image_raw']),
         ],
         parameters=[
-            {'detection_fps': 10.0},
+            {'detection_fps': 30.0},  # 提高检测频率
             {'distance_query_timeout': 2.0},
+            {'use_sim_time': False},
+            # 通信优化参数
+            {'min_image_interval': 0.033},  # 30 FPS
+            {'min_detection_interval': 0.025},  # 40 FPS
+            {'enable_performance_monitor': True},
+            {'message_pool_size': 10},
         ]
     )
     

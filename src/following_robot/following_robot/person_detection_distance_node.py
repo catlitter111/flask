@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection2DArray
 from std_msgs.msg import String
@@ -18,6 +18,7 @@ class PersonDetectionDistanceNode(Node):
     """
     人体检测和距离查询节点
     通过订阅YOLO11检测结果并进行服装配对来确定人体位置，并查询距离信息
+    优化版本：改进通信效率和性能
     """
     
     def __init__(self):
@@ -29,6 +30,12 @@ class PersonDetectionDistanceNode(Node):
         # 存储最新的图像和检测结果
         self.latest_image = None
         self.latest_detections = None
+        
+        # 通信优化：添加消息缓存和过滤
+        self.last_image_time = 0
+        self.last_detection_time = 0
+        self.min_image_interval = 0.05  # 最小图像处理间隔 (20 FPS)
+        self.min_detection_interval = 0.03  # 最小检测处理间隔 (30 FPS)
         
         # 服装类别定义
         self.CLOTHING_CATEGORIES = {
@@ -51,56 +58,74 @@ class PersonDetectionDistanceNode(Node):
             ]
         }
         
-        # QoS配置
-        sensor_qos = QoSProfile(
+        # 优化的QoS配置
+        # 高性能图像传输QoS
+        image_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1
+            depth=1,  # 只保留最新的图像
+            durability=DurabilityPolicy.VOLATILE
         )
         
-        # 订阅相机原始图像
+        # 检测结果QoS - 可靠性更重要
+        detection_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=2,  # 允许小缓冲
+            durability=DurabilityPolicy.VOLATILE
+        )
+        
+        # 控制命令QoS - 最高优先级
+        control_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            durability=DurabilityPolicy.VOLATILE
+        )
+        
+        # 订阅相机原始图像 - 使用优化的QoS
         self.image_sub = self.create_subscription(
             Image,
             '/camera/color/image_raw',
             self.image_callback,
-            sensor_qos
+            image_qos
         )
         
-        # 订阅YOLO11检测结果
+        # 订阅YOLO11检测结果 - 使用优化的QoS
         self.detection_sub = self.create_subscription(
             Detection2DArray,
             '/detections',
             self.detection_callback,
-            10
+            detection_qos
         )
         
-        # 发布检测结果（包含框选和距离信息）
+        # 发布检测结果（包含框选和距离信息）- 使用压缩
         self.detection_pub = self.create_publisher(
             Image,
             '/bytetracker/visualization',
-            10
+            image_qos
         )
         
-        # 发布人体位置信息
+        # 发布人体位置信息 - 使用高优先级QoS
         self.position_pub = self.create_publisher(
             String,
             '/person_detection/person_positions',
-            10
+            control_qos
         )
         
-        # 订阅深度查询结果
+        # 订阅深度查询结果 - 使用可靠传输
         self.depth_result_sub = self.create_subscription(
             String,
             '/depth_reader/depth_value',
             self.depth_result_callback,
-            10
+            control_qos
         )
         
-        # 发布深度查询请求
+        # 发布深度查询请求 - 使用可靠传输
         self.depth_query_pub = self.create_publisher(
             String,
             '/depth_reader/get_depth_at',
-            10
+            control_qos
         )
         
         # 存储人体检测结果和距离信息
@@ -108,45 +133,94 @@ class PersonDetectionDistanceNode(Node):
         self.distance_queries = {}  # 存储待查询的距离信息
         self.person_distances = {}  # 持久化存储人体距离信息
         
+        # 通信优化：消息池和重用
+        self.message_pool = {
+            'depth_query': [],
+            'position_data': []
+        }
+        
         # 图像显示相关
         self.display_image = None
         self.display_lock = threading.Lock()
         
-        # 帧率计算
+        # 帧率计算和性能监控
         self.frame_count = 0
         self.fps = 0.0
         self.last_fps_time = time.time()
         self.fps_frame_count = 0
+        self.processing_times = []
         
-        # 定时器处理图像 - 改为更高频率以获得真实FPS
-        self.timer = self.create_timer(0.033, self.process_detections)  # 约30 FPS
+        # 优化的定时器 - 动态调整频率
+        self.timer = self.create_timer(0.033, self.process_detections)  # 基础30 FPS
         
         # 启动图像显示线程
         self.display_thread = threading.Thread(target=self.display_loop, daemon=True)
         self.display_thread.start()
         
-        self.get_logger().info('Person Detection Distance Node initialized')
+        # 性能监控线程
+        self.perf_monitor_thread = threading.Thread(target=self.performance_monitor, daemon=True)
+        self.perf_monitor_thread.start()
+        
+        self.get_logger().info('Person Detection Distance Node initialized (Optimized)')
+        self.get_logger().info('Communication optimizations enabled:')
+        self.get_logger().info('- Optimized QoS profiles')
+        self.get_logger().info('- Message filtering and throttling')
+        self.get_logger().info('- Performance monitoring')
         self.get_logger().info('Subscribing to /detections topic for YOLO11 results')
         self.get_logger().info('Waiting for camera images and detection results...')
         self.get_logger().info('Press "q" in the image window to quit')
     
     def image_callback(self, msg):
-        """处理接收到的图像"""
+        """处理接收到的图像 - 优化版本"""
+        current_time = time.time()
+        
+        # 通信优化：频率限制
+        if current_time - self.last_image_time < self.min_image_interval:
+            return
+            
         try:
-            self.latest_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            # 只在需要时转换图像
+            if self.latest_detections is not None:
+                self.latest_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+                self.last_image_time = current_time
         except Exception as e:
             self.get_logger().error(f'Error converting image: {e}')
     
     def detection_callback(self, msg):
-        """处理接收到的YOLO11检测结果"""
+        """处理接收到的YOLO11检测结果 - 优化版本"""
+        current_time = time.time()
+        
+        # 通信优化：频率限制
+        if current_time - self.last_detection_time < self.min_detection_interval:
+            return
+            
         try:
-            self.latest_detections = msg
-            self.get_logger().debug(f'Received {len(msg.detections)} detections')
+            # 🔧 修复：总是更新检测结果，包括空结果
+            filtered_detections = Detection2DArray()
+            filtered_detections.header = msg.header
+            filtered_detections.detections = []
+            
+            # 消息过滤：只处理有效检测
+            if len(msg.detections) > 0:
+                # 进一步过滤低置信度检测
+                for detection in msg.detections:
+                    if detection.results and detection.results[0].hypothesis.score > 0.3:
+                        filtered_detections.detections.append(detection)
+                
+                self.get_logger().debug(f'Filtered detections: {len(filtered_detections.detections)}/{len(msg.detections)}')
+            else:
+                # 🔧 修复：当没有检测到任何目标时，记录日志
+                self.get_logger().debug('No detections received - clearing detection results')
+            
+            # 🔧 修复：无论是否有检测结果，都更新latest_detections
+            self.latest_detections = filtered_detections
+            self.last_detection_time = current_time
+            
         except Exception as e:
             self.get_logger().error(f'Error processing detection results: {e}')
     
     def depth_result_callback(self, msg):
-        """处理深度查询结果"""
+        """处理深度查询结果 - 优化版本"""
         try:
             result = json.loads(msg.data)
             query_id = f"{result['x']}_{result['y']}"
@@ -179,12 +253,15 @@ class PersonDetectionDistanceNode(Node):
             self.get_logger().error(f'Error processing depth result: {e}')
     
     def convert_detections_to_clothing_format(self, detections_msg):
-        """将Detection2DArray消息转换为服装检测格式"""
+        """将Detection2DArray消息转换为服装检测格式 - 优化版本"""
         upper_clothing = []
         lower_clothing = []
         
         if detections_msg is None:
             return upper_clothing, lower_clothing
+        
+        # 预估列表大小但不使用reserve（Python列表不支持）
+        estimated_size = len(detections_msg.detections)
         
         for detection in detections_msg.detections:
             if not detection.results:
@@ -193,6 +270,10 @@ class PersonDetectionDistanceNode(Node):
             # 获取类别和置信度
             class_id = detection.results[0].hypothesis.class_id
             confidence = detection.results[0].hypothesis.score
+            
+            # 跳过低置信度检测
+            if confidence < 0.3:
+                continue
             
             # 获取边界框坐标
             center_x = detection.bbox.center.position.x
@@ -215,7 +296,7 @@ class PersonDetectionDistanceNode(Node):
         return upper_clothing, lower_clothing
     
     def match_clothing_items(self, upper_items, lower_items, img):
-        """匹配上衣和下装"""
+        """匹配上衣和下装 - 优化版本"""
         pairs = []
         
         if not upper_items and not lower_items:
@@ -271,7 +352,7 @@ class PersonDetectionDistanceNode(Node):
         return pairs
     
     def determine_person_position(self, upper_coords, lower_coords, img):
-        """确定整个人体位置"""
+        """确定整个人体位置 - 优化版本"""
         person_positions = []
         
         if img is None or img.size == 0:
@@ -332,10 +413,12 @@ class PersonDetectionDistanceNode(Node):
         return person_positions
     
     def process_detections(self):
-        """处理检测结果并进行服装配对"""
+        """处理检测结果并进行服装配对 - 优化版本"""
         if self.latest_image is None or self.latest_detections is None:
             return
             
+        start_time = time.time()
+        
         try:
             # 计算帧率
             self.fps_frame_count += 1
@@ -347,6 +430,27 @@ class PersonDetectionDistanceNode(Node):
                 
             # 复制图像用于处理
             img = self.latest_image.copy()
+            
+            # 🔧 修复：检查是否有有效的检测结果
+            if len(self.latest_detections.detections) == 0:
+                # 没有检测到任何目标
+                self.person_positions = []
+                
+                # 🔧 修复：清理过期的缓存数据，防止框残留
+                self.cleanup_expired_cache_data(aggressive=True)
+                
+                # 🔧 修复：绘制没有检测结果的图像
+                self.publish_annotated_image(img)
+                self.publish_person_positions()
+                
+                # 记录处理时间
+                processing_time = time.time() - start_time
+                self.processing_times.append(processing_time)
+                if len(self.processing_times) > 100:
+                    self.processing_times.pop(0)
+                
+                self.get_logger().debug('No detections - cleared all tracking data')
+                return
             
             # 转换检测结果格式
             upper_clothing, lower_clothing = self.convert_detections_to_clothing_format(self.latest_detections)
@@ -417,18 +521,21 @@ class PersonDetectionDistanceNode(Node):
                             # 查询距离信息
                             self.query_distance(center_x, center_y, person_id)
             
-            # 在上衣和下装上绘制检测框
-            for upper_item in upper_clothing:
-                xmin, ymin, xmax, ymax = upper_item[:4]
-                cv2.rectangle(img, (xmin, ymin), (xmax, ymax), (255, 0, 0), 2)  # 蓝色框
-                cv2.putText(img, "Upper", (xmin, ymin - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            # 🔧 修复：清理不再存在的人员的缓存数据
+            self.cleanup_expired_cache_data(aggressive=False)
             
-            for lower_item in lower_clothing:
-                xmin, ymin, xmax, ymax = lower_item[:4]
-                cv2.rectangle(img, (xmin, ymin), (xmax, ymax), (0, 255, 0), 2)  # 绿色框
-                cv2.putText(img, "Lower", (xmin, ymin - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            # 在上衣和下装上绘制检测框
+            # for upper_item in upper_clothing:
+            #     xmin, ymin, xmax, ymax = upper_item[:4]
+            #     cv2.rectangle(img, (xmin, ymin), (xmax, ymax), (255, 0, 0), 2)  # 蓝色框
+            #     cv2.putText(img, "Upper", (xmin, ymin - 10),
+            #                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            
+            # for lower_item in lower_clothing:
+            #     xmin, ymin, xmax, ymax = lower_item[:4]
+            #     cv2.rectangle(img, (xmin, ymin), (xmax, ymax), (0, 255, 0), 2)  # 绿色框
+            #     cv2.putText(img, "Lower", (xmin, ymin - 10),
+            #                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             
             # 发布人体位置信息
             self.publish_person_positions()
@@ -436,11 +543,58 @@ class PersonDetectionDistanceNode(Node):
             # 发布带标注的图像
             self.publish_annotated_image(img)
             
+            # 记录处理时间
+            processing_time = time.time() - start_time
+            self.processing_times.append(processing_time)
+            if len(self.processing_times) > 100:
+                self.processing_times.pop(0)
+            
         except Exception as e:
             self.get_logger().error(f'Error processing detections: {e}')
     
+    def cleanup_expired_cache_data(self, aggressive=False):
+        """清理过期的缓存数据 - 新增函数"""
+        current_time = time.time()
+        
+        # 清理过期的距离查询
+        expired_queries = [
+            query_id for query_id, info in self.distance_queries.items()
+            if current_time - info['timestamp'] > 2.0
+        ]
+        for query_id in expired_queries:
+            del self.distance_queries[query_id]
+        
+        # 清理过期的缓存距离数据
+        if aggressive:
+            # 激进清理：清理所有缓存数据
+            self.person_distances.clear()
+            self.get_logger().debug('Aggressively cleared all cached distance data')
+        else:
+            # 常规清理：只清理过期数据
+            current_person_ids = {person['id'] for person in self.person_positions}
+            
+            # 清理不再存在的人员的缓存数据
+            expired_distances = [
+                person_id for person_id in self.person_distances.keys()
+                if person_id not in current_person_ids
+            ]
+            
+            for person_id in expired_distances:
+                del self.person_distances[person_id]
+                self.get_logger().debug(f'Cleared cached data for removed person: {person_id}')
+            
+            # 清理超时的缓存数据
+            timeout_distances = [
+                person_id for person_id, info in self.person_distances.items()
+                if current_time - info['timestamp'] > 5.0
+            ]
+            
+            for person_id in timeout_distances:
+                del self.person_distances[person_id]
+                self.get_logger().debug(f'Cleared expired cached data for person: {person_id}')
+    
     def query_distance(self, x, y, person_id):
-        """查询指定像素点的距离信息"""
+        """查询指定像素点的距离信息 - 优化版本"""
         try:
             query_id = f"{x}_{y}"
             
@@ -458,16 +612,31 @@ class PersonDetectionDistanceNode(Node):
                 'timestamp': time.time()
             }
             
-            # 发布距离查询请求
-            query_msg = String()
+            # 优化：重用消息对象
+            query_msg = self.get_reusable_message('depth_query', String)
             query_msg.data = json.dumps({'x': x, 'y': y})
             self.depth_query_pub.publish(query_msg)
             
         except Exception as e:
             self.get_logger().error(f'Error querying distance: {e}')
     
+    def get_reusable_message(self, msg_type, msg_class):
+        """获取可重用的消息对象"""
+        if msg_type not in self.message_pool:
+            self.message_pool[msg_type] = []
+        
+        if self.message_pool[msg_type]:
+            return self.message_pool[msg_type].pop()
+        else:
+            return msg_class()
+    
+    def return_message(self, msg_type, msg):
+        """返回消息对象到池中"""
+        if msg_type in self.message_pool and len(self.message_pool[msg_type]) < 10:
+            self.message_pool[msg_type].append(msg)
+    
     def publish_annotated_image(self, img):
-        """发布带标注的图像"""
+        """发布带标注的图像 - 优化版本"""
         try:
             # 在图像上添加系统信息
             height, width = img.shape[:2]
@@ -479,6 +648,12 @@ class PersonDetectionDistanceNode(Node):
             # 添加检测到的人数
             person_count_text = f"Persons: {len(self.person_positions)}"
             cv2.putText(img, person_count_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            # 添加性能信息
+            if self.processing_times:
+                avg_processing_time = sum(self.processing_times) / len(self.processing_times)
+                perf_text = f"Process: {avg_processing_time*1000:.1f}ms"
+                cv2.putText(img, perf_text, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
             # 在图像上添加每个人的距离信息
             for person in self.person_positions:
@@ -528,39 +703,48 @@ class PersonDetectionDistanceNode(Node):
             self.get_logger().error(f'Error publishing annotated image: {e}')
     
     def publish_person_positions(self):
-        """发布人体位置信息"""
+        """发布人体位置信息 - 优化版本"""
         try:
-            # 清理过期的距离查询
-            current_time = time.time()
-            expired_queries = [
-                query_id for query_id, info in self.distance_queries.items()
-                if current_time - info['timestamp'] > 2.0
-            ]
-            for query_id in expired_queries:
-                del self.distance_queries[query_id]
-                
-            # 清理过期的缓存距离数据
-            expired_distances = [
-                person_id for person_id, info in self.person_distances.items()
-                if current_time - info['timestamp'] > 5.0
-            ]
-            for person_id in expired_distances:
-                del self.person_distances[person_id]
-            
-            # 准备发布的数据
+            # 准备发布的数据 - 优化JSON结构
             positions_data = {
-                'timestamp': current_time,
+                'timestamp': time.time(),
                 'person_count': len(self.person_positions),
                 'persons': self.person_positions
             }
             
             # 发布人体位置信息
             pos_msg = String()
-            pos_msg.data = json.dumps(positions_data)
+            pos_msg.data = json.dumps(positions_data, separators=(',', ':'))  # 压缩JSON
             self.position_pub.publish(pos_msg)
             
         except Exception as e:
             self.get_logger().error(f'Error publishing person positions: {e}')
+    
+    def performance_monitor(self):
+        """性能监控线程"""
+        while True:
+            try:
+                time.sleep(5)  # 每5秒报告一次性能
+                
+                if self.processing_times:
+                    avg_time = sum(self.processing_times) / len(self.processing_times)
+                    max_time = max(self.processing_times)
+                    min_time = min(self.processing_times)
+                    
+                    self.get_logger().info(
+                        f'Performance: FPS={self.fps:.1f}, '
+                        f'Processing: avg={avg_time*1000:.1f}ms, '
+                        f'max={max_time*1000:.1f}ms, min={min_time*1000:.1f}ms'
+                    )
+                    
+                    # 动态调整处理频率
+                    if avg_time > 0.05:  # 如果处理时间超过50ms
+                        self.min_detection_interval = max(0.05, self.min_detection_interval + 0.01)
+                    elif avg_time < 0.03:  # 如果处理时间小于30ms
+                        self.min_detection_interval = max(0.03, self.min_detection_interval - 0.01)
+                        
+            except Exception as e:
+                self.get_logger().error(f'Error in performance monitor: {e}')
     
     def display_loop(self):
         """图像显示循环"""

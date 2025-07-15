@@ -220,12 +220,31 @@ class WebSocketBridgeNode(Node):
         # 导入TrackedPersonArray消息类型
         from custom_msgs.msg import TrackedPersonArray
         
+        # 优化的QoS配置 - 匹配person节点的QoS设置
+        from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+        
+        # 图像数据QoS - 匹配person节点的BEST_EFFORT配置
+        image_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,  # 只保留最新图像，减少延迟
+            durability=DurabilityPolicy.VOLATILE
+        )
+        
+        # 检测结果QoS - 可靠性更重要
+        detection_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=2,  # 允许小缓冲
+            durability=DurabilityPolicy.VOLATILE
+        )
+        
         # 订阅者 - 简化为只订阅跟踪结果
         self.tracking_array_subscription = self.create_subscription(
             TrackedPersonArray,
             '/bytetracker/tracked_persons',
             self.tracking_array_callback,
-            10
+            detection_qos
         )
         
         # 新增：订阅详细跟踪数据
@@ -233,7 +252,7 @@ class WebSocketBridgeNode(Node):
             String,
             '/bytetracker/detailed_tracking_data',
             self.detailed_tracking_callback,
-            10
+            detection_qos
         )
         
         # 新增：订阅控制指令数据（用于转发给WebSocket）
@@ -241,35 +260,38 @@ class WebSocketBridgeNode(Node):
             String,
             '/robot_control/current_command',
             self.control_command_callback,
-            10
+            detection_qos
         )
         
-        # 可选：如果需要图像流，保留这个订阅
+        # 🔧 修复：使用兼容的QoS配置订阅图像流
         if self.enable_image_stream:
             self.image_subscription = self.create_subscription(
                 Image,
                 '/bytetracker/visualization',
                 self.image_callback,
-                10
+                image_qos  # 使用匹配的QoS配置
             )
+            self.get_logger().info('📹 图像流订阅已启用 - 使用BEST_EFFORT QoS')
+        else:
+            self.get_logger().warn('⚠️ 图像流订阅已禁用')
         
         # 发布者 - 用于接收来自微信小程序的控制命令
         self.command_publisher = self.create_publisher(
             String,
             '/robot_control/command',
-            10
+            detection_qos
         )
         
         self.mode_publisher = self.create_publisher(
             String,
             '/bytetracker/set_mode',
-            10
+            detection_qos
         )
         
         self.target_publisher = self.create_publisher(
             String,
             '/bytetracker/set_target',
-            10
+            detection_qos
         )
         
         self.get_logger().info('📡 ROS2组件初始化完成')
@@ -280,7 +302,7 @@ class WebSocketBridgeNode(Node):
             RobotStatus,
             '/robot/status',
             self.status_callback,
-            10
+            detection_qos
         )
         
         # 特征提取结果订阅
@@ -425,24 +447,34 @@ class WebSocketBridgeNode(Node):
             return False
             
     def image_callback(self, msg):
-        """处理接收到的图像"""
-        if not self.enable_image_stream or not self.ws_connected:
+        """处理接收到的图像 - 改进版本"""
+        # 🔧 修复：添加更详细的状态检查和调试信息
+        if not self.enable_image_stream:
+            self.get_logger().debug('📹 图像流已禁用，跳过图像处理')
+            return
+            
+        if not self.ws_connected:
+            self.get_logger().debug('🔌 WebSocket未连接，跳过图像处理')
             return
             
         current_time = time.time()
         
-        # 控制帧率
+        # 🔧 修复：减少帧率限制，提高响应性
         if current_time - self.last_frame_time < self.frame_interval:
             return
             
-        # 跳帧控制
+        # 🔧 修复：简化跳帧控制逻辑
         self.frame_skip_counter += 1
         if self.frame_skip_counter % self.current_skip_rate != 0:
             return
             
         try:
-            # 转换为OpenCV图像
+            # 🔧 修复：添加图像转换成功检查
             cv_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            
+            if cv_image is None or cv_image.size == 0:
+                self.get_logger().error('❌ 图像转换失败或图像为空')
+                return
             
             # 动态调整图像大小（基于网络状况）
             target_width, target_height = self.get_adaptive_resolution()
@@ -462,7 +494,7 @@ class WebSocketBridgeNode(Node):
                 # 计算压缩率
                 original_size = cv_image.shape[0] * cv_image.shape[1] * cv_image.shape[2]
                 compressed_size = len(encoded_data)
-                compression_ratio = original_size / compressed_size
+                compression_ratio = original_size / compressed_size if compressed_size > 0 else 0
                 
                 # 准备消息
                 self.frame_sequence += 1
@@ -480,16 +512,25 @@ class WebSocketBridgeNode(Node):
                     'compression_ratio': round(compression_ratio, 2)
                 }
                 
-                # 发送图像
+                # 🔧 修复：添加发送成功检查
                 if self.send_ws_message(frame_message):
                     self.last_frame_time = current_time
-                    self.get_logger().debug(f'📹 发送视频帧 #{self.frame_sequence} '
-                                          f'({target_width}x{target_height}, {compressed_size}B, '
-                                          f'压缩率:{compression_ratio:.1f}x)')
+                    
+                    # 🔧 修复：每30帧输出一次状态信息，避免日志过多
+                    if self.frame_sequence % 30 == 0:
+                        self.get_logger().info(f'📹 已发送视频帧 #{self.frame_sequence} '
+                                              f'({target_width}x{target_height}, {compressed_size}B, '
+                                              f'压缩率:{compression_ratio:.1f}x)')
+                else:
+                    self.get_logger().warning(f'⚠️ 视频帧 #{self.frame_sequence} 发送失败')
+            else:
+                self.get_logger().error('❌ 图像编码失败')
                     
         except Exception as e:
             self.get_logger().error(f'❌ 图像处理失败: {e}')
-            
+            import traceback
+            self.get_logger().error(f'详细错误: {traceback.format_exc()[:500]}')  # 限制错误信息长度
+    
     def tracking_array_callback(self, msg):
         """处理TrackedPersonArray跟踪结果"""
         if not self.ws_connected:
