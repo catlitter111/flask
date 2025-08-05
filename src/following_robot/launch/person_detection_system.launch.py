@@ -262,6 +262,25 @@ def generate_launch_description():
         description='Reverse angular velocity direction to fix turning direction'
     )
     
+    # RFID相关参数
+    enable_rfid_arg = DeclareLaunchArgument(
+        'enable_rfid',
+        default_value='false',
+        description='Enable RFID reader functionality'
+    )
+    
+    rfid_reader_ip_arg = DeclareLaunchArgument(
+        'rfid_reader_ip',
+        default_value='192.168.0.178',
+        description='RFID reader IP address'
+    )
+    
+    rfid_auto_start_arg = DeclareLaunchArgument(
+        'rfid_auto_start',
+        default_value='true',
+        description='Auto start RFID inventory on node startup'
+    )
+    
     # 获取launch配置
     camera_name = LaunchConfiguration('camera_name')
     use_astra_camera = LaunchConfiguration('use_astra_camera')
@@ -319,6 +338,11 @@ def generate_launch_description():
     
     # 获取转向方向修正参数配置
     angular_velocity_reverse = LaunchConfiguration('angular_velocity_reverse')
+    
+    # 获取RFID参数配置
+    enable_rfid = LaunchConfiguration('enable_rfid')
+    rfid_reader_ip = LaunchConfiguration('rfid_reader_ip')
+    rfid_auto_start = LaunchConfiguration('rfid_auto_start')
     
     # Astra相机节点
     astra_camera_node = Node(
@@ -501,6 +525,32 @@ def generate_launch_description():
         condition=IfCondition(use_dlrobot_driver)
     )
     
+    # RFID读写器节点
+    rfid_reader_node = Node(
+        package='rfid_reader',
+        executable='rfid_reader_node.py',
+        name='rfid_reader_main',
+        output='screen',
+        parameters=[{
+            'reader_ip': rfid_reader_ip,
+            'reader_port': 4001,
+            'reader_address': 255,
+            'publish_rate': 2.0,
+            'auto_start': rfid_auto_start,
+            'antenna_id': 1,
+        }],
+        remappings=[
+            ('~/rfid_tags', '/rfid/tags'),
+            ('~/rfid_status', '/rfid/status'),
+            ('~/rfid_tag_detected', '/rfid/tag_detected'),
+            ('~/rfid_command', '/rfid/command'),
+        ],
+        condition=IfCondition(enable_rfid),
+        respawn=True,
+        respawn_delay=5.0,
+        emulate_tty=True,
+    )
+    
     # RViz2可视化节点（可选）
     rviz_node = Node(
         package='rviz2',
@@ -570,6 +620,11 @@ def generate_launch_description():
         # 转向方向修正参数
         angular_velocity_reverse_arg,
         
+        # RFID参数
+        enable_rfid_arg,
+        rfid_reader_ip_arg,
+        rfid_auto_start_arg,
+        
         # 节点
         astra_camera_node,
         rknn_yolo11_node,
@@ -578,5 +633,6 @@ def generate_launch_description():
         robot_control_node,
         websocket_bridge_node,
         dlrobot_driver_node,
+        rfid_reader_node,
         rviz_node,
     ])

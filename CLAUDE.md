@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-永远使用中文回答
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+永远使用中文回答
 
 ## Project Overview
 
@@ -109,17 +109,32 @@ ros2 run rfid_reader rfid_reader_node.py --ros-args -p reader_ip:=192.168.0.178
 
 #### Test Scripts
 ```bash
-# Camera testing
-python3 test_camera.py
+# ByteTracker integration test
+python3 test_bytetracker_integration.py
 
-# Full system integration test
-python3 test_full_system_launch.py
+# Depth integration test  
+python3 test_depth_integration.py
 
-# WebSocket integration test
-python3 test_websocket_robot_integration.py
+# Person following system test
+python3 test_person_following_system.py
 
-# Feature extraction test
-python3 test_feature_data_flow.py
+# RFID integration test
+python3 test_rfid_integration.py
+
+# Refactored system test
+python3 test_refactored_system.py
+```
+
+#### Quick Start Scripts
+```bash
+# Start full system with default settings
+./start_full_system.sh
+
+# Start RFID monitoring only
+./start_rfid_only.sh
+
+# Simple RFID test
+./test_rfid_simple.sh
 ```
 
 ## System Architecture
@@ -153,12 +168,20 @@ python3 test_feature_data_flow.py
 - **DLRobot Models**: Support for mini_akm (0.143m), senior_akm (0.320m), top_akm_bs (0.503m), top_akm_dl (0.549m)
 - **Serial Communication**: Default `/dev/ttyS7` at 115200 baud
 - **Camera**: Default camera index 0, supports stereo vision
+- **RFID Reader**: Default IP `192.168.0.178:4001`
 
 ### Software Configuration
 - **WebSocket Server**: Default `101.201.150.96:1234`
 - **Tracking Mode**: `single` or `multi` person tracking
-- **Image Quality**: 1-100 (default 80)
+- **Image Quality**: 1-100 (WebSocket default 65, launch param default 80)
 - **Frame Rate**: Default 30 FPS
+
+### Configuration Files
+- `config/bytetracker_params.yaml`: ByteTracker algorithm parameters
+- `config/websocket_bridge_config.yaml`: WebSocket bridge configuration  
+- `config/person_following_params.yaml`: Robot following behavior parameters
+- `config/rfid_reader_params.yaml`: RFID reader configuration
+- `config/rfid_debug_params.yaml`: RFID debugging parameters
 
 ## Development Notes
 
@@ -169,16 +192,20 @@ python3 test_feature_data_flow.py
 
 ### Dependencies
 - ROS2 Humble
-- OpenCV (cv2)
+- OpenCV (cv2) 
 - NumPy
 - openpyxl (for Excel file handling)
-- scipy, lap (for ByteTracker)
+- scipy, lap (for ByteTracker algorithm)
 - pyserial (for hardware communication)
 - websockets (for WebSocket communication)
+- Pillow (PIL) for image processing
+- asyncio for asynchronous operations
+- RKNN runtime for neural network inference
 
 ### Testing
 - All test scripts are in the root directory with `test_*.py` naming
 - Use `colcon test --packages-select <package_name>` for unit tests
+- Individual component tests in `src/following_robot/scripts/` directory
 - Debug mode available via `debug_setup.sh`
 
 ## Hardware Integration
@@ -214,3 +241,43 @@ python3 test_feature_data_flow.py
 - Adjust image quality and frame rate for bandwidth
 - Configure tracking mode (single vs multi) based on use case
 - Tune robot control parameters for specific hardware
+
+## Environment Variables
+
+Quick start scripts support these environment variables:
+```bash
+# WebSocket configuration
+export WEBSOCKET_HOST="192.168.1.100"
+
+# RFID configuration
+export ENABLE_RFID="true"
+export RFID_READER_IP="192.168.0.178"
+export RFID_AUTO_START="false"
+
+# Robot hardware configuration
+export USE_ACKERMANN="false"
+export SERIAL_PORT="/dev/ttyS7"
+export ROBOT_ID="companion_robot_001"
+```
+
+## Development Best Practices
+
+### Architecture Overview
+The system follows a modular ROS2 architecture with clear separation of concerns:
+- **Vision Pipeline**: Camera → Detection → Tracking → Feature Extraction
+- **Control Pipeline**: Tracking Results → Motion Planning → Hardware Commands
+- **Communication**: All data flows through WebSocket bridge for external monitoring
+- **RFID Integration**: Independent tag monitoring with status reporting
+
+### Key Design Patterns
+- **Service-oriented**: Feature extraction and distance measurement as services
+- **Publisher-subscriber**: Real-time data flow via topics
+- **Configuration-driven**: Extensive YAML parameter configuration
+- **Fault-tolerant**: Respawn and retry mechanisms for robustness
+
+### Adding New Components
+1. Create node in `src/following_robot/following_robot/`
+2. Add entry point in `setup.py`
+3. Update `package.xml` dependencies
+4. Add launch configuration in `launch/full_system.launch.py`
+5. Add configuration parameters to appropriate YAML files

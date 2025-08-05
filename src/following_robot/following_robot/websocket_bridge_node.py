@@ -1394,9 +1394,8 @@ class WebSocketBridgeNode(Node):
 
     def delayed_rfid_service_check(self):
         """延迟启动RFID服务检查"""
-        # self.get_logger().info('🔍 开始检查RFID服务状态...')
-        # self.check_rfid_service_timer = self.create_timer(2.0, self.check_rfid_service)
-        pass
+        self.get_logger().info('🔍 开始检查RFID服务状态...')
+        self.check_rfid_service_timer = self.create_timer(2.0, self.check_rfid_service)
 
     def setup_timers(self):
         """设置定时器"""
