@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "../../../../../rknn_yolo11_ros2"
+		},
+		{
+			"path": "../../../../../cnpu"
+		},
+		{
+			"path": "../../.."
+		},
+		{
+			"path": "../../../../../ros2_astra_camera"
+		}
+	],
+	"settings": {}
+}

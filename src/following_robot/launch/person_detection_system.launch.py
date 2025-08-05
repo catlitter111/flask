@@ -78,7 +78,7 @@ def generate_launch_description():
     # 声明基础控制参数
     max_linear_speed_arg = DeclareLaunchArgument(
         'max_linear_speed',
-        default_value='0.6',
+        default_value='0.8',
         description='Maximum linear speed (m/s)'
     )
     
