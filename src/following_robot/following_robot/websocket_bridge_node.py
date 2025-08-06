@@ -1068,13 +1068,13 @@ class WebSocketBridgeNode(Node):
     def handle_rfid_command(self, command, params):
         """处理RFID控制命令"""
         try:
-            if not self.rfid_available:
-                self.get_logger().error('❌ RFID功能不可用')
-                return False
+            # if not self.rfid_available:
+            #     self.get_logger().error('❌ RFID功能不可用')
+            #     return False
                 
-            if not self.rfid_service_available:
-                self.get_logger().error('❌ RFID服务不可用')
-                return False
+            # if not self.rfid_service_available:
+            #     self.get_logger().error('❌ RFID服务不可用')
+            #     return False
             
             # 构建RFID服务请求
             request = RfidCommand.Request()

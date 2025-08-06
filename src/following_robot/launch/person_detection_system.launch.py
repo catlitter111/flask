@@ -265,7 +265,7 @@ def generate_launch_description():
     # RFID相关参数
     enable_rfid_arg = DeclareLaunchArgument(
         'enable_rfid',
-        default_value='false',
+        default_value='true',
         description='Enable RFID reader functionality'
     )
     
