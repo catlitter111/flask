@@ -45,6 +45,8 @@ setup(
             'bytetracker_node = following_robot.bytetracker_node:main',
             'websocket_bridge_node = following_robot.websocket_bridge_node:main',
             'person_detection_distance_node = following_robot.person_detection_distance_node:main',
+            'video_udp_node = following_robot.video_udp_node:main',
+
         ],
     },
 )

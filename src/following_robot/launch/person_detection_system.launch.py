@@ -2,9 +2,12 @@
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition
+from ament_index_python.packages import get_package_share_directory
+import os
 
 def generate_launch_description():
     """
@@ -12,6 +15,9 @@ def generate_launch_description():
     包含相机节点、YOLO11检测节点、深度服务节点和人体检测节点
     增强功能：动态速度调节、PID控制、分段速度控制
     """
+    
+    # 获取包的路径
+    astra_distance_pkg = get_package_share_directory('astra_distance')
     
     # 声明基础launch参数
     camera_name_arg = DeclareLaunchArgument(
@@ -48,6 +54,49 @@ def generate_launch_description():
         'dlrobot_port',
         default_value='/dev/ttyACM0',
         description='DLRobot serial port'
+    )
+    
+    # 相机相关参数
+    depth_registration_arg = DeclareLaunchArgument(
+        'depth_registration',
+        default_value='false',
+        description='Hardware depth registration'
+    )
+    
+    enable_depth_arg = DeclareLaunchArgument(
+        'enable_depth',
+        default_value='true',
+        description='Enable depth stream'
+    )
+    
+    enable_color_arg = DeclareLaunchArgument(
+        'enable_color',
+        default_value='true',
+        description='Enable color stream'
+    )
+    
+    depth_width_arg = DeclareLaunchArgument(
+        'depth_width',
+        default_value='640',
+        description='Depth image width'
+    )
+    
+    depth_height_arg = DeclareLaunchArgument(
+        'depth_height',
+        default_value='480',
+        description='Depth image height'
+    )
+    
+    color_width_arg = DeclareLaunchArgument(
+        'color_width',
+        default_value='640',
+        description='Color image width'
+    )
+    
+    color_height_arg = DeclareLaunchArgument(
+        'color_height',
+        default_value='480',
+        description='Color image height'
     )
     
     # YOLO11检测节点相关参数
@@ -281,6 +330,69 @@ def generate_launch_description():
         description='Auto start RFID inventory on node startup'
     )
     
+    # Video UDP节点相关参数
+    use_video_udp_arg = DeclareLaunchArgument(
+        'use_video_udp',
+        default_value='true',
+        description='Whether to launch video UDP streaming node'
+    )
+    
+    tcp_host_arg = DeclareLaunchArgument(
+        'tcp_host',
+        default_value='192.168.137.1',
+        description='TCP host for video streaming'
+    )
+    
+    tcp_port_arg = DeclareLaunchArgument(
+        'tcp_port',
+        default_value='5005',
+        description='TCP port for video streaming'
+    )
+    
+
+    
+    video_min_conf_arg = DeclareLaunchArgument(
+        'video_min_conf',
+        default_value='0.3',
+        description='Minimum confidence threshold for bounding boxes'
+    )
+    
+    video_min_size_arg = DeclareLaunchArgument(
+        'video_min_size',
+        default_value='10',
+        description='Minimum size threshold for bounding boxes'
+    )
+    
+    video_ignore_tid0_arg = DeclareLaunchArgument(
+        'video_ignore_tid0',
+        default_value='false',
+        description='Ignore bounding boxes with track_id 0 or None'
+    )
+    
+    video_drop_zero_box_arg = DeclareLaunchArgument(
+        'video_drop_zero_box',
+        default_value='true',
+        description='Drop bounding boxes with all zero coordinates'
+    )
+    
+    video_enable_display_arg = DeclareLaunchArgument(
+        'video_enable_display',
+        default_value='true',
+        description='Enable video display window'
+    )
+    
+    video_jpeg_quality_arg = DeclareLaunchArgument(
+        'video_jpeg_quality',
+        default_value='80',
+        description='JPEG compression quality (1-100)'
+    )
+    
+    video_max_packet_size_arg = DeclareLaunchArgument(
+        'video_max_packet_size',
+        default_value='60000',
+        description='Maximum packet size for video transmission'
+    )
+    
     # 获取launch配置
     camera_name = LaunchConfiguration('camera_name')
     use_astra_camera = LaunchConfiguration('use_astra_camera')
@@ -288,6 +400,15 @@ def generate_launch_description():
     use_depth_service = LaunchConfiguration('use_depth_service')
     use_dlrobot_driver = LaunchConfiguration('use_dlrobot_driver')
     dlrobot_port = LaunchConfiguration('dlrobot_port')
+    
+    # 获取相机参数配置
+    depth_registration = LaunchConfiguration('depth_registration')
+    enable_depth = LaunchConfiguration('enable_depth')
+    enable_color = LaunchConfiguration('enable_color')
+    depth_width = LaunchConfiguration('depth_width')
+    depth_height = LaunchConfiguration('depth_height')
+    color_width = LaunchConfiguration('color_width')
+    color_height = LaunchConfiguration('color_height')
     
     # 获取YOLO11参数配置
     yolo11_model_path = LaunchConfiguration('yolo11_model_path')
@@ -344,96 +465,34 @@ def generate_launch_description():
     rfid_reader_ip = LaunchConfiguration('rfid_reader_ip')
     rfid_auto_start = LaunchConfiguration('rfid_auto_start')
     
-    # Astra相机节点
-    astra_camera_node = Node(
-        package='astra_camera',
-        executable='astra_camera_node',
-        name='astra_camera_node',
-        namespace=camera_name,
-        output='screen',
-        parameters=[{
+    # 获取Video TCP参数配置
+    use_video_udp = LaunchConfiguration('use_video_udp')
+    tcp_host = LaunchConfiguration('tcp_host')
+    tcp_port = LaunchConfiguration('tcp_port')
+    video_min_conf = LaunchConfiguration('video_min_conf')
+    video_min_size = LaunchConfiguration('video_min_size')
+    video_ignore_tid0 = LaunchConfiguration('video_ignore_tid0')
+    video_drop_zero_box = LaunchConfiguration('video_drop_zero_box')
+    video_enable_display = LaunchConfiguration('video_enable_display')
+    video_jpeg_quality = LaunchConfiguration('video_jpeg_quality')
+    video_max_packet_size = LaunchConfiguration('video_max_packet_size')
+    
+    # 包含astra_distance_system.launch.py文件
+    astra_distance_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            os.path.join(astra_distance_pkg, 'launch', 'astra_distance_system.launch.py')
+        ]),
+        launch_arguments={
             'camera_name': camera_name,
-            'serial_number': 'ACRD233006M',
-            'vendor_id': '0x2bc5',
-            'product_id': '0x050f',
-            'enable_depth': True,
-            'enable_color': True,
-            'enable_ir': False,
-            'enable_point_cloud': False,
-            'depth_width': 640,
-            'depth_height': 480,
-            'depth_fps': 30,
-            'color_width': 640,
-            'color_height': 480,
-            'color_fps': 30,
-            'use_uvc_camera': True,
-            'uvc_vendor_id': 0x2bc5,
-            'uvc_product_id': 0x050f,
-            'uvc_camera_format': 'mjpeg',
-            'publish_tf': True,
-            'tf_publish_rate': 10.0,
-            'connection_delay': 100,
-        }],
+            'depth_registration': depth_registration,
+            'enable_depth': enable_depth,
+            'enable_color': enable_color,
+            'depth_width': depth_width,
+            'depth_height': depth_height,
+            'color_width': color_width,
+            'color_height': color_height,
+        }.items(),
         condition=IfCondition(use_astra_camera)
-    )
-    
-    # RKNN YOLO11检测节点
-    rknn_yolo11_node = Node(
-        package='rknn_yolo11_ros2',
-        executable='rknn_yolo11_ros2_node',
-        name='rknn_yolo11_node',
-        output='screen',
-        parameters=[{
-            'model_path': yolo11_model_path,
-            'confidence_threshold': yolo11_confidence_threshold,
-            'nms_threshold': yolo11_nms_threshold,
-            'enable_debug_image': yolo11_enable_debug_image,
-            'use_sim_time': False,
-            # 性能优化参数
-            'queue_size': 1,  # 减少队列延迟
-            'use_intra_process_comms': True,  # 启用进程内通信优化
-        }],
-        remappings=[
-            ('/camera/image_raw', [camera_name, '/color/image_raw']),
-            ('/detections', '/detections'),
-            ('/debug_image', '/debug_image'),
-        ],
-        condition=IfCondition(use_rknn_yolo11)
-    )
-    
-    # 深度服务节点
-    depth_service_node = Node(
-        package='astra_depth_reader',
-        executable='depth_service',
-        name='depth_service_node',
-        output='screen',
-        remappings=[
-            ('/camera/color/image_raw', [camera_name, '/color/image_raw']),
-            ('/camera/depth/image_raw', [camera_name, '/depth/image_raw']),
-            ('/camera/depth/camera_info', [camera_name, '/depth/camera_info']),
-        ],
-        condition=IfCondition(use_depth_service)
-    )
-    
-    # 人体检测节点
-    person_detection_node = Node(
-        package='following_robot',
-        executable='person_detection_distance_node',
-        name='person_detection_distance_node',
-        output='screen',
-        remappings=[
-            ('/camera/color/image_raw', [camera_name, '/color/image_raw']),
-        ],
-        parameters=[
-            {'detection_fps': 30.0},  # 提高检测频率
-            {'distance_query_timeout': 2.0},
-            {'use_sim_time': False},
-            # 通信优化参数
-            {'min_image_interval': 0.033},  # 30 FPS
-            {'min_detection_interval': 0.025},  # 40 FPS
-            {'enable_performance_monitor': True},
-            {'message_pool_size': 10},
-        ]
     )
     
     # 机器人控制节点（增强版）
@@ -525,41 +584,27 @@ def generate_launch_description():
         condition=IfCondition(use_dlrobot_driver)
     )
     
-    # RFID读写器节点
-    rfid_reader_node = Node(
-        package='rfid_reader',
-        executable='rfid_reader_node.py',
-        name='rfid_reader_main',
+    # Video UDP节点
+    video_udp_node = Node(
+        package='following_robot',
+        executable='video_udp_node',
+        name='video_udp_node',
         output='screen',
-        parameters=[{
-            'reader_ip': rfid_reader_ip,
-            'reader_port': 4001,
-            'reader_address': 255,
-            'publish_rate': 2.0,
-            'auto_start': rfid_auto_start,
-            'antenna_id': 1,
-        }],
-        remappings=[
-            ('~/rfid_tags', '/rfid/tags'),
-            ('~/rfid_status', '/rfid/status'),
-            ('~/rfid_tag_detected', '/rfid/tag_detected'),
-            ('~/rfid_command', '/rfid/command'),
+        parameters=[
+            {'tcp_host': tcp_host},
+            {'tcp_port': tcp_port},
+            {'min_conf': video_min_conf},
+            {'min_size': video_min_size},
+            {'ignore_tid0': video_ignore_tid0},
+            {'drop_zero_box': video_drop_zero_box},
+            {'enable_display': video_enable_display},
+            {'jpeg_quality': video_jpeg_quality},
+            {'max_packet_size': video_max_packet_size},
         ],
-        condition=IfCondition(enable_rfid),
-        respawn=True,
-        respawn_delay=5.0,
-        emulate_tty=True,
+        condition=IfCondition(use_video_udp)
     )
     
-    # RViz2可视化节点（可选）
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        output='screen',
-        arguments=['-d', '/userdata/try_again/SelfFollowingROS2/src/following_robot/rviz/person_detection.rviz'],
-        condition=IfCondition('false')  # 默认不启动，可以通过参数控制
-    )
+    
     
     return LaunchDescription([
         # 基础参数
@@ -569,6 +614,15 @@ def generate_launch_description():
         use_depth_service_arg,
         use_dlrobot_driver_arg,
         dlrobot_port_arg,
+        
+        # 相机参数
+        depth_registration_arg,
+        enable_depth_arg,
+        enable_color_arg,
+        depth_width_arg,
+        depth_height_arg,
+        color_width_arg,
+        color_height_arg,
         
         # YOLO11检测节点参数
         yolo11_model_path_arg,
@@ -625,14 +679,23 @@ def generate_launch_description():
         rfid_reader_ip_arg,
         rfid_auto_start_arg,
         
-        # 节点
-        astra_camera_node,
-        rknn_yolo11_node,
-        depth_service_node,
-        person_detection_node,
+        # Video TCP参数
+        use_video_udp_arg,
+        tcp_host_arg,
+        tcp_port_arg,
+        video_min_conf_arg,
+        video_min_size_arg,
+        video_ignore_tid0_arg,
+        video_drop_zero_box_arg,
+        video_enable_display_arg,
+        video_jpeg_quality_arg,
+        video_max_packet_size_arg,
+        
+        # 节点和launch文件
+        astra_distance_launch,
         robot_control_node,
         websocket_bridge_node,
         dlrobot_driver_node,
-        rfid_reader_node,
-        rviz_node,
+        video_udp_node,
+       
     ])

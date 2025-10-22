@@ -25,7 +25,7 @@ from enum import Enum
 from collections import deque
 
 # ROS消息类型
-from geometry_msgs.msg import Twist, Point
+from geometry_msgs.msg import Twist, Point, PointStamped
 from ackermann_msgs.msg import AckermannDriveStamped
 from sensor_msgs.msg import Imu
 from nav_msgs.msg import Odometry
@@ -171,7 +171,7 @@ class DynamicSpeedController:
         else:
             profile = self.speed_profiles['optimal']
             
-        # 计算基础线速度
+        # 计算基础线速度0
         if zone == 'optimal':
             # 在最佳距离范围内，根据距离微调
             optimal_center = (self.distance_zones['optimal_near'] + self.distance_zones['optimal_far']) / 2
@@ -578,6 +578,11 @@ class RobotControlNode(Node):
         self.emergency_stop_sub = self.create_subscription(
             Bool, '/robot_control/emergency_stop',
             self.emergency_stop_callback, qos)
+        
+        # 带距离信息的点订阅（用于目标跟踪控制）
+        self.point_with_distance_sub = self.create_subscription(
+            PointStamped, '/point_with_distance',
+            self.point_with_distance_callback, qos)
 
     def setup_services(self):
         """设置服务客户端"""
@@ -970,6 +975,78 @@ class RobotControlNode(Node):
                 self.angle_pid.reset()
             self.get_logger().warn("🚨 紧急停止激活")
 
+    def point_with_distance_callback(self, msg):
+        """处理带距离信息的点数据回调"""
+        try:
+            # 提取数据：x, y为像素坐标，z为距离（米）
+            pixel_x = msg.point.x
+            pixel_y = msg.point.y
+            distance_m = msg.point.z
+            
+            # 更新检测时间
+            self.last_detection_time = time.time()
+            
+            # 仅在跟随模式下处理控制逻辑
+            if self.control_mode != ControlMode.FOLLOWING:
+                return
+            
+            # 安全检查
+            if self.emergency_stop or not self.following_enabled:
+                return
+                
+            # 距离有效性检查
+            if distance_m <= 0 or distance_m > 10.0:  # 距离范围检查
+                self.get_logger().debug(f"⚠️ 距离数据无效: {distance_m:.2f}m")
+                return
+            
+            # 计算角度误差（基于像素坐标）
+            # 假设图像中心为目标，计算偏移角度
+            image_center_x = 320.0  # 假设图像宽度为640，中心为320
+            pixel_offset = pixel_x - image_center_x
+            
+            # 将像素偏移转换为角度误差（简化计算）
+            # 假设相机水平视角约60度，图像宽度640像素
+            fov_horizontal = math.radians(60)  # 60度转弧度
+            image_width = 640.0
+            angle_error = (pixel_offset / image_width) * fov_horizontal
+            
+            # 处理跟随控制
+            self.process_point_following_control(distance_m, angle_error, pixel_x, pixel_y)
+            
+            self.get_logger().debug(
+                f"🎯 目标点控制: 像素({pixel_x:.1f}, {pixel_y:.1f}), "
+                f"距离={distance_m:.2f}m, 角度误差={math.degrees(angle_error):.1f}°"
+            )
+            
+        except Exception as e:
+            self.get_logger().error(f"❌ 处理点距离数据失败: {e}")
+
+    def process_point_following_control(self, distance, angle_error, pixel_x, pixel_y):
+        """处理基于点和距离的跟随控制逻辑"""
+        try:
+            # 使用现有的动态速度控制逻辑
+            if self.enable_dynamic_speed:
+                linear_vel, angular_vel = self.calculate_dynamic_speed(distance, angle_error)
+            else:
+                linear_vel, angular_vel = self.calculate_simple_speed(distance, angle_error)
+            
+            # 应用角速度方向修正
+            angular_vel = self.apply_angular_velocity_correction(angular_vel)
+            
+            # 发送速度命令
+            self.send_velocity_command(linear_vel, angular_vel)
+            
+            # 发布控制状态
+            self.publish_speed_control_status(distance, angle_error, linear_vel, angular_vel)
+            
+            self.get_logger().debug(
+                f"🚗 点跟随控制: 距离={distance:.2f}m, 角度={math.degrees(angle_error):.1f}°, "
+                f"线速度={linear_vel:.2f}m/s, 角速度={math.degrees(angular_vel):.1f}°/s"
+            )
+            
+        except Exception as e:
+            self.get_logger().error(f"❌ 点跟随控制处理失败: {e}")
+
     def set_control_mode(self, mode):
         """设置控制模式"""
         if mode != self.control_mode:
@@ -1247,4 +1324,4 @@ def main(args=None):
 
 
 if __name__ == '__main__':
-    main() 
+    main()
