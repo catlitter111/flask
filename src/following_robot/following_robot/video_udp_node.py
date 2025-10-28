@@ -264,6 +264,13 @@ class VideoTCPNode(Node):
             '/target_point',
             10
         )
+        
+        # 可视化图像发布器
+        self.visualization_publisher = self.create_publisher(
+            Image,
+            '/bytetracker/visualization',
+            10
+        )
     
     def start_threads(self):
         """启动后台线程"""
@@ -515,6 +522,20 @@ class VideoTCPNode(Node):
             
             try:
                 cv2.imshow('Tracking Result', frame)
+                
+                # 发布可视化图像到ROS2话题
+                try:
+                    # 将OpenCV图像转换为ROS2图像消息
+                    ros_image = self.bridge.cv2_to_imgmsg(frame, "bgr8")
+                    ros_image.header.stamp = self.get_clock().now().to_msg()
+                    ros_image.header.frame_id = "camera_color_optical_frame"
+                    
+                    # 发布可视化图像
+                    self.visualization_publisher.publish(ros_image)
+                    self.get_logger().debug("发布可视化图像到 /bytetracker/visualization")
+                except Exception as e:
+                    self.get_logger().error(f"发布可视化图像失败: {e}")
+                
                 if (cv2.waitKey(1) & 0xFF) == ord('q'):
                     self.get_logger().info("用户按下 'q' 键，退出显示")
                     break
