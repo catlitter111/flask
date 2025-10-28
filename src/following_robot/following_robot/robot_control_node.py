@@ -280,7 +280,7 @@ class RobotControlNode(Node):
         super().__init__('robot_control_node')
         
         # 控制参数
-        self.control_mode = ControlMode.STOP
+        self.control_mode = ControlMode.FOLLOWING
         self.target_person_name = ""
         self.following_enabled = False
         self.safety_enabled = True
@@ -352,15 +352,20 @@ class RobotControlNode(Node):
         self.setup_parameters()
         self.setup_controllers()
         self.setup_publishers()
+        # print("ready sub-------------------------------------")
         self.setup_subscribers()
         self.setup_services()
         self.setup_timers()
-        
+
+
+        self.point_with_distance_sub = self.create_subscription(
+            PointStamped, '/point_with_distance',
+            self.point_with_distance_callback, 10)
         self.get_logger().info("🚗 小车控制节点初始化完成")
-        self.get_logger().info(f"🎮 当前控制模式: {self.control_mode.value}")
-        self.get_logger().info(f"🎯 动态速度调节: {'启用' if self.enable_dynamic_speed else '禁用'}")
-        self.get_logger().info(f"🎛️ PID控制: {'启用' if self.enable_pid_control else '禁用'}")
-        self.get_logger().info("📐 运动控制配置: X轴(前进/后退) + Z轴(左转/右转), Y轴强制为0(差分驱动)")
+        # self.get_logger().info(f"🎮 当前控制模式: {self.control_mode.value}")
+        # self.get_logger().info(f"🎯 动态速度调节: {'启用' if self.enable_dynamic_speed else '禁用'}")
+        # self.get_logger().info(f"🎛️ PID控制: {'启用' if self.enable_pid_control else '禁用'}")
+        # self.get_logger().info("📐 运动控制配置: X轴(前进/后退) + Z轴(左转/右转), Y轴强制为0(差分驱动)")
 
     def setup_parameters(self):
         """设置参数"""
@@ -579,10 +584,12 @@ class RobotControlNode(Node):
             Bool, '/robot_control/emergency_stop',
             self.emergency_stop_callback, qos)
         
+        print("ready pixel-------------------------------------")
+
         # 带距离信息的点订阅（用于目标跟踪控制）
-        self.point_with_distance_sub = self.create_subscription(
-            PointStamped, '/point_with_distance',
-            self.point_with_distance_callback, qos)
+        # self.point_with_distance_sub = self.create_subscription(
+        #     PointStamped, '/point_with_distance',
+        #     self.point_with_distance_callback, 10)
 
     def setup_services(self):
         """设置服务客户端"""
@@ -979,6 +986,8 @@ class RobotControlNode(Node):
         """处理带距离信息的点数据回调"""
         try:
             # 提取数据：x, y为像素坐标，z为距离（米）
+
+            # self.get_logger().info("receive pixel")
             pixel_x = msg.point.x
             pixel_y = msg.point.y
             distance_m = msg.point.z
@@ -988,34 +997,33 @@ class RobotControlNode(Node):
             
             # 仅在跟随模式下处理控制逻辑
             if self.control_mode != ControlMode.FOLLOWING:
+                self.get_logger().info("manual")
                 return
+
+            image_width = 640
+            image_center_x = image_width / 2
+            horizontal_offset_pixels = pixel_x - image_center_x
             
-            # 安全检查
-            if self.emergency_stop or not self.following_enabled:
-                return
-                
-            # 距离有效性检查
-            if distance_m <= 0 or distance_m > 10.0:  # 距离范围检查
-                self.get_logger().debug(f"⚠️ 距离数据无效: {distance_m:.2f}m")
-                return
+            # 转换为角度（假设相机水平视场角60度）
+            camera_fov = 60.0  # 度
+            angle_x = horizontal_offset_pixels * (camera_fov / image_width) * (3.14159 / 180)  # 转换为弧度
             
-            # 计算角度误差（基于像素坐标）
-            # 假设图像中心为目标，计算偏移角度
-            image_center_x = 320.0  # 假设图像宽度为640，中心为320
-            pixel_offset = pixel_x - image_center_x
+           # 使用增强的动态速度控制
+            if self.enable_dynamic_speed:
+                linear_vel, angular_vel = self.calculate_dynamic_speed(distance_m, angle_x)
+            else:
+                # 使用原始简单控制逻辑
+                linear_vel, angular_vel = self.calculate_simple_speed(distance_m, angle_x)
             
-            # 将像素偏移转换为角度误差（简化计算）
-            # 假设相机水平视角约60度，图像宽度640像素
-            fov_horizontal = math.radians(60)  # 60度转弧度
-            image_width = 640.0
-            angle_error = (pixel_offset / image_width) * fov_horizontal
+            # 发送控制命令
+            self.send_velocity_command(linear_vel, angular_vel)
             
-            # 处理跟随控制
-            self.process_point_following_control(distance_m, angle_error, pixel_x, pixel_y)
+            # 发布速度控制状态
+            self.publish_speed_control_status(distance_m, angle_x, linear_vel, angular_vel)
             
             self.get_logger().debug(
-                f"🎯 目标点控制: 像素({pixel_x:.1f}, {pixel_y:.1f}), "
-                f"距离={distance_m:.2f}m, 角度误差={math.degrees(angle_error):.1f}°"
+                f"跟随控制: dist={distance_m:.2f}, angle={math.degrees(angle_x):.2f}, "
+                f"linear={linear_vel:.2f}, angular={math.degrees(angular_vel):.2f}"
             )
             
         except Exception as e:
@@ -1218,7 +1226,7 @@ class RobotControlNode(Node):
                 # 检查人体检测超时
                 if (time.time() - self.last_detection_time) > self.detection_timeout:
                     self.send_stop_command()
-                    self.get_logger().warn("人体检测超时，停止跟随")
+                    # self.get_logger().warn("人体检测超时，停止跟随")
             
             elif self.control_mode == ControlMode.STOP:
                 self.send_stop_command()
